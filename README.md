@@ -2,8 +2,9 @@
 A lightweight, cross-platform, modular and dependency free protocol library. Gracht is built upon an abstracted concept of links, which can be anything and hence allows gracht to work on any platform. The links that are provided by default are unix/windows-sockets and a native interface for the Vali OS IPC (which the library is originally built for). Gracht protcols are defined in the XML format, where we support different kinds of primitives:
  - Datatypes
  - Enums
- - Functions both with/without any response
- - Asynchronous Events with parameters
+ - Synchronous function calls
+ - Asynchronous function calls
+ - Asynchronous events with parameters
 
 The library itself supports different kind of ways to send/receive messages. This can be done individually or in bulk. Multiple messages can be invoked and awaited with a single call.
 
