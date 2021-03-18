@@ -64,11 +64,11 @@ struct gracht_server {
         { NULL, NULL },
         NULL,
         0,
-        -1,
+        AIO_HANDLE_INVALID,
         0,
         -1,
         -1,
-        MUTEX_INIT(mtx_plain),
+        { 0 },
         { 0 },
         { 0 }
 };
@@ -100,6 +100,7 @@ int gracht_server_initialize(gracht_server_configuration_t* configuration)
 
     // copy the callbacks
     memcpy(&g_grachtServer.callbacks, &configuration->callbacks, sizeof(struct gracht_server_callbacks));
+    mtx_init(&g_grachtServer.sync_object, mtx_plain);
     
     // create the io event set, for async io
     if (configuration->set_descriptor_provided) {
