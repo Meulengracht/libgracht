@@ -29,6 +29,24 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(_WIN32)
+#define i_iobuf_t  WSABUF
+#define i_iobuf_set_buf(iobuf, buf) (iobuf)->buf = buf;
+#define i_iobuf_set_len(iobuf, len) (iobuf)->len = len;
+#define i_msghdr_t WSAMSG
+#define I_MSGHDR_INIT { .name = NULL, .name_len = 0, .lpBuffers = NULL, .dwBufferCount = 0, .Control = NULL, .dwFlags = 0 }
+#define i_msghdr_set_addr(msg, addr, len)   (msg)->name = (addr); (msg)->name_len = (len)
+#define i_msghdr_set_bufs(msg, iobufs, cnt) (msg)->lpBuffers = (iobufs); (msg)->dwBufferCount = (cnt)
+#else
+#define i_iobuf_t  struct iovec
+#define i_iobuf_set_buf(iobuf, buf) (iobuf)->iov_base = (buf);
+#define i_iobuf_set_len(iobuf, len) (iobuf)->iov_len = (len);
+#define i_msghdr_t struct msghdr
+#define I_MSGHDR_INIT { .msg_name = NULL, .msg_namelen = 0, .msg_iov = NULL, .msg_iovlen = 0, .msg_control = NULL, .msg_controllen = 0, .msg_flags = 0 }
+#define i_msghdr_set_addr(msg, addr, len)   (msg)->msg_name = (addr); (msg)->msg_namelen = (len)
+#define i_msghdr_set_bufs(msg, iobufs, cnt) (msg)->msg_iov = (iobufs); (msg)->msg_iovlen = (cnt)
+#endif
+
 struct socket_link_manager {
     struct client_link_ops             ops;
     struct socket_client_configuration config;
@@ -38,36 +56,31 @@ struct socket_link_manager {
 static int socket_link_send_stream(struct socket_link_manager* linkManager,
     struct gracht_message* message)
 {
-    struct iovec  iov[1 + message->header.param_in];
+    i_iobuf_t     iov[1 + message->header.param_in];
     int           i;
+    int           iovCount = 1;
     intmax_t      byteCount;
-    struct msghdr msg = {
-        .msg_name = NULL,
-        .msg_namelen = 0,
-        .msg_iov = &iov[0],
-        .msg_iovlen = 1,
-        .msg_control = NULL,
-        .msg_controllen = 0,
-        .msg_flags = 0
-    };
+    i_msghdr_t    msg = I_MSGHDR_INIT;
     
     // Prepare the header
-    iov[0].iov_base = message;
-    iov[0].iov_len  = sizeof(struct gracht_message) + (
-        (message->header.param_in + message->header.param_out) * sizeof(struct gracht_param));
+    i_iobuf_set_buf(&iov[0], message);
+    i_iobuf_set_len(&iov[0], sizeof(struct gracht_message) + (
+        (message->header.param_in + message->header.param_out) * sizeof(struct gracht_param)));
     
     // Prepare the parameters
     for (i = 0; i < message->header.param_in; i++) {
         if (message->params[i].type == GRACHT_PARAM_BUFFER) {
-            iov[msg.msg_iovlen].iov_len  = message->params[i].length;
-            iov[msg.msg_iovlen].iov_base = message->params[i].data.buffer;
-            msg.msg_iovlen++;
+            i_iobuf_set_buf(&iov[iovCount])  = message->params[i].length;
+            i_iobuf_set_len(&iov[iovCount]) = message->params[i].data.buffer;
+            iovCount++;
         }
         else if (message->params[i].type == GRACHT_PARAM_SHM) {
             // NO SUPPORT
             assert(0);
         }
     }
+    
+    i_msghdr_set_bufs(&iov[0], iovCount);
 
     byteCount = sendmsg(linkManager->iod, &msg, 0);
     if (byteCount != message->header.length) {
@@ -119,39 +132,34 @@ static int socket_link_recv_stream(struct socket_link_manager* linkManager,
 
 static int socket_link_send_packet(struct socket_link_manager* linkManager, struct gracht_message* message)
 {
-    struct iovec  iov[1 + message->header.param_in];
+    i_iobuf_t     iov[1 + message->header.param_in];
     int           i;
+    int           iovCount = 1;
     intmax_t      byteCount;
-    struct msghdr msg = {
-        .msg_name = NULL,
-        .msg_namelen = 0, /* client only: already connected on socket */
-        .msg_iov = &iov[0],
-        .msg_iovlen = 1,
-        .msg_control = NULL,
-        .msg_controllen = 0,
-        .msg_flags = 0
-    };
+    i_msghdr_t    msg = I_MSGHDR_INIT;
 
     TRACE("link_client: send message (%u, in %i, out %i)\n",
           message->header.length, message->header.param_in, message->header.param_out);
 
     // Prepare the header
-    iov[0].iov_base = message;
-    iov[0].iov_len  = sizeof(struct gracht_message) + (
-        (message->header.param_in + message->header.param_out) * sizeof(struct gracht_param));
+    i_iobuf_set_buf(&iov[0], message);
+    i_iobuf_set_len(&iov[0], sizeof(struct gracht_message) + (
+        (message->header.param_in + message->header.param_out) * sizeof(struct gracht_param)));
     
     // Prepare the parameters
     for (i = 0; i < message->header.param_in; i++) {
         if (message->params[i].type == GRACHT_PARAM_BUFFER) {
-            iov[msg.msg_iovlen].iov_len  = message->params[i].length;
-            iov[msg.msg_iovlen].iov_base = message->params[i].data.buffer;
-            msg.msg_iovlen++;
+            iov[iovCount].iov_len  = message->params[i].length;
+            iov[iovCount].iov_base = message->params[i].data.buffer;
+            iovCount++;
         }
         else if (message->params[i].type == GRACHT_PARAM_SHM) {
             // NO SUPPORT
             assert(0);
         }
     }
+    
+    i_msghdr_set_bufs(&iov[0], iovCount);
     
     byteCount = sendmsg(linkManager->iod, &msg, 0);
     if (byteCount != message->header.length) {
@@ -168,20 +176,14 @@ static int socket_link_recv_packet(struct socket_link_manager* linkManager,
     void* messageBuffer, unsigned int flags, struct gracht_message** messageOut)
 {
     struct gracht_message* message = (struct gracht_message*)((char*)messageBuffer + linkManager->config.address_length);
+    i_msghdr_t             msg = I_MSGHDR_INIT;
+    i_iobuf_t              iov[1];
     
-    struct iovec iov[1] = { 
-        { .iov_base = message, .iov_len = GRACHT_MAX_MESSAGE_SIZE }
-    };
+    i_iobuf_set_buf(&iov[0], message);
+    i_iobuf_set_len(&iov[0], GRACHT_MAX_MESSAGE_SIZE);
     
-    struct msghdr msg = {
-        .msg_name       = messageBuffer,
-        .msg_namelen    = linkManager->config.address_length,
-        .msg_iov        = &iov[0],
-        .msg_iovlen     = 1,
-        .msg_control    = NULL,
-        .msg_controllen = 0,
-        .msg_flags      = 0
-    };
+    i_msghdr_set_addr(messageBuffer, linkManager->config.address_length);
+    i_msghdr_set_bufs(&iov[0], 1);
     
     // Packets are atomic, either the full packet is there, or none is. So avoid
     // the use of MSG_WAITALL here.
