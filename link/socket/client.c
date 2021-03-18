@@ -31,15 +31,15 @@
 
 #if defined(_WIN32)
 #define i_iobuf_t  WSABUF
-#define i_iobuf_set_buf(iobuf, buf) (iobuf)->buf = buf;
+#define i_iobuf_set_buf(iobuf, base) (iobuf)->buf = base;
 #define i_iobuf_set_len(iobuf, len) (iobuf)->len = len;
 #define i_msghdr_t WSAMSG
-#define I_MSGHDR_INIT { .name = NULL, .name_len = 0, .lpBuffers = NULL, .dwBufferCount = 0, .Control = NULL, .dwFlags = 0 }
-#define i_msghdr_set_addr(msg, addr, len)   (msg)->name = (addr); (msg)->name_len = (len)
+#define I_MSGHDR_INIT { .name = NULL, .namelen = 0, .lpBuffers = NULL, .dwBufferCount = 0, .Control = { 0 }, .dwFlags = 0 }
+#define i_msghdr_set_addr(msg, addr, len)   (msg)->name = (addr); (msg)->namelen = (len)
 #define i_msghdr_set_bufs(msg, iobufs, cnt) (msg)->lpBuffers = (iobufs); (msg)->dwBufferCount = (cnt)
 #else
 #define i_iobuf_t  struct iovec
-#define i_iobuf_set_buf(iobuf, buf) (iobuf)->iov_base = (buf);
+#define i_iobuf_set_buf(iobuf, base) (iobuf)->iov_base = (base);
 #define i_iobuf_set_len(iobuf, len) (iobuf)->iov_len = (len);
 #define i_msghdr_t struct msghdr
 #define I_MSGHDR_INIT { .msg_name = NULL, .msg_namelen = 0, .msg_iov = NULL, .msg_iovlen = 0, .msg_control = NULL, .msg_controllen = 0, .msg_flags = 0 }
