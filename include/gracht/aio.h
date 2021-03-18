@@ -76,6 +76,55 @@ static int gracht_aio_add(int aio, int iod) {
 #define gracht_aio_event_iod(event)    (event)->data.fd
 #define gracht_aio_event_events(event) (event)->events
 
+#elif defined(_WIN32)
+#include <windows.h>
+
+typedef struct gracht_aio_win32_event {
+    unsigned int events;
+    unsigned int iod;
+} gracht_aio_event_t;
+#define GRACHT_AIO_EVENT_IN         0x1
+#define GRACHT_AIO_EVENT_DISCONNECT 0x2
+
+#define gracht_aio_create()            CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0);
+#define gracht_aio_destroy(aio)        CloseHandle(aio)
+#define gracht_aio_event_iod(event)    (event)->iod
+#define gracht_aio_event_events(event) (event)->events
+
+static int gracht_aio_add(aio_handle_t aio, unsigned int iod) {
+    HANDLE handle = CreateIoCompletionPort((HANDLE)iod, aio, iod, 0);
+    return handle == NULL ? -1 : 0;
+}
+
+static int gracht_aio_remove(aio_handle_t aio, unsigned int iod)
+{
+    // null op
+    (void)aio;
+    (void)iod;
+    return 0;
+}
+
+static int gracht_io_wait(aio_handle_t aio, gracht_aio_event_t* events, int count)
+{
+    OVERLAPPED* overlapped      = NULL;
+    DWORD       bytesTransfered = 0;
+    void*       context         = NULL;
+    BOOL        status          = GetQueuedCompletionStatus(aio,
+        &bytesTransfered, (LPDWORD)&context, &overlapped, INFINITE);
+    if (context == NULL) {
+        return -1;
+    }
+
+    events[0].iod = (unsigned int)(uintptr_t)context;
+    if (status == FALSE || (status == TRUE && bytesTransfered == 0)) {
+        events[0].events = GRACHT_AIO_EVENT_DISCONNECT;
+    }
+    else {
+        events[0].events = GRACHT_AIO_EVENT_IN;
+    }
+    return 1;
+}
+
 #else
 #error "Undefined platform for aio"
 #endif

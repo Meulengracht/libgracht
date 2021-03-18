@@ -29,7 +29,7 @@
 //#define __TRACE
 #include <ddk/utils.h>
 
-#elif defined(__linux__)
+#elif defined(__linux__) || defined(_WIN32)
 #include <stdio.h>
 
 #define TRACE(...)   printf(__VA_ARGS__)
@@ -37,7 +37,7 @@
 #define ERROR(...)   printf(__VA_ARGS__)
 
 #else
-#error "Undefined platform for aio"
+#error "Undefined platform for debug"
 #endif
 
-#endif // !__GRACHT_AIO_H__
+#endif // !__GRACHT_DEBUG_H__

@@ -40,6 +40,17 @@
 #error "Please define packed struct for the used compiler"
 #endif
 
+#if defined(_WIN32)
+typedef aio_handle_t HANDLE;
+#define AIO_HANDLE_INVALID NULL
+#elif defined(MOLLENOS)
+typedef aio_handle_t int;
+#define AIO_HANDLE_INVALID (int)-1
+#else
+typedef aio_handle_t int;
+#define AIO_HANDLE_INVALID (int)-1
+#endif
+
 #define MESSAGE_FLAG_TYPE(flags) (flags & 0x3)
 #define MESSAGE_FLAG_SYNC     0x00000000
 #define MESSAGE_FLAG_ASYNC    0x00000001

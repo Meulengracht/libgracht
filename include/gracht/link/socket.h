@@ -30,6 +30,9 @@
 #elif defined(__linux__)
 #include <unistd.h>
 #include <sys/socket.h>
+#elif defined(_WIN32)
+#include <winsock.h>         
+typedef int socklen_t;
 #else
 #error "Undefined platform for socket"
 #endif

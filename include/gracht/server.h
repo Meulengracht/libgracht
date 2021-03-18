@@ -45,7 +45,7 @@ typedef struct gracht_server_configuration {
     // Server configuration parameters, in this case the set descriptor (select/poll descriptor) to use
     // when the application wants control of the main loop and not use the gracht_server_main_loop function.
     // Then the application can manually call gracht_server_handle_event with the fd's that it does not handle.
-    int                            set_descriptor;
+    aio_handle_t                   set_descriptor;
     int                            set_descriptor_provided;
 } gracht_server_configuration_t;
 

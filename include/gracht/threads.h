@@ -48,6 +48,59 @@ typedef pthread_cond_t cnd_t;
 #define cnd_wait      pthread_cond_wait
 #define cnd_signal    pthread_cond_signal
 
+#elif defined(_WIN32)
+#include <windows.h>
+
+typedef CRITICAL_SECTION mtx_t;
+typedef CONDITION_VARIABLE cnd_t;
+
+#define thrd_success 0
+#define thrd_error   -1
+
+#define mtx_plain NULL
+
+static inline int mtx_init(mtx_t* mtx, void* unused) {
+    InitializeCriticalSection(mtx);
+    return thrd_success;
+}
+
+#define mtx_destroy DeleteCriticalSection
+
+static inline int mtx_trylock(mtx_t* mtx) {
+    BOOL status = TryEnterCriticalSection(mtx);
+    return status == TRUE ? thrd_success : thrd_error;
+}
+
+static inline int mtx_lock(mtx_t* mtx) {
+    BOOL status = EnterCriticalSection(mtx);
+    return status == TRUE ? thrd_success : thrd_error;
+}
+
+static inline int mtx_unlock(mtx_t* mtx) {
+    LeaveCriticalSection(*mtx);
+    return thrd_success;
+}
+
+static inline int cnd_init(cnd_t* cnd)
+{
+    InitializeConditionVariable(cnd);
+    return thrd_success;
+}
+
+#define cnd_destroy WakeAllConditionVariable
+
+static inline int cnd_signal(cnd_t* cnd)
+{
+    WakeConditionVariable(cnd);
+    return thrd_success;
+}
+
+static inline int cnd_wait(cnd_t* cnd, mtx_t* mtx)
+{
+    BOOL status = SleepConditionVariableCS(cnd, mtx, INFINITE);
+    return status == TRUE ? thrd_success : thrd_error;
+}
+
 #else
 #error "Undefined platform for threads"
 #endif

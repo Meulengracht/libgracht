@@ -52,7 +52,7 @@ struct gracht_server {
     struct gracht_server_callbacks callbacks;
     void*                          messageBuffer;
     int                            initialized;
-    int                            set_iod;
+    aio_handle_t                   set_iod;
     int                            set_iod_provided;
     int                            client_iod;
     int                            dgram_iod;
@@ -108,7 +108,7 @@ int gracht_server_initialize(gracht_server_configuration_t* configuration)
     }
     else {
         g_grachtServer.set_iod = gracht_aio_create();
-        if (g_grachtServer.set_iod < 0) {
+        if (g_grachtServer.set_iod == AIO_HANDLE_INVALID) {
             ERROR("gracht_server: failed to create aio handle\n");
             return -1;
         }
