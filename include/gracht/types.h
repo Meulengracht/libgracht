@@ -41,13 +41,13 @@
 #endif
 
 #if defined(_WIN32)
-typedef aio_handle_t HANDLE;
+typedef HANDLE aio_handle_t;
 #define AIO_HANDLE_INVALID NULL
 #elif defined(MOLLENOS)
-typedef aio_handle_t int;
+typedef int aio_handle_t
 #define AIO_HANDLE_INVALID (int)-1
 #else
-typedef aio_handle_t int;
+typedef int aio_handle_t;
 #define AIO_HANDLE_INVALID (int)-1
 #endif
 
