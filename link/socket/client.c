@@ -70,8 +70,8 @@ static int socket_link_send_stream(struct socket_link_manager* linkManager,
     // Prepare the parameters
     for (i = 0; i < message->header.param_in; i++) {
         if (message->params[i].type == GRACHT_PARAM_BUFFER) {
-            i_iobuf_set_buf(&iov[iovCount])  = message->params[i].length;
-            i_iobuf_set_len(&iov[iovCount]) = message->params[i].data.buffer;
+            i_iobuf_set_buf(&iov[iovCount], message->params[i].length);
+            i_iobuf_set_len(&iov[iovCount], message->params[i].data.buffer);
             iovCount++;
         }
         else if (message->params[i].type == GRACHT_PARAM_SHM) {
@@ -149,8 +149,8 @@ static int socket_link_send_packet(struct socket_link_manager* linkManager, stru
     // Prepare the parameters
     for (i = 0; i < message->header.param_in; i++) {
         if (message->params[i].type == GRACHT_PARAM_BUFFER) {
-            iov[iovCount].iov_len  = message->params[i].length;
-            iov[iovCount].iov_base = message->params[i].data.buffer;
+            i_iobuf_set_buf(&iov[iovCount], message->params[i].length);
+            i_iobuf_set_len(&iov[iovCount], message->params[i].data.buffer);
             iovCount++;
         }
         else if (message->params[i].type == GRACHT_PARAM_SHM) {
