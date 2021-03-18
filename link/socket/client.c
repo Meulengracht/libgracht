@@ -80,7 +80,7 @@ static int socket_link_send_stream(struct socket_link_manager* linkManager,
         }
     }
     
-    i_msghdr_set_bufs(&iov[0], iovCount);
+    i_msghdr_set_bufs(&msg, &iov[0], iovCount);
 
     byteCount = sendmsg(linkManager->iod, &msg, 0);
     if (byteCount != message->header.length) {
@@ -159,7 +159,7 @@ static int socket_link_send_packet(struct socket_link_manager* linkManager, stru
         }
     }
     
-    i_msghdr_set_bufs(&iov[0], iovCount);
+    i_msghdr_set_bufs(&msg, &iov[0], iovCount);
     
     byteCount = sendmsg(linkManager->iod, &msg, 0);
     if (byteCount != message->header.length) {
@@ -182,8 +182,8 @@ static int socket_link_recv_packet(struct socket_link_manager* linkManager,
     i_iobuf_set_buf(&iov[0], message);
     i_iobuf_set_len(&iov[0], GRACHT_MAX_MESSAGE_SIZE);
     
-    i_msghdr_set_addr(messageBuffer, linkManager->config.address_length);
-    i_msghdr_set_bufs(&iov[0], 1);
+    i_msghdr_set_addr(&msg, messageBuffer, linkManager->config.address_length);
+    i_msghdr_set_bufs(&msg, &iov[0], 1);
     
     // Packets are atomic, either the full packet is there, or none is. So avoid
     // the use of MSG_WAITALL here.
