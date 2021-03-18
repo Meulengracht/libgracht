@@ -31,7 +31,7 @@
 #include <unistd.h>
 #include <sys/socket.h>
 #elif defined(_WIN32)
-#include <winsock.h>         
+#include <winsock2.h>         
 typedef int socklen_t;
 #else
 #error "Undefined platform for socket"
