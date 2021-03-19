@@ -8,6 +8,17 @@ A lightweight, cross-platform, modular and dependency free protocol library. Gra
 
 The library itself supports different kind of ways to send/receive messages. This can be done individually or in bulk. Multiple messages can be invoked and awaited with a single call.
 
+Links are defined in include/gracht/links and are seperate objects that must be created before the client or server gets created/initialized. If you want to implement your own link interface you can take a look at the required functions under /include/gracht/link/link.h.
+
+Supported links:
+ - Socket
+
+Supported languages for code generation are:
+ - C
+
+Libraries the core library depends on:
+ - C11 threads or pthreads (linux only)
+
 ## Protocol Format
 
 ```
@@ -46,10 +57,34 @@ The library itself supports different kind of ways to send/receive messages. Thi
 </root>
 ```
 
-## Client Interface
+## Protocol generator
+The protocol generator is located in /generator/ folder and can be used to generate headers and implementation files. Three header files can be generated
+and two implementation files can be generated per protocol.
 
-TODO: Cleanup inteface
+The header files generated are:
+sys_utils_protocol.h
+sys_utils_protocol_server.h
+sys_utils_protocol_client.h
 
-## Server Inteface
+The source file generated is:
+sys_utils_protocol_server.c
+sys_utils_protocol_client.c
 
-TODO: Cleanup inteface
+In the header files are instructions for how to declare the protocols in your files and documentation for how to setup the protocol callbacks (if any).
+
+```
+usage: parser.py
+
+arguments:
+-h, --help           show this help message and exit
+--protocol PROTOCOL  The protocol that should be parsed
+--include INCLUDE    The protocols that should be generated from the file, comma-seperated list, default is all
+--out OUT            Protocol files output directory
+--client             Generate client side files
+--server             Generate server side files
+--lang-c             Generate c-style headers and implementation files
+```
+
+## Examples
+
+Examples for libgracht are located under tests/ directory and show minimal implementations for using the client and server in combination with the socket link.
