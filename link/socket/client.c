@@ -1,6 +1,4 @@
 /**
- * MollenOS
- *
  * Copyright 2019, Philip Meulengracht
  *
  * This program is free software : you can redistribute it and / or modify
@@ -31,8 +29,8 @@
 
 #if defined(_WIN32)
 #define i_iobuf_t  WSABUF
-#define i_iobuf_set_buf(iobuf, base) (iobuf)->buf = base;
-#define i_iobuf_set_len(iobuf, len) (iobuf)->len = len;
+#define i_iobuf_set_buf(iobuf, base) (iobuf)->buf = (char*)(base);
+#define i_iobuf_set_len(iobuf, _len) (iobuf)->len = (_len);
 #define i_msghdr_t WSAMSG
 #define I_MSGHDR_INIT { .name = NULL, .namelen = 0, .lpBuffers = NULL, .dwBufferCount = 0, .Control = { 0 }, .dwFlags = 0 }
 #define i_msghdr_set_addr(msg, addr, len)   (msg)->name = (addr); (msg)->namelen = (len)
