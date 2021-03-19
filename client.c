@@ -173,7 +173,7 @@ int gracht_client_status(gracht_client_t* client, struct gracht_message_context*
     char*                             pointer = NULL;
     int                               status;
     int                               i;
-    TRACE("[gracht] [client] get status from context\n");
+    GRTRACE("[gracht] [client] get status from context\n");
     
     if (!client || !context || !params) {
         errno = (EINVAL);
@@ -186,7 +186,7 @@ int gracht_client_status(gracht_client_t* client, struct gracht_message_context*
     if (!descriptor) {
         mtx_unlock(&client->sync_object);
 
-        ERROR("[gracht] [client] descriptor for message was not found\n");
+        GRERROR("[gracht] [client] descriptor for message was not found\n");
         errno = (EALREADY);
         return -1;
     }
@@ -200,7 +200,7 @@ int gracht_client_status(gracht_client_t* client, struct gracht_message_context*
 
     status = descriptor->status;
     if (pointer) {
-        TRACE("[gracht] [client] unpacking parameters\n");
+        GRTRACE("[gracht] [client] unpacking parameters\n");
         for (i = 0; i < descriptor->message.header.param_in; i++) {
             struct gracht_param* out_param = &params[i];
             struct gracht_param* in_param  = &descriptor->message.params[i];
@@ -274,7 +274,7 @@ int gracht_client_wait_message(
     }
     
     // if the message is not an event, then do not invoke any actions
-    TRACE("[gracht] [client] invoking message type %u - %u/%u",
+    GRTRACE("[gracht] [client] invoking message type %u - %u/%u",
         message->header.flags, message->header.protocol, message->header.action);
     if (MESSAGE_FLAG_TYPE(message->header.flags) == MESSAGE_FLAG_EVENT) {
         return client_invoke_action(&client->protocols, message);
@@ -284,7 +284,7 @@ int gracht_client_wait_message(
             gracht_list_lookup(&client->messages, (int)message->header.id);
         if (!descriptor) {
             // what the heck?
-            ERROR("[gracht_client_wait_message] descriptor %u was not found", message->header.id);
+            GRERROR("[gracht_client_wait_message] descriptor %u was not found", message->header.id);
             return -1;
         }
         
@@ -307,14 +307,14 @@ int gracht_client_create(gracht_client_configuration_t* config, gracht_client_t*
     gracht_client_t* client;
     
     if (!config || !config->link || !clientOut) {
-        ERROR("[gracht] [client] config or config link was null");
+        GRERROR("[gracht] [client] config or config link was null");
         errno = EINVAL;
         return -1;
     }
     
     client = (gracht_client_t*)malloc(sizeof(gracht_client_t));
     if (!client) {
-        ERROR("gracht_client: failed to allocate memory for client data\n");
+        GRERROR("gracht_client: failed to allocate memory for client data\n");
         errno = (ENOMEM);
         return -1;
     }
@@ -326,7 +326,7 @@ int gracht_client_create(gracht_client_configuration_t* config, gracht_client_t*
     client->ops = config->link;
     client->iod = client->ops->connect(client->ops);
     if (client->iod < 0) {
-        ERROR("gracht_client: failed to connect client\n");
+        GRERROR("gracht_client: failed to connect client\n");
         gracht_client_shutdown(client);
         return -1;
     }
@@ -335,11 +335,10 @@ int gracht_client_create(gracht_client_configuration_t* config, gracht_client_t*
     return 0;
 }
 
-int gracht_client_shutdown(gracht_client_t* client)
+void gracht_client_shutdown(gracht_client_t* client)
 {
     if (!client) {
-        errno = (EINVAL);
-        return -1;
+        return;
     }
     
     if (client->iod > 0) {
@@ -349,7 +348,6 @@ int gracht_client_shutdown(gracht_client_t* client)
     mtx_destroy(&client->sync_object);
     mtx_destroy(&client->wait_object);
     free(client);
-    return 0;
 }
 
 int gracht_client_iod(gracht_client_t* client)
@@ -372,15 +370,13 @@ int gracht_client_register_protocol(gracht_client_t* client, gracht_protocol_t* 
     return 0;
 }
 
-int gracht_client_unregister_protocol(gracht_client_t* client, gracht_protocol_t* protocol)
+void gracht_client_unregister_protocol(gracht_client_t* client, gracht_protocol_t* protocol)
 {
     if (!client || !protocol) {
-        errno = (EINVAL);
-        return -1;
+        return;
     }
     
     gracht_list_remove(&client->protocols, &protocol->header);
-    return 0;
 }
 
 static void mark_awaiters(gracht_client_t* client, uint32_t messageId)

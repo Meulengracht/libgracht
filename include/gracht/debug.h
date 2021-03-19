@@ -1,5 +1,4 @@
-/* MollenOS
- *
+/**
  * Copyright 2019, Philip Meulengracht
  *
  * This program is free software : you can redistribute it and / or modify
@@ -25,17 +24,17 @@
 #define __GRACHT_DEBUG_H__
 
 #if defined(MOLLENOS)
-
 //#define __TRACE
 #include <ddk/utils.h>
 
+#define GRTRACE   TRACE
+#define GRWARNING WARNING
+#define GRERROR   ERROR
 #elif defined(__linux__) || defined(_WIN32)
 #include <stdio.h>
-
-#define TRACE(...)   printf(__VA_ARGS__)
-#define WARNING(...) printf(__VA_ARGS__)
-#define ERROR(...)   printf(__VA_ARGS__)
-
+#define GRTRACE(...)   printf(__VA_ARGS__)
+#define GRWARNING(...) printf(__VA_ARGS__)
+#define GRERROR(...)   printf(__VA_ARGS__)
 #else
 #error "Undefined platform for debug"
 #endif

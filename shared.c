@@ -1,6 +1,4 @@
 /**
- * MollenOS
- *
  * Copyright 2019, Philip Meulengracht
  *
  * This program is free software : you can redistribute it and / or modify
@@ -43,7 +41,7 @@ static gracht_protocol_function_t* get_protocol_action(struct gracht_list* proto
         gracht_list_lookup(protocols, (int)(uint32_t)protocol_id);
     
     if (!protocol) {
-        ERROR("[get_protocol_action] protocol %u was not implemented", protocol_id);
+        GRERROR("[get_protocol_action] protocol %u was not implemented", protocol_id);
         errno = ENOTSUP;
         return NULL;
     }
@@ -54,7 +52,7 @@ static gracht_protocol_function_t* get_protocol_action(struct gracht_list* proto
         }
     }
 
-    ERROR("[get_protocol_action] action %u was not implemented", action_id);
+    GRERROR("[get_protocol_action] action %u was not implemented", action_id);
     errno = ENOTSUP;
     return NULL;
 }
@@ -67,7 +65,7 @@ static void unpack_parameters(struct gracht_param* params, uint8_t count, void* 
 
     for (i = 0; i < count; i++) {
         if (params[i].type == GRACHT_PARAM_VALUE) {
-            TRACE("push value: %u\n", (uint32_t)(params[i].data.value & 0xFFFFFFFF));
+            GRTRACE("push value: %u\n", (uint32_t)(params[i].data.value & 0xFFFFFFFF));
             if (params[i].length == 1) {
                 unpackBuffer[unpackIndex] = (uint8_t)(params[i].data.value & 0xFF);
             }
@@ -85,7 +83,7 @@ static void unpack_parameters(struct gracht_param* params, uint8_t count, void* 
             unpackIndex += params[i].length;
         }
         else if (params[i].type == GRACHT_PARAM_BUFFER) {
-            TRACE("push pointer: 0x%p %u\n", pointer, params[i].length);
+            GRTRACE("push pointer: 0x%p %u\n", pointer, params[i].length);
             if (params[i].length == 0) {
                 *((char**)&unpackBuffer[unpackIndex]) = NULL;
             }
@@ -115,7 +113,7 @@ int server_invoke_action(struct gracht_list* protocols, struct gracht_recv_messa
     param_storage = ((char*)recvMessage->params +
         (recvMessage->param_count * sizeof(struct gracht_param)));
     
-    TRACE("offset: %lu, param count %i\n",
+    GRTRACE("offset: %lu, param count %i\n",
         recvMessage->param_count * sizeof(struct gracht_param), recvMessage->param_count);
     if (recvMessage->param_in) {
         uint8_t unpackBuffer[recvMessage->param_in * sizeof(void*)];
@@ -144,7 +142,7 @@ int client_invoke_action(struct gracht_list* protocols, struct gracht_message* m
             (message->header.param_in * sizeof(struct gracht_param));
     
     // parse parameters into a parameter struct
-    TRACE("offset: %lu, param count %i\n", param_count * sizeof(struct gracht_param), param_count);
+    GRTRACE("offset: %lu, param count %i\n", param_count * sizeof(struct gracht_param), param_count);
     if (param_count) {
         uint8_t unpackBuffer[param_count * sizeof(void*)];
         unpack_parameters(&message->params[0], message->header.param_in, param_storage, &unpackBuffer[0]);

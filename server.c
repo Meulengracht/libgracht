@@ -110,7 +110,7 @@ int gracht_server_initialize(gracht_server_configuration_t* configuration)
     else {
         g_grachtServer.set_iod = gracht_aio_create();
         if (g_grachtServer.set_iod == AIO_HANDLE_INVALID) {
-            ERROR("gracht_server: failed to create aio handle\n");
+            GRERROR("gracht_server: failed to create aio handle\n");
             return -1;
         }
     }
@@ -138,7 +138,7 @@ int gracht_server_initialize(gracht_server_configuration_t* configuration)
     }
 
     if (g_grachtServer.client_iod < 0 && g_grachtServer.dgram_iod < 0) {
-        ERROR("gracht_server_initialize: neither of client and dgram links were supported");
+        GRERROR("gracht_server_initialize: neither of client and dgram links were supported");
         return -1;
     }
     
@@ -152,7 +152,7 @@ static int handle_client_socket(void)
 
     int status = g_grachtServer.ops->accept(g_grachtServer.ops, &client);
     if (status) {
-        ERROR("gracht_server: failed to accept client\n");
+        GRERROR("gracht_server: failed to accept client\n");
         return status;
     }
     
@@ -170,13 +170,13 @@ static int handle_sync_event(void* storage)
 {
     struct gracht_recv_message message = { .storage = storage };
     int                        status;
-    TRACE("[handle_sync_event]");
+    GRTRACE("[handle_sync_event]");
     
     while (1) {
         status = g_grachtServer.ops->recv_packet(g_grachtServer.ops, &message, MSG_DONTWAIT);
         if (status) {
             if (errno != ENODATA) {
-                ERROR("[handle_sync_event] server_object.ops->recv_packet returned %i\n", errno);
+                GRERROR("[handle_sync_event] server_object.ops->recv_packet returned %i\n", errno);
             }
             break;
         }
@@ -192,7 +192,7 @@ static int handle_async_event(int iod, uint32_t events, void* storage)
     struct gracht_recv_message   message = { .storage = storage };
     struct gracht_server_client* client = 
         (struct gracht_server_client*)gracht_list_lookup(&g_grachtServer.clients, iod);
-    TRACE("[handle_async_event] %i, 0x%x\n", iod, events);
+    GRTRACE("[handle_async_event] %i, 0x%x\n", iod, events);
     
     // Check for control event. On non-passive sockets, control event is the
     // disconnect event.
@@ -209,14 +209,14 @@ static int handle_async_event(int iod, uint32_t events, void* storage)
             status = g_grachtServer.ops->recv_client(client, &message, MSG_DONTWAIT);
             if (status) {
                 if (errno != ENODATA) {
-                    ERROR("[handle_async_event] server_object.ops->recv_client returned %i\n", errno);
+                    GRERROR("[handle_async_event] server_object.ops->recv_client returned %i\n", errno);
                 }
                 break;
             }
 
             status = server_invoke_action(&g_grachtServer.protocols, &message);
             if (status) {
-                WARNING("[handle_async_event] failed to invoke server action\n");
+                GRWARNING("[handle_async_event] failed to invoke server action\n");
             }
         }
     }
@@ -274,15 +274,15 @@ int gracht_server_main_loop(void)
     gracht_aio_event_t events[32];
     int                i;
 
-    TRACE("gracht_server: started... [%i, %i]\n", g_grachtServer.client_iod, g_grachtServer.dgram_iod);
+    GRTRACE("gracht_server: started... [%i, %i]\n", g_grachtServer.client_iod, g_grachtServer.dgram_iod);
     while (g_grachtServer.initialized) {
         int num_events = gracht_io_wait(g_grachtServer.set_iod, &events[0], 32);
-        TRACE("gracht_server: %i events received!\n", num_events);
+        GRTRACE("gracht_server: %i events received!\n", num_events);
         for (i = 0; i < num_events; i++) {
             int      iod   = gracht_aio_event_iod(&events[i]);
             uint32_t flags = gracht_aio_event_events(&events[i]);
 
-            TRACE("gracht_server: event %u from %i\n", flags, iod);
+            GRTRACE("gracht_server: event %u from %i\n", flags, iod);
             gracht_server_handle_event(iod, flags);
         }
     }
@@ -295,7 +295,7 @@ int gracht_server_respond(struct gracht_recv_message* messageContext, struct gra
     struct gracht_server_client* client;
 
     if (!messageContext || !message) {
-        ERROR("gracht_server: null message or context");
+        GRERROR("gracht_server: null message or context");
         errno = (EINVAL);
         return -1;
     }
@@ -349,15 +349,13 @@ int gracht_server_register_protocol(gracht_protocol_t* protocol)
     return 0;
 }
 
-int gracht_server_unregister_protocol(gracht_protocol_t* protocol)
+void gracht_server_unregister_protocol(gracht_protocol_t* protocol)
 {
     if (!protocol) {
-        errno = (EINVAL);
-        return -1;
+        return;
     }
     
     gracht_list_remove(&g_grachtServer.protocols, &protocol->header);
-    return 0;
 }
 
 int gracht_server_get_dgram_iod(void)
@@ -365,7 +363,7 @@ int gracht_server_get_dgram_iod(void)
     return g_grachtServer.dgram_iod;
 }
 
-int gracht_server_get_set_iod(void)
+aio_handle_t gracht_server_get_set_iod(void)
 {
     return g_grachtServer.set_iod;
 }
@@ -424,7 +422,7 @@ void gracht_control_subscribe_callback(struct gracht_recv_message* message, stru
         (struct gracht_server_client*)gracht_list_lookup(&g_grachtServer.clients, message->client);
     if (!client) {
         if (g_grachtServer.ops->create_client(g_grachtServer.ops, message, &client)) {
-            ERROR("[gracht_control_subscribe_callback] server_object.ops->create_client returned error");
+            GRERROR("[gracht_control_subscribe_callback] server_object.ops->create_client returned error");
             return;
         }
         gracht_list_append(&g_grachtServer.clients, &client->header);

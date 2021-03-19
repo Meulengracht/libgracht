@@ -1,4 +1,5 @@
-/* MollenOS
+/**
+ * MollenOS
  *
  * Copyright 2019, Philip Meulengracht
  *
@@ -57,10 +58,10 @@ int gracht_os_thread_set_name(const char*);
 int gracht_link_vali_server_create(struct server_link_ops**, struct ipmsg_addr*);
 
 /**
- * gracht_vali_message_defer_response
- * * Used to store all neccessary data to delay a response to a message that was received.
- * * The space allocated for the vali_link_deferred_response must be 
- * * sizeof(vali_link_deferred_response) + VALI_MSG_DEFER_SIZE.
+ * Used to store all neccessary data to delay a response to a message that was received.
+ * The space allocated for the vali_link_deferred_response must be 
+ * sizeof(vali_link_deferred_response) + VALI_MSG_DEFER_SIZE.
+ * 
  * @param deferredResponse Storage that can fit all message details.
  * @param message          Message that was received.
  */

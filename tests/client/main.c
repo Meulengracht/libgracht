@@ -72,5 +72,6 @@ int main(int argc, char **argv)
     test_utils_print_result(client, &context, &status);
     
     printf("gracht_client: recieved status %i\n", status);
-    return gracht_client_shutdown(client);
+    gracht_client_shutdown(client);
+    return 0;
 }
