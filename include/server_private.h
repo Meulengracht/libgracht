@@ -30,9 +30,23 @@ struct gracht_server;
 struct gracht_arena;
 struct gracht_worker_pool;
 
-// server callbacks
+// Callback prototype
 typedef void (*server_invoke00_t)(struct gracht_recv_message*);
 typedef void (*server_invokeA0_t)(struct gracht_recv_message*, void*);
+
+//Represents a received message on the server.
+struct gracht_recv_message {
+    struct gracht_object_header header;
+    void* params;
+    
+    int      client;
+    uint32_t message_id;
+    uint8_t  param_in;
+    uint8_t  param_count;
+    uint8_t  protocol;
+    uint8_t  action;
+    uint8_t  payload[1];
+};
 
 /**
  * Defined in arena.c

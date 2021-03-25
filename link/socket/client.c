@@ -27,23 +27,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#if defined(_WIN32)
-#define i_iobuf_t  WSABUF
-#define i_iobuf_set_buf(iobuf, base) (iobuf)->buf = (char*)(base);
-#define i_iobuf_set_len(iobuf, _len) (iobuf)->len = (_len);
-#define i_msghdr_t WSAMSG
-#define I_MSGHDR_INIT { .name = NULL, .namelen = 0, .lpBuffers = NULL, .dwBufferCount = 0, .Control = { 0 }, .dwFlags = 0 }
-#define i_msghdr_set_addr(msg, addr, len)   (msg)->name = (addr); (msg)->namelen = (len)
-#define i_msghdr_set_bufs(msg, iobufs, cnt) (msg)->lpBuffers = (iobufs); (msg)->dwBufferCount = (cnt)
-#else
-#define i_iobuf_t  struct iovec
-#define i_iobuf_set_buf(iobuf, base) (iobuf)->iov_base = (base);
-#define i_iobuf_set_len(iobuf, len) (iobuf)->iov_len = (len);
-#define i_msghdr_t struct msghdr
-#define I_MSGHDR_INIT { .msg_name = NULL, .msg_namelen = 0, .msg_iov = NULL, .msg_iovlen = 0, .msg_control = NULL, .msg_controllen = 0, .msg_flags = 0 }
-#define i_msghdr_set_addr(msg, addr, len)   (msg)->msg_name = (addr); (msg)->msg_namelen = (len)
-#define i_msghdr_set_bufs(msg, iobufs, cnt) (msg)->msg_iov = (iobufs); (msg)->msg_iovlen = (cnt)
-#endif
+#include "socket_os.h"
 
 struct socket_link_manager {
     struct client_link_ops             ops;
@@ -54,7 +38,7 @@ struct socket_link_manager {
 static int socket_link_send_stream(struct socket_link_manager* linkManager,
     struct gracht_message* message)
 {
-    i_iobuf_t     iov[1 + message->header.param_in];
+    i_iobuf_t*    iov = alloca(sizeof(i_iobuf_t) * (1 + message->header.param_in));
     int           i;
     int           iovCount = 1;
     intmax_t      byteCount;
@@ -130,7 +114,7 @@ static int socket_link_recv_stream(struct socket_link_manager* linkManager,
 
 static int socket_link_send_packet(struct socket_link_manager* linkManager, struct gracht_message* message)
 {
-    i_iobuf_t     iov[1 + message->header.param_in];
+    i_iobuf_t*    iov = alloca(sizeof(i_iobuf_t) * (1 + message->header.param_in));
     int           i;
     int           iovCount = 1;
     intmax_t      byteCount;

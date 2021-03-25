@@ -253,6 +253,8 @@ static void dispatch_st(struct gracht_server* server, struct gracht_recv_message
 
 static void dispatch_mt(struct gracht_server* server, struct gracht_recv_message* message)
 {
+    // todo we need the message size to shrink the allocation before dispatching
+    // gracht_arena_free(server->arena, message, MISSING);
     gracht_worker_pool_dispatch(server->worker_pool, message);
 }
 
@@ -367,7 +369,7 @@ int server_invoke_action(struct gracht_server* server, struct gracht_recv_messag
         recvMessage->param_count);
     
     if (recvMessage->param_in) {
-        uint8_t* unpackBuffer = alloca(recvMessage->param_in * sizeof(void*));
+        uint8_t* unpackBuffer = alloca(recvMessage->param_in * sizeof(void*)); // security risk
         unpack_parameters(recvMessage->params, recvMessage->param_in, param_storage, &unpackBuffer[0]);
         ((server_invokeA0_t)function->address)(recvMessage, &unpackBuffer[0]);
     }

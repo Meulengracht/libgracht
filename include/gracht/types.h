@@ -103,18 +103,7 @@ struct gracht_message {
     struct gracht_param          params[];
 };
 
-struct gracht_recv_message {
-    struct gracht_object_header header;
-    void* params;
-    
-    int      client;
-    uint32_t message_id;
-    uint8_t  param_in;
-    uint8_t  param_count;
-    uint8_t  protocol;
-    uint8_t  action;
-    uint8_t  payload[1];
-};
+struct gracht_recv_message;
 
 struct gracht_message_context {
     uint32_t message_id;

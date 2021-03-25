@@ -26,6 +26,7 @@
 #include "../include/gracht/link/socket.h"
 #include "../include/debug.h"
 #include "../include/crc.h"
+#include "../include/server_private.h"
 #include <stdlib.h>
 #include <string.h>
 
