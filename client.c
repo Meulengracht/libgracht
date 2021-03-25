@@ -274,7 +274,7 @@ int gracht_client_wait_message(
     }
     
     // if the message is not an event, then do not invoke any actions
-    GRTRACE("[gracht] [client] invoking message type %u - %u/%u",
+    GRTRACE("[gracht] [client] invoking message type %u - %u/%u\n",
         message->header.flags, message->header.protocol, message->header.action);
     if (MESSAGE_FLAG_TYPE(message->header.flags) == MESSAGE_FLAG_EVENT) {
         return client_invoke_action(&client->protocols, message);

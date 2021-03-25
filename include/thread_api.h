@@ -73,12 +73,12 @@ static inline int mtx_trylock(mtx_t* mtx) {
 }
 
 static inline int mtx_lock(mtx_t* mtx) {
-    BOOL status = EnterCriticalSection(mtx);
-    return status == TRUE ? thrd_success : thrd_error;
+    EnterCriticalSection(mtx);
+    return thrd_success;
 }
 
 static inline int mtx_unlock(mtx_t* mtx) {
-    LeaveCriticalSection(*mtx);
+    LeaveCriticalSection(mtx);
     return thrd_success;
 }
 
