@@ -100,7 +100,7 @@ static inline void create_header(void* memory, size_t size)
     header->flags = 0;
 }
 
-static inline void move_header(struct gracht_header* header, ssize_t byteCount)
+static inline void move_header(struct gracht_header* header, long byteCount)
 {
     void* target = ((char*)header + byteCount);
     memmove(target, header, HEADER_SIZE);
@@ -156,7 +156,7 @@ void* gracht_arena_allocate(struct gracht_arena* arena, void* allocation, size_t
             // we are able to safely extend the current allocation
             header->length += size;
             nextHeader->length -= size;
-            move_header(nextHeader, size);
+            move_header(nextHeader, (long)size);
             return &header->payload[0];
         }
     }
@@ -208,7 +208,7 @@ void gracht_arena_free(struct gracht_arena* arena, void* memory, size_t size)
         if (!nextHeader->allocated) {
             // header is not allocated, we add the size to it and move it
             nextHeader->length += size;
-            move_header(nextHeader, -size);
+            move_header(nextHeader, -((long)size));
         }
         else {
             // it was allocated, we must create a new header with the size that was freed
