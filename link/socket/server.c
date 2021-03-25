@@ -30,6 +30,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "socket_os.h"
+
 struct socket_link_client {
     struct gracht_server_client base;
     struct sockaddr_storage     address;
@@ -46,36 +48,31 @@ struct socket_link_manager {
 static int socket_link_send_client(struct socket_link_client* client,
     struct gracht_message* message, unsigned int flags)
 {
-    struct iovec  iov[1 + message->header.param_in];
+    i_iobuf_t*    iov = alloca(sizeof(i_iobuf_t) * (1 + message->header.param_in));
     int           i;
+    int           iovCount = 1;
     intmax_t      bytesWritten;
-    struct msghdr msg = {
-        .msg_name = NULL,
-        .msg_namelen = 0,
-        .msg_iov = &iov[0],
-        .msg_iovlen = 1,
-        .msg_control = NULL,
-        .msg_controllen = 0,
-        .msg_flags = 0
-    };
+    i_msghdr_t    msg = I_MSGHDR_INIT;
     
     // Prepare the header
-    iov[0].iov_base = message;
-    iov[0].iov_len  = sizeof(struct gracht_message) + (
-        (message->header.param_in + message->header.param_out) * sizeof(struct gracht_param));
+    i_iobuf_set_buf(&iov[0], message);
+    i_iobuf_set_len(&iov[0], sizeof(struct gracht_message) + (
+        (message->header.param_in + message->header.param_out) * sizeof(struct gracht_param)));
     
     // Prepare the parameters
     for (i = 0; i < message->header.param_in; i++) {
         if (message->params[i].type == GRACHT_PARAM_BUFFER) {
-            iov[msg.msg_iovlen].iov_len  = message->params[i].length;
-            iov[msg.msg_iovlen].iov_base = message->params[i].data.buffer;
-            msg.msg_iovlen++;
+            i_iobuf_set_buf(&iov[iovCount], message->params[i].data.buffer);
+            i_iobuf_set_len(&iov[iovCount], message->params[i].length);
+            iovCount++;
         }
         else if (message->params[i].type == GRACHT_PARAM_SHM) {
             // NO SUPPORT
             assert(0);
         }
     }
+
+    i_msghdr_set_bufs(&msg, &iov[0], iovCount);
 
     GRTRACE("[socket_link_send] sending message\n");
     bytesWritten = sendmsg(client->base.iod, &msg, 0);
@@ -252,22 +249,14 @@ static int socket_link_recv_packet(struct socket_link_manager* linkManager,
     struct gracht_message* message        = (struct gracht_message*)&context->payload[linkManager->config.dgram_address_length];
     void*                  params_storage = NULL;
     uint32_t               addressCrc;
+    i_iobuf_t              iov[1];
+    i_msghdr_t             msg = I_MSGHDR_INIT;
 
-    struct iovec iov[1] = { {
-            .iov_base = message,
-            .iov_len  = (size_t)(GRACHT_MAX_MESSAGE_SIZE - linkManager->config.dgram_address_length)
-        }
-    };
-    
-    struct msghdr msg = {
-        .msg_name       = &context->payload[0],
-        .msg_namelen    = linkManager->config.dgram_address_length,
-        .msg_iov        = &iov[0],
-        .msg_iovlen     = 1,
-        .msg_control    = NULL,
-        .msg_controllen = 0,
-        .msg_flags      = 0
-    };
+    i_iobuf_set_buf(&iov[0], message);
+    i_iobuf_set_len(&iov[0], (size_t)(GRACHT_MAX_MESSAGE_SIZE - linkManager->config.dgram_address_length));
+
+    i_msghdr_set_addr(&msg, &context->payload[0], linkManager->config.dgram_address_length);
+    i_msghdr_set_bufs(&msg, &iov[0], 1);
     
     // Packets are atomic, either the full packet is there, or none is. So avoid
     // the use of MSG_WAITALL here.
@@ -279,11 +268,11 @@ static int socket_link_recv_packet(struct socket_link_manager* linkManager,
         return -1;
     }
 
-    addressCrc = crc32_generate((const unsigned char*)msg.msg_name, (size_t)msg.msg_namelen);
+    addressCrc = crc32_generate((const unsigned char*)i_msghdr_addr_name(&msg), (size_t)i_msghdr_addr_len(&msg));
     GRTRACE("[gracht_connection_recv_stream] read [%u/%u] addr bytes, %p\n",
-            msg.msg_namelen, linkManager->config.dgram_address_length,
-            msg.msg_name);
-    GRTRACE("[gracht_connection_recv_stream] read %lu bytes, %u\n", bytes_read, msg.msg_flags);
+            i_msghdr_addr_len(&msg), linkManager->config.dgram_address_length,
+            i_msghdr_addr_name(&msg));
+    GRTRACE("[gracht_connection_recv_stream] read %lu bytes, %u\n", bytes_read, i_msghdr_flags(&msg));
     GRTRACE("[gracht_connection_recv_stream] parameter offset %lu\n", (uintptr_t)&message->params[0] - (uintptr_t)message);
     if (message->header.param_in) {
         params_storage = &message->params[0];
@@ -303,30 +292,23 @@ static int socket_link_recv_packet(struct socket_link_manager* linkManager,
 static int socket_link_respond(struct socket_link_manager* linkManager,
     struct gracht_recv_message* messageContext, struct gracht_message* message)
 {
-    struct iovec  iov[1 + message->header.param_in];
+    i_iobuf_t*    iov = alloca(sizeof(i_iobuf_t) * (1 + message->header.param_in));
     int           i;
+    int           iovCount = 1;
     intmax_t      bytesWritten;
-    struct msghdr msg = {
-        .msg_name = &messageContext->payload[0],
-        .msg_namelen = linkManager->config.dgram_address_length,
-        .msg_iov = &iov[0],
-        .msg_iovlen = 1,
-        .msg_control = NULL,
-        .msg_controllen = 0,
-        .msg_flags = 0
-    };
+    i_msghdr_t    msg = I_MSGHDR_INIT;
 
     // Prepare the header
-    iov[0].iov_base = message;
-    iov[0].iov_len  = sizeof(struct gracht_message) + (
-        (message->header.param_in + message->header.param_out) * sizeof(struct gracht_param));
+    i_iobuf_set_buf(&iov[0], message);
+    i_iobuf_set_len(&iov[0], sizeof(struct gracht_message) + (
+        (message->header.param_in + message->header.param_out) * sizeof(struct gracht_param)));
     
     // Prepare the parameters
     for (i = 0; i < message->header.param_in; i++) {
         if (message->params[i].type == GRACHT_PARAM_BUFFER) {
-            iov[msg.msg_iovlen].iov_len  = message->params[i].length;
-            iov[msg.msg_iovlen].iov_base = message->params[i].data.buffer;
-            msg.msg_iovlen++;
+            i_iobuf_set_buf(&iov[iovCount], message->params[i].data.buffer);
+            i_iobuf_set_len(&iov[iovCount], message->params[i].length);
+            iovCount++;
         }
         else if (message->params[i].type == GRACHT_PARAM_SHM) {
             // NO SUPPORT
@@ -334,6 +316,9 @@ static int socket_link_respond(struct socket_link_manager* linkManager,
         }
     }
     
+    i_msghdr_set_addr(&msg, &messageContext->payload[0], linkManager->config.dgram_address_length);
+    i_msghdr_set_bufs(&msg, &iov[0], iovCount);
+
     bytesWritten = sendmsg(linkManager->dgram_socket, &msg, MSG_WAITALL);
     if (bytesWritten != message->header.length) {
         GRERROR("link_server: failed to respond [%li/%i]\n", bytesWritten, message->header.length);
