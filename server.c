@@ -52,6 +52,7 @@ struct gracht_server {
     struct gracht_worker_pool*     worker_pool;
     void                          (*dispatch)(struct gracht_server*, struct gracht_recv_message*);
     struct gracht_recv_message*   (*get_message)(struct gracht_server*);
+    size_t                         allocationSize;
     void*                          messageBuffer;
     int                            initialized;
     aio_handle_t                   set_iod;
@@ -68,6 +69,7 @@ struct gracht_server {
         NULL,
         NULL,
         NULL,
+        0,
         NULL,
         0,
         AIO_HANDLE_INVALID,
@@ -159,9 +161,13 @@ static int configure_server(struct gracht_server* server, gracht_server_configur
         server->dispatch = dispatch_st;
     }
 
+    // configure the allocation size, we use the max message size and add
+    // 512 bytes for context data
+    server->allocationSize = configuration->max_message_size + 512;
+
     // handle the max message size override, otherwise we default to our default value.
     if (configuration->server_workers > 1) {
-        arenaSize = configuration->server_workers * configuration->max_message_size * 32;
+        arenaSize = configuration->server_workers * server->allocationSize * 32;
         status    = gracht_arena_create(arenaSize, &server->arena);
         if (status) {
             GRERROR("configure_server: failed to create the memory pool");
@@ -170,13 +176,14 @@ static int configure_server(struct gracht_server* server, gracht_server_configur
         server->get_message = get_message_mt;
     }
     else {
-        server->messageBuffer = malloc(configuration->max_message_size);
+        server->messageBuffer = malloc(server->allocationSize);
         if (!server->messageBuffer) {
             GRERROR("configure_server: failed to allocate memory for messages");
             return -1;
         }
         server->get_message = get_message_st;
     }
+
     return 0;
 }
 
@@ -251,7 +258,7 @@ static void dispatch_mt(struct gracht_server* server, struct gracht_recv_message
 
 static struct gracht_recv_message* get_message_mt(struct gracht_server* server)
 {
-    return (struct gracht_recv_message*)gracht_arena_allocate(server->arena, NULL, 0);
+    return (struct gracht_recv_message*)gracht_arena_allocate(server->arena, NULL, server->allocationSize);
 }
 
 static int handle_sync_event(struct gracht_server* server)
