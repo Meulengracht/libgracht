@@ -71,7 +71,7 @@ static int vali_link_create_client(struct vali_link_manager* linkManager, struct
         return -1;
     }
 
-    clientHandle = ((struct ipmsg*)message->storage)->sender;
+    clientHandle = ((struct ipmsg*)&message->payload[0])->sender;
     client       = (struct vali_link_client*)malloc(sizeof(struct vali_link_client));
     if (!client) {
         errno = (ENOMEM);
@@ -121,7 +121,7 @@ static int vali_link_accept(struct vali_link_manager* linkManager, struct gracht
 
 static int vali_link_recv_packet(struct vali_link_manager* linkManager, struct gracht_recv_message* context)
 {
-    struct ipmsg* message = (struct ipmsg*)context->storage;
+    struct ipmsg* message = (struct ipmsg*)&context->payload[0];
     int           status;
     
     status = getmsg(linkManager->iod, message, GRACHT_MAX_MESSAGE_SIZE, IPMSG_DONTWAIT);
@@ -143,7 +143,7 @@ static int vali_link_recv_packet(struct vali_link_manager* linkManager, struct g
 static int vali_link_respond(struct vali_link_manager* linkManager,
     struct gracht_recv_message* messageContext, struct gracht_message* message)
 {
-    struct ipmsg* recvmsg = (struct ipmsg*)messageContext->storage;
+    struct ipmsg* recvmsg = (struct ipmsg*)&messageContext->payload[0];
     struct ipmsg_addr ipaddr = {
             .type = IPMSG_ADDRESS_HANDLE,
             .data.handle = recvmsg->sender
@@ -153,7 +153,7 @@ static int vali_link_respond(struct vali_link_manager* linkManager,
             .address = &ipaddr,
             .base    = message
     };
-    return resp(linkManager->iod, messageContext->storage, &ipmsg);
+    return resp(linkManager->iod, &messageContext->payload[0], &ipmsg);
 }
 
 static void vali_link_destroy(struct vali_link_manager* linkManager)

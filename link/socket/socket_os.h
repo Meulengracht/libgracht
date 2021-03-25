@@ -25,6 +25,7 @@
 
 #if defined(_WIN32)
 #include <io.h>
+#include <malloc.h>
 #define i_iobuf_t  WSABUF
 #define i_iobuf_set_buf(iobuf, base) (iobuf)->buf = (char*)(base);
 #define i_iobuf_set_len(iobuf, _len) (iobuf)->len = (_len);
@@ -33,8 +34,13 @@
 #define i_msghdr_set_addr(msg, addr, len)   (msg)->name = (addr); (msg)->namelen = (len)
 #define i_msghdr_set_bufs(msg, iobufs, cnt) (msg)->lpBuffers = (iobufs); (msg)->dwBufferCount = (cnt)
 #define close _close
+#define alloca _alloca
 
-static inline int sendmsg(int fd, const WSABUF* message, int flags) {
+#define AF_LOCAL AF_INET
+
+#define MSG_DONTWAIT 0x10000
+
+static inline int sendmsg(int fd, const WSAMSG* message, int flags) {
     /*int WSAAPI WSASendMsg(
   SOCKET                             Handle,
   LPWSAMSG                           lpMsg,
@@ -46,7 +52,7 @@ static inline int sendmsg(int fd, const WSABUF* message, int flags) {
     return -1;
 }
 
-static inline ssize_t recvmsg(int fd, WSABUF* message, int flags) {
+static inline long recvmsg(int fd, WSABUF* message, int flags) {
     return -1;
 }
 #else
