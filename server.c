@@ -1,6 +1,4 @@
 /**
- * MollenOS
- *
  * Copyright 2019, Philip Meulengracht
  *
  * This program is free software : you can redistribute it and / or modify
@@ -23,11 +21,13 @@
  */
 
 #include <errno.h>
-#include "include/gracht/aio.h"
-#include "include/gracht/debug.h"
-#include "include/gracht/list.h"
+#include "include/aio.h"
+#include "include/debug.h"
+#include "include/list.h"
 #include "include/gracht/server.h"
 #include "include/gracht/link/link.h"
+#include "include/utils.h"
+#include "include/server_private.h"
 #include <stdlib.h>
 #include <string.h>
 #include <threads.h>
@@ -45,11 +45,13 @@ static gracht_protocol_function_t control_functions[2] = {
 };
 static gracht_protocol_t control_protocol = GRACHT_PROTOCOL_INIT(0, "gctrl", 2, control_functions);
 
-extern int server_invoke_action(struct gracht_list*, struct gracht_recv_message*);
-
 struct gracht_server {
     struct server_link_ops*        ops;
     struct gracht_server_callbacks callbacks;
+    struct gracht_arena*           arena;
+    struct gracht_worker_pool*     worker_pool;
+    void                          (*dispatch)(struct gracht_server*, struct gracht_recv_message*);
+    struct gracht_recv_message*   (*get_message)(struct gracht_server*);
     void*                          messageBuffer;
     int                            initialized;
     aio_handle_t                   set_iod;
@@ -62,6 +64,10 @@ struct gracht_server {
 } g_grachtServer = {
         NULL,
         { NULL, NULL },
+        NULL,
+        NULL,
+        NULL,
+        NULL,
         NULL,
         0,
         AIO_HANDLE_INVALID,
@@ -78,8 +84,17 @@ static void client_subscribe(struct gracht_server_client*, uint8_t);
 static void client_unsubscribe(struct gracht_server_client*, uint8_t);
 static int  client_is_subscribed(struct gracht_server_client*, uint8_t);
 
+static struct gracht_recv_message* get_message_st(struct gracht_server*);
+static struct gracht_recv_message* get_message_mt(struct gracht_server*);
+static void                        dispatch_st(struct gracht_server*, struct gracht_recv_message*);
+static void                        dispatch_mt(struct gracht_server*, struct gracht_recv_message*);
+
+static int configure_server(struct gracht_server*, gracht_server_configuration_t*);
+static int create_links(struct gracht_server*);
+
 int gracht_server_initialize(gracht_server_configuration_t* configuration)
 {
+    int status;
     if (g_grachtServer.initialized) {
         errno = EALREADY;
         return -1;
@@ -90,123 +105,196 @@ int gracht_server_initialize(gracht_server_configuration_t* configuration)
         return -1;
     }
 
-    g_grachtServer.initialized   = 1;
-    g_grachtServer.ops           = configuration->link;
-    g_grachtServer.messageBuffer = malloc(GRACHT_MAX_MESSAGE_SIZE);
-    if (!g_grachtServer.messageBuffer) {
-        errno = ENOMEM;
+    mtx_init(&g_grachtServer.sync_object, mtx_plain);
+    status = configure_server(&g_grachtServer, configuration);
+    if (status) {
+        GRERROR("gracht_server_initialize: invalid configuration provided\n");
         return -1;
     }
 
-    // copy the callbacks
-    memcpy(&g_grachtServer.callbacks, &configuration->callbacks, sizeof(struct gracht_server_callbacks));
-    mtx_init(&g_grachtServer.sync_object, mtx_plain);
-    
-    // create the io event set, for async io
+    status = create_links(&g_grachtServer);
+    if (status) {
+        GRERROR("gracht_server_initialize: failed to initialize underlying links\n");
+        return -1;
+    }
+
+    gracht_server_register_protocol(&control_protocol);
+    g_grachtServer.initialized = 1;
+    return 0;
+}
+
+static int configure_server(struct gracht_server* server, gracht_server_configuration_t* configuration)
+{
+    size_t arenaSize;
+    int    status;
+
+    // set the configuration params that are just transfer
+    server->ops = configuration->link;
+    memcpy(&server->callbacks, &configuration->callbacks, sizeof(struct gracht_server_callbacks));
+
+    // handle the aio descriptor
     if (configuration->set_descriptor_provided) {
-        g_grachtServer.set_iod          = configuration->set_descriptor;
-        g_grachtServer.set_iod_provided = 1;
+        server->set_iod          = configuration->set_descriptor;
+        server->set_iod_provided = 1;
     }
     else {
-        g_grachtServer.set_iod = gracht_aio_create();
-        if (g_grachtServer.set_iod == AIO_HANDLE_INVALID) {
+        server->set_iod = gracht_aio_create();
+        if (server->set_iod == AIO_HANDLE_INVALID) {
             GRERROR("gracht_server: failed to create aio handle\n");
             return -1;
         }
     }
-    
-    // try to create the listening link. We do support that one of the links
-    // are not supported by the link operations.
-    g_grachtServer.client_iod = g_grachtServer.ops->listen(g_grachtServer.ops, LINK_LISTEN_SOCKET);
-    if (g_grachtServer.client_iod < 0) {
-        if (errno != ENOTSUP) {
+
+    // handle the worker count, if the worker count is not provided we do not use
+    // the dispatcher, but instead handle single-threaded.
+    if (configuration->server_workers > 1) {
+        status = gracht_worker_pool_create(server, configuration->server_workers, &server->worker_pool);
+        if (status) {
+            GRERROR("configure_server: failed to create the worker pool");
             return -1;
         }
+        server->dispatch = dispatch_mt;
     }
     else {
-        gracht_aio_add(g_grachtServer.set_iod, g_grachtServer.client_iod);
+        server->dispatch = dispatch_st;
     }
 
-    g_grachtServer.dgram_iod = g_grachtServer.ops->listen(g_grachtServer.ops, LINK_LISTEN_DGRAM);
-    if (g_grachtServer.dgram_iod < 0) {
-        if (errno != ENOTSUP) {
+    // handle the max message size override, otherwise we default to our default value.
+    if (configuration->server_workers > 1) {
+        arenaSize = configuration->server_workers * configuration->max_message_size * 32;
+        status    = gracht_arena_create(arenaSize, &server->arena);
+        if (status) {
+            GRERROR("configure_server: failed to create the memory pool");
             return -1;
         }
+        server->get_message = get_message_mt;
     }
     else {
-        gracht_aio_add(g_grachtServer.set_iod, g_grachtServer.dgram_iod);
+        server->messageBuffer = malloc(configuration->max_message_size);
+        if (!server->messageBuffer) {
+            GRERROR("configure_server: failed to allocate memory for messages");
+            return -1;
+        }
+        server->get_message = get_message_st;
     }
-
-    if (g_grachtServer.client_iod < 0 && g_grachtServer.dgram_iod < 0) {
-        GRERROR("gracht_server_initialize: neither of client and dgram links were supported");
-        return -1;
-    }
-    
-    gracht_server_register_protocol(&control_protocol);
     return 0;
 }
 
-static int handle_client_socket(void)
+static int create_links(struct gracht_server* server)
+{
+    // try to create the listening link. We do support that one of the links
+    // are not supported by the link operations.
+    server->client_iod = server->ops->listen(server->ops, LINK_LISTEN_SOCKET);
+    if (server->client_iod < 0) {
+        if (errno != ENOTSUP) {
+            return -1;
+        }
+    }
+    else {
+        gracht_aio_add(server->set_iod, server->client_iod);
+    }
+
+    server->dgram_iod = server->ops->listen(server->ops, LINK_LISTEN_DGRAM);
+    if (server->dgram_iod < 0) {
+        if (errno != ENOTSUP) {
+            return -1;
+        }
+    }
+    else {
+        gracht_aio_add(server->set_iod, server->dgram_iod);
+    }
+
+    if (server->client_iod < 0 && server->dgram_iod < 0) {
+        GRERROR("create_links: neither of client and dgram links were supported");
+        return -1;
+    }
+    return 0;
+}
+
+static int handle_client_socket(struct gracht_server* server)
 {
     struct gracht_server_client* client;
 
-    int status = g_grachtServer.ops->accept(g_grachtServer.ops, &client);
+    int status = server->ops->accept(server->ops, &client);
     if (status) {
         GRERROR("gracht_server: failed to accept client\n");
         return status;
     }
     
-    gracht_list_append(&g_grachtServer.clients, &client->header);
-    gracht_aio_add(g_grachtServer.set_iod, client->iod);
+    gracht_list_append(&server->clients, &client->header);
+    gracht_aio_add(server->set_iod, client->iod);
 
     // invoke the new client callback at last
-    if (g_grachtServer.callbacks.clientConnected) {
-        g_grachtServer.callbacks.clientConnected(client->iod);
+    if (server->callbacks.clientConnected) {
+        server->callbacks.clientConnected(client->iod);
     }
     return 0;
 }
 
-static int handle_sync_event(void* storage)
+static struct gracht_recv_message* get_message_st(struct gracht_server* server)
 {
-    struct gracht_recv_message message = { .storage = storage };
-    int                        status;
+    return (struct gracht_recv_message*)server->messageBuffer;
+}
+
+static void dispatch_st(struct gracht_server* server, struct gracht_recv_message* message)
+{
+    int status = server_invoke_action(server, message);
+    if (status) {
+        GRWARNING("[dispatch_st] failed to invoke server action\n");
+    }
+}
+
+static void dispatch_mt(struct gracht_server* server, struct gracht_recv_message* message)
+{
+    gracht_worker_pool_dispatch(server->worker_pool, message);
+}
+
+static struct gracht_recv_message* get_message_mt(struct gracht_server* server)
+{
+    return (struct gracht_recv_message*)gracht_arena_allocate(server->arena, NULL, 0);
+}
+
+static int handle_sync_event(struct gracht_server* server)
+{
+    struct gracht_recv_message* message = server->get_message(server);
+    int                         status;
     GRTRACE("[handle_sync_event]");
     
     while (1) {
-        status = g_grachtServer.ops->recv_packet(g_grachtServer.ops, &message, MSG_DONTWAIT);
+        status = server->ops->recv_packet(server->ops, message, MSG_DONTWAIT);
         if (status) {
             if (errno != ENODATA) {
                 GRERROR("[handle_sync_event] server_object.ops->recv_packet returned %i\n", errno);
             }
             break;
         }
-        status = server_invoke_action(&g_grachtServer.protocols, &message);
+        server->dispatch(server, message);
     }
     
     return status;
 }
 
-static int handle_async_event(int iod, uint32_t events, void* storage)
+static int handle_async_event(struct gracht_server* server, int iod, uint32_t events)
 {
     int                          status;
-    struct gracht_recv_message   message = { .storage = storage };
+    struct gracht_recv_message*  message = server->get_message(server);
     struct gracht_server_client* client = 
-        (struct gracht_server_client*)gracht_list_lookup(&g_grachtServer.clients, iod);
+        (struct gracht_server_client*)gracht_list_lookup(&server->clients, iod);
     GRTRACE("[handle_async_event] %i, 0x%x\n", iod, events);
     
     // Check for control event. On non-passive sockets, control event is the
     // disconnect event.
     if (events & GRACHT_AIO_EVENT_DISCONNECT) {
-        status = gracht_aio_remove(g_grachtServer.set_iod, iod);
+        status = gracht_aio_remove(server->set_iod, iod);
         if (status) {
-            // TODO log
+            GRWARNING("handle_async_event: failed to remove descriptor from aio");
         }
         
         client_destroy(client);
     }
     else if ((events & GRACHT_AIO_EVENT_IN) || !events) {
         while (1) {
-            status = g_grachtServer.ops->recv_client(client, &message, MSG_DONTWAIT);
+            status = server->ops->recv_client(client, message, MSG_DONTWAIT);
             if (status) {
                 if (errno != ENODATA) {
                     GRERROR("[handle_async_event] server_object.ops->recv_client returned %i\n", errno);
@@ -214,10 +302,7 @@ static int handle_async_event(int iod, uint32_t events, void* storage)
                 break;
             }
 
-            status = server_invoke_action(&g_grachtServer.protocols, &message);
-            if (status) {
-                GRWARNING("[handle_async_event] failed to invoke server action\n");
-            }
+            server->dispatch(server, message);
         }
     }
     return 0;
@@ -256,16 +341,56 @@ static int gracht_server_shutdown(void)
     return 0;
 }
 
+int server_invoke_action(struct gracht_server* server, struct gracht_recv_message* recvMessage)
+{
+    gracht_protocol_function_t* function;
+    void*                       param_storage;
+    
+    mtx_lock(&server->sync_object);
+    function = get_protocol_action(&server->protocols, recvMessage->protocol, recvMessage->action);
+    mtx_unlock(&server->sync_object);
+    if (!function) {
+        return -1;
+    }
+    
+    param_storage = ((char*)recvMessage->params + (recvMessage->param_count * sizeof(struct gracht_param)));
+    
+    GRTRACE("server_invoke_action: offset=%lu, param_count=%i\n",
+        recvMessage->param_count * sizeof(struct gracht_param), 
+        recvMessage->param_count);
+    
+    if (recvMessage->param_in) {
+        uint8_t* unpackBuffer = alloca(recvMessage->param_in * sizeof(void*));
+        unpack_parameters(recvMessage->params, recvMessage->param_in, param_storage, &unpackBuffer[0]);
+        ((server_invokeA0_t)function->address)(recvMessage, &unpackBuffer[0]);
+    }
+    else {
+        ((server_invoke00_t)function->address)(recvMessage);
+    }
+    return 0;
+}
+
+void server_cleanup_message(struct gracht_server* server, struct gracht_recv_message* recvMessage)
+{
+    if (!server || !recvMessage) {
+        return;
+    }
+
+    mtx_lock(&server->sync_object);
+    gracht_arena_free(server->arena, recvMessage, 0);
+    mtx_unlock(&server->sync_object);
+}
+
 int gracht_server_handle_event(int iod, unsigned int events)
 {
     if (iod == g_grachtServer.client_iod) {
-        return handle_client_socket();
+        return handle_client_socket(&g_grachtServer);
     }
     else if (iod == g_grachtServer.dgram_iod) {
-        return handle_sync_event(g_grachtServer.messageBuffer);
+        return handle_sync_event(&g_grachtServer);
     }
     else {
-        return handle_async_event(iod, events, g_grachtServer.messageBuffer);
+        return handle_async_event(&g_grachtServer, iod, events);
     }
 }
 

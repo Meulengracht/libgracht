@@ -31,7 +31,7 @@
  * CRC16 cyclic redundancy check values for an incomming byte string.
  */
 
-#include "include/gracht/crc.h"
+#include "include/crc.h"
 
 #define    CRC_POLY_16      0xA001
 #define    CRC_START_16     0x0000

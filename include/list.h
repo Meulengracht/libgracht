@@ -23,7 +23,7 @@
 #ifndef __GRACHT_LIST_H__
 #define __GRACHT_LIST_H__
 
-#include "types.h"
+#include "gracht/types.h"
 
 typedef struct gracht_list {
     struct gracht_object_header* head;

@@ -1,5 +1,5 @@
 /**
- * Copyright 2019, Philip Meulengracht
+ * Copyright 2021, Philip Meulengracht
  *
  * This program is free software : you can redistribute it and / or modify
  * it under the terms of the GNU General Public License as published by
@@ -15,19 +15,17 @@
  * along with this program.If not, see <http://www.gnu.org/licenses/>.
  *
  *
- * Gracht CRC Type Definitions & Structures
- * - This header describes the base crc-structure, prototypes
+ * Gracht Utils Type Definitions & Structures
+ * - This header describes the base utils-structure, prototypes
  *   and functionality, refer to the individual things for descriptions
  */
 
-#ifndef __GRACHT_CRC_H__
-#define __GRACHT_CRC_H__
+#ifndef __GRACHT_UTILS_H__
+#define __GRACHT_UTILS_H__
 
-#include "types.h"
+#include "gracht/types.h"
 
-// CRC API
-// General crc routines for providing data integrity
-uint16_t crc16_generate(const unsigned char* data, size_t length);
-uint32_t crc32_generate(const unsigned char *input_str, size_t num_bytes);
+gracht_protocol_function_t* get_protocol_action(struct gracht_list* protocols, uint8_t protocol_id, uint8_t action_id);
+void unpack_parameters(struct gracht_param* params, uint8_t count, void* params_storage, uint8_t* unpackBuffer);
 
-#endif // !__GRACHT_CRC_H__
+#endif // !__GRACHT_UTILS_H__

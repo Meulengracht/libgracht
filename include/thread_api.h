@@ -1,5 +1,4 @@
 /**
- *
  * Copyright 2019, Philip Meulengracht
  *
  * This program is free software : you can redistribute it and / or modify
@@ -24,9 +23,11 @@
 #ifndef __GRACHT_THREADS_H__
 #define __GRACHT_THREADS_H__
 
-#if defined(MOLLENOS)
+#include "config.h"
+
+#if defined(HAVE_C11_THREADS)
 #include <threads.h>
-#elif defined(__linux__)
+#elif defined(HAVE_PTHREAD)
 #include <pthread.h>
 
 typedef pthread_mutex_t mtx_t;

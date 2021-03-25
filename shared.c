@@ -21,19 +21,15 @@
  */
 
 #include "include/gracht/types.h"
-#include "include/gracht/list.h"
-#include "include/gracht/debug.h"
+#include "include/list.h"
+#include "include/debug.h"
 #include <errno.h>
 
 // client callbacks
 typedef void (*client_invoke00_t)(void);
 typedef void (*client_invokeA0_t)(void*);
 
-// server callbacks
-typedef void (*server_invoke00_t)(struct gracht_recv_message*);
-typedef void (*server_invokeA0_t)(struct gracht_recv_message*, void*);
-
-static gracht_protocol_function_t* get_protocol_action(struct gracht_list* protocols,
+gracht_protocol_function_t* get_protocol_action(struct gracht_list* protocols,
     uint8_t protocol_id, uint8_t action_id)
 {
     int                i;
@@ -57,7 +53,7 @@ static gracht_protocol_function_t* get_protocol_action(struct gracht_list* proto
     return NULL;
 }
 
-static void unpack_parameters(struct gracht_param* params, uint8_t count, void* params_storage, uint8_t* unpackBuffer)
+void unpack_parameters(struct gracht_param* params, uint8_t count, void* params_storage, uint8_t* unpackBuffer)
 {
     char* pointer = params_storage;
     int   unpackIndex    = 0;
@@ -75,11 +71,13 @@ static void unpack_parameters(struct gracht_param* params, uint8_t count, void* 
             else if (params[i].length == 4) {
                 *((uint32_t*)&unpackBuffer[unpackIndex]) = (uint32_t)(params[i].data.value & 0xFFFFFFFF);
             }
-#if defined(amd64) || defined(__amd64__)
             else if (params[i].length == 8) {
+#if defined(amd64) || defined(__amd64__)
                 *((uint64_t*)&unpackBuffer[unpackIndex]) = params[i].data.value;
-            }
+#else
+                memcpy(&unpackBuffer[unpackIndex], &params[i].data.bytes[0], 8);
 #endif
+            }
             unpackIndex += params[i].length;
         }
         else if (params[i].type == GRACHT_PARAM_BUFFER) {
@@ -98,32 +96,6 @@ static void unpack_parameters(struct gracht_param* params, uint8_t count, void* 
             unpackIndex += sizeof(void*);
         }
     }
-}
-
-int server_invoke_action(struct gracht_list* protocols, struct gracht_recv_message* recvMessage)
-{
-    gracht_protocol_function_t* function = get_protocol_action(protocols,
-        recvMessage->protocol, recvMessage->action);
-    void* param_storage;
-    
-    if (!function) {
-        return -1;
-    }
-    
-    param_storage = ((char*)recvMessage->params +
-        (recvMessage->param_count * sizeof(struct gracht_param)));
-    
-    GRTRACE("offset: %lu, param count %i\n",
-        recvMessage->param_count * sizeof(struct gracht_param), recvMessage->param_count);
-    if (recvMessage->param_in) {
-        uint8_t unpackBuffer[recvMessage->param_in * sizeof(void*)];
-        unpack_parameters(recvMessage->params, recvMessage->param_in, param_storage, &unpackBuffer[0]);
-        ((server_invokeA0_t)function->address)(recvMessage, &unpackBuffer[0]);
-    }
-    else {
-        ((server_invoke00_t)function->address)(recvMessage);
-    }
-    return 0;
 }
 
 int client_invoke_action(struct gracht_list* protocols, struct gracht_message* message)

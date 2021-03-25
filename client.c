@@ -25,10 +25,10 @@
 #include <assert.h>
 #include <errno.h>
 #include "include/gracht/client.h"
-#include "include/gracht/crc.h"
-#include "include/gracht/list.h"
-#include "include/gracht/debug.h"
-#include "include/gracht/threads.h"
+#include "include/crc.h"
+#include "include/list.h"
+#include "include/debug.h"
+#include "include/thread_api.h"
 #include <string.h>
 #include <stdlib.h>
 

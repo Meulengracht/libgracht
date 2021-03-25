@@ -81,8 +81,9 @@ GRACHT_STRUCT(gracht_param, {
     uint32_t length : 30;
     uint32_t type   : 2;
     union {
-        size_t value;
-        void*  buffer;
+        size_t  value;
+        void*   buffer;
+        uint8_t bytes[8]; // always assure 64 bit length
     } data;
 });
 
@@ -103,7 +104,7 @@ struct gracht_message {
 };
 
 struct gracht_recv_message {
-    void* storage;
+    struct gracht_object_header header;
     void* params;
     
     int      client;
@@ -112,6 +113,7 @@ struct gracht_recv_message {
     uint8_t  param_count;
     uint8_t  protocol;
     uint8_t  action;
+    uint8_t  payload[1];
 };
 
 struct gracht_message_context {

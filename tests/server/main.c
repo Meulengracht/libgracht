@@ -50,11 +50,13 @@ void test_utils_print_callback(struct gracht_recv_message* message, struct test_
 int main(int argc, char **argv)
 {
     struct socket_server_configuration linkConfiguration = { 0 };
-    struct gracht_server_configuration serverConfiguration = { 0 };
+    struct gracht_server_configuration serverConfiguration;
     int                                code;
     
     struct sockaddr_un* dgramAddr = (struct sockaddr_un*)&linkConfiguration.dgram_address;
     struct sockaddr_un* serverAddr = (struct sockaddr_un*)&linkConfiguration.server_address;
+    
+    gracht_server_configuration_init(&serverConfiguration);
     
     linkConfiguration.dgram_address_length = sizeof(struct sockaddr_un);
     linkConfiguration.server_address_length = sizeof(struct sockaddr_un);
@@ -70,7 +72,7 @@ int main(int argc, char **argv)
     serverAddr->sun_family = AF_LOCAL;
     strncpy (serverAddr->sun_path, clientsPath, sizeof(serverAddr->sun_path));
     serverAddr->sun_path[sizeof(serverAddr->sun_path) - 1] = '\0';
-    
+
     gracht_link_socket_server_create(&serverConfiguration.link, &linkConfiguration);
     code = gracht_server_initialize(&serverConfiguration);
     if (code) {

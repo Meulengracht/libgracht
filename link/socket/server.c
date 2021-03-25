@@ -24,10 +24,10 @@
 #include <assert.h>
 #include <errno.h>
 #include "../include/gracht/link/socket.h"
-#include "../include/gracht/debug.h"
+#include "../include/debug.h"
+#include "../include/crc.h"
 #include <stdlib.h>
 #include <string.h>
-#include <gracht/crc.h>
 
 struct socket_link_client {
     struct gracht_server_client base;
@@ -88,7 +88,7 @@ static int socket_link_send_client(struct socket_link_client* client,
 static int socket_link_recv_client(struct socket_link_client* client,
     struct gracht_recv_message* context, unsigned int flags)
 {
-    struct gracht_message* message        = context->storage;
+    struct gracht_message* message        = (struct gracht_message*)&context->payload[0];
     char*                  params_storage = NULL;
     intmax_t               bytes_read;
     
@@ -105,7 +105,7 @@ static int socket_link_recv_client(struct socket_link_client* client,
         intmax_t bytesToRead = message->header.length - sizeof(struct gracht_message);
 
         GRTRACE("[gracht_connection_recv_stream] reading message payload\n");
-        params_storage = (char*)context->storage + sizeof(struct gracht_message);
+        params_storage = (char*)&context->payload[sizeof(struct gracht_message)];
         bytes_read     = recv(client->base.iod, params_storage, (size_t)bytesToRead, MSG_WAITALL);
         if (bytes_read != bytesToRead) {
             // do not process incomplete requests
@@ -149,7 +149,7 @@ static int socket_link_create_client(struct socket_link_manager* linkManager, st
     client->base.header.id = message->client;
     client->base.iod = linkManager->dgram_socket;
 
-    address = (struct sockaddr_storage*)message->storage;
+    address = (struct sockaddr_storage*)&message->payload[0];
     memcpy(&client->address, address, (size_t)linkManager->config.server_address_length);
     
     *clientOut = client;
@@ -248,8 +248,7 @@ static int socket_link_accept(struct socket_link_manager* linkManager, struct gr
 static int socket_link_recv_packet(struct socket_link_manager* linkManager, 
     struct gracht_recv_message* context, unsigned int flags)
 {
-    struct gracht_message* message        = (struct gracht_message*)(
-        (char*)context->storage + linkManager->config.dgram_address_length);
+    struct gracht_message* message        = (struct gracht_message*)&context->payload[linkManager->config.dgram_address_length];
     void*                  params_storage = NULL;
     uint32_t               addressCrc;
 
@@ -260,7 +259,7 @@ static int socket_link_recv_packet(struct socket_link_manager* linkManager,
     };
     
     struct msghdr msg = {
-        .msg_name       = context->storage,
+        .msg_name       = &context->payload[0],
         .msg_namelen    = linkManager->config.dgram_address_length,
         .msg_iov        = &iov[0],
         .msg_iovlen     = 1,
@@ -307,7 +306,7 @@ static int socket_link_respond(struct socket_link_manager* linkManager,
     int           i;
     intmax_t      bytesWritten;
     struct msghdr msg = {
-        .msg_name = messageContext->storage,
+        .msg_name = &messageContext->payload[0],
         .msg_namelen = linkManager->config.dgram_address_length,
         .msg_iov = &iov[0],
         .msg_iovlen = 1,

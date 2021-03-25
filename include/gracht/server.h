@@ -46,11 +46,29 @@ typedef struct gracht_server_configuration {
     // Then the application can manually call gracht_server_handle_event with the fd's that it does not handle.
     aio_handle_t                   set_descriptor;
     int                            set_descriptor_provided;
+
+    // Server configuration parameters relating to the performance/capabilities of the server.
+    // <server_workers>   specifies the number of worker-threads that will be used to handle requests. If 0 then
+    //                    worker pool will not be created, and that means the server will handle incoming messages
+    //                    on the current thread.
+    // <max_message_size> specifies the maximum message size that can be handled at once. If not set it defaults
+    //                    to GRACHT_MAX_MESSAGE_SIZE as the default value.
+    int                            server_workers;
+    int                            max_message_size;
 } gracht_server_configuration_t;
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/**
+ * Configuration interface, use these as helpers instead of accessing the raw structure.
+ */
+void gracht_server_configuration_init(gracht_server_configuration_t* config);
+void gracht_server_configuration_set_link(gracht_server_configuration_t* config, struct server_link_ops* link);
+void gracht_server_configuration_set_aio_descriptor(gracht_server_configuration_t* config, aio_handle_t descriptor);
+void gracht_server_configuration_set_num_workers(gracht_server_configuration_t* config, int workerCount);
+void gracht_server_configuration_set_max_msg_size(gracht_server_configuration_t* config, int maxMessageSize);
 
 /**
  * Initializes the global gracht server instance based on the config provided. The configuratipn

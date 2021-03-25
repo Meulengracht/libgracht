@@ -15,42 +15,19 @@
  * along with this program.If not, see <http://www.gnu.org/licenses/>.
  *
  *
- * Gracht Socket Link Type Definitions & Structures
- * - This header describes the base link-structure, prototypes
+ * Gracht CRC Type Definitions & Structures
+ * - This header describes the base crc-structure, prototypes
  *   and functionality, refer to the individual things for descriptions
  */
 
-#include "../include/gracht/link/socket.h"
-#include "../include/debug.h"
+#ifndef __GRACHT_CRC_H__
+#define __GRACHT_CRC_H__
 
-#ifdef _WIN32
+#include "gracht/types.h"
 
-#include <winsock2.h>
+// CRC API
+// General crc routines for providing data integrity
+uint16_t crc16_generate(const unsigned char* data, size_t length);
+uint32_t crc32_generate(const unsigned char *input_str, size_t num_bytes);
 
-#define WS_VER 0x0202
-
-static int g_wsaInititalized = 0;
-
-int gracht_link_socket_initialize(void)
-{
-    WSADATA wsd = {0};
-    int status = WSAStartup(WS_VER, &wsd);
-    if (status) {
-        WSASetLastError(status);
-        return -1;
-    }
-    g_wsaInititalized = 1;
-    return 0;
-}
-
-int gracht_link_socket_cleanup(void)
-{
-    if (!g_wsaInititalized) {
-        return -1;
-    }
-
-    WSACleanup();
-    return 0;
-}
-
-#endif // _WIN32
+#endif // !__GRACHT_CRC_H__

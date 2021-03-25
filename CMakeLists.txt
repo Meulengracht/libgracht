@@ -39,6 +39,10 @@ else ()
     )
 endif ()
 
+include (CheckIncludeFiles)
+check_include_files (threads.h HAVE_C11_THREADS)
+check_include_files (pthread.h HAVE_PTHREAD)
+
 if (MOLLENOS)
     add_sources (
             link/vali-ipc/client.c
@@ -48,8 +52,9 @@ if (MOLLENOS)
     )
 endif ()
 
+configure_file(config.h.in config.h @ONLY)
 add_sources(link/socket/client.c link/socket/server.c link/socket/shared.c)
-add_sources(client.c crc.c server.c shared.c)
+add_sources(client.c crc.c server.c server_config.c shared.c arena.c dispatch.c)
 
 add_library(libgracht ${SRCS})
 
@@ -92,8 +97,12 @@ if (GRACHT_BUILD_TESTS)
     target_link_libraries(gserver libgracht)
 
     if (UNIX)
-        target_link_libraries(gclient -lrt -lc -lpthread)
-        target_link_libraries(gserver -lrt -lc -lpthread)
+        target_link_libraries(gclient -lrt -lc)
+        target_link_libraries(gserver -lrt -lc)
+        if (HAVE_PTHREAD)
+            target_link_libraries(gclient -lpthread)
+            target_link_libraries(gserver -lpthread)
+        endif ()
     elseif (WIN32)
         target_link_libraries(gclient ws2_32)
         target_link_libraries(gserver ws2_32)
