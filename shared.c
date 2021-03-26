@@ -23,7 +23,9 @@
 #include "include/gracht/types.h"
 #include "include/list.h"
 #include "include/debug.h"
+#include "include/utils.h"
 #include <errno.h>
+#include <stdlib.h>
 
 // client callbacks
 typedef void (*client_invoke00_t)(void);
@@ -116,7 +118,7 @@ int client_invoke_action(struct gracht_list* protocols, struct gracht_message* m
     // parse parameters into a parameter struct
     GRTRACE("offset: %lu, param count %i\n", param_count * sizeof(struct gracht_param), param_count);
     if (param_count) {
-        uint8_t unpackBuffer[param_count * sizeof(void*)];
+        uint8_t* unpackBuffer = alloca(param_count * sizeof(void*));
         unpack_parameters(&message->params[0], message->header.param_in, param_storage, &unpackBuffer[0]);
         ((client_invokeA0_t)function->address)(&unpackBuffer[0]);
     }
