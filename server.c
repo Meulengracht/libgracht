@@ -26,6 +26,7 @@
 #include "include/list.h"
 #include "include/gracht/server.h"
 #include "include/gracht/link/link.h"
+#include "include/thread_api.h"
 #include "include/utils.h"
 #include "include/server_private.h"
 #include <stdlib.h>
