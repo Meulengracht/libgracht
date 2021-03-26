@@ -47,7 +47,7 @@ void test_utils_print_callback(struct gracht_recv_message* message, struct test_
     test_utils_print_response(message, strlen(args->message));
 }
 
-int main(int argc, char **argv)
+int main(void)
 {
     struct socket_server_configuration linkConfiguration = { 0 };
     struct gracht_server_configuration serverConfiguration;

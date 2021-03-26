@@ -9,6 +9,7 @@ enable_language (C)
 option (GRACHT_BUILD_TESTS "Build test server and client program for gracht" OFF)
 option (GRACHT_INSTALL_HEADERS "Install headers and library")
 
+set (WARNING_COMPILE_FLAGS "-Wall -Wextra")
 set (SRCS "")
 
 macro (add_sources)
@@ -44,12 +45,17 @@ check_include_files (threads.h HAVE_C11_THREADS)
 check_include_files (pthread.h HAVE_PTHREAD)
 
 if (MOLLENOS)
+    add_definitions(${WARNING_COMPILE_FLAGS})
     add_sources (
             link/vali-ipc/client.c
             link/vali-ipc/message.c
             link/vali-ipc/os.c
             link/vali-ipc/server.c
     )
+endif ()
+
+if (UNIX)
+    add_definitions(${WARNING_COMPILE_FLAGS})
 endif ()
 
 configure_file(config.h.in config.h @ONLY)

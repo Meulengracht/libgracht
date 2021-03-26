@@ -31,7 +31,7 @@
 
 #include <test_utils_protocol_client.h>
 
-static const char* dgramPath = "/tmp/g_dgram";
+//static const char* dgramPath = "/tmp/g_dgram";
 static const char* clientsPath = "/tmp/g_clients";
 static char        messageBuffer[GRACHT_MAX_MESSAGE_SIZE];
 

@@ -31,6 +31,8 @@
 #include <pthread.h>
 
 typedef pthread_mutex_t mtx_t;
+typedef pthread_cond_t cnd_t;
+typedef pthread_t thrd_t;
 
 #define thrd_success 0
 
@@ -42,18 +44,20 @@ typedef pthread_mutex_t mtx_t;
 #define mtx_lock    pthread_mutex_lock
 #define mtx_unlock  pthread_mutex_unlock
 
-typedef pthread_cond_t cnd_t;
-
 #define cnd_init(cnd) pthread_cond_init(cnd, NULL)
 #define cnd_destroy   pthread_cond_destroy
 #define cnd_wait      pthread_cond_wait
 #define cnd_signal    pthread_cond_signal
+
+#define thrd_join(thr, ret)          pthread_join(thr, (void**)ret)
+#define thrd_create(thrp, func, arg) pthread_create(thrp, NULL, func, arg)
 
 #elif defined(_WIN32)
 #include <windows.h>
 
 typedef CRITICAL_SECTION mtx_t;
 typedef CONDITION_VARIABLE cnd_t;
+typedef HANDLE thrd_t;
 
 #define thrd_success 0
 #define thrd_error   -1
@@ -102,6 +106,21 @@ static inline int cnd_wait(cnd_t* cnd, mtx_t* mtx)
     return status == TRUE ? thrd_success : thrd_error;
 }
 
+static inline int thrd_create(thrd_t* thrp, int (*start)(void*), void* arg) {
+    thrd_t thr = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)start, arg, 0, NULL);
+    if (thr == NULL) {
+        return thrd_error;
+    }
+    *thrp = thr;
+    return 0;
+}
+
+static inline int thrd_join(thrd_t thrp, int* exitCode) {
+    BOOL status;
+    WaitForSingleObject(thrp, INFINITE);
+    status = GetExitCodeThread(thrp, (LPDWORD)exitCode);
+    return status == TRUE ? thrd_success : thrd_error;
+}
 #else
 #error "Undefined platform for threads"
 #endif
