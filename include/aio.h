@@ -91,7 +91,7 @@ typedef struct gracht_aio_win32_event {
 #define gracht_aio_event_events(event) (event)->events
 
 static int gracht_aio_add(aio_handle_t aio, unsigned int iod) {
-    HANDLE handle = CreateIoCompletionPort((HANDLE)iod, aio, iod, 0);
+    HANDLE handle = CreateIoCompletionPort((HANDLE)(uintptr_t)iod, aio, iod, 0);
     return handle == NULL ? -1 : 0;
 }
 
@@ -109,7 +109,7 @@ static int gracht_io_wait(aio_handle_t aio, gracht_aio_event_t* events, int coun
     DWORD       bytesTransfered = 0;
     void*       context         = NULL;
     BOOL        status          = GetQueuedCompletionStatus(aio,
-        &bytesTransfered, (LPDWORD)&context, &overlapped, INFINITE);
+        &bytesTransfered, (PULONG_PTR)&context, &overlapped, INFINITE);
     if (context == NULL) {
         return -1;
     }

@@ -30,7 +30,6 @@
 #include "include/server_private.h"
 #include <stdlib.h>
 #include <string.h>
-#include <threads.h>
 
 GRACHT_STRUCT(gracht_subscription_args, {
     uint8_t protocol_id;

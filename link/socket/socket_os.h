@@ -36,7 +36,7 @@
 #define i_msghdr_addr_name(msg) ((msg)->name)
 #define i_msghdr_addr_len(msg)  ((msg)->namelen)
 #define i_msghdr_flags(msg)     ((msg)->dwFlags)
-#define close _close
+#define close closesocket
 #define alloca _alloca
 
 #define AF_LOCAL AF_INET
