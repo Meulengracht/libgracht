@@ -40,12 +40,15 @@
 
 #if defined(_WIN32)
 typedef void* aio_handle_t;
+typedef void* gracht_handle_t;
 #define AIO_HANDLE_INVALID NULL
 #elif defined(MOLLENOS)
 typedef int aio_handle_t
+typedef int gracht_handle_t;
 #define AIO_HANDLE_INVALID (int)-1
 #else
 typedef int aio_handle_t;
+typedef int gracht_handle_t;
 #define AIO_HANDLE_INVALID (int)-1
 #endif
 
@@ -69,7 +72,8 @@ typedef int aio_handle_t;
 #define GRACHT_MESSAGE_INPROGRESS 1
 #define GRACHT_MESSAGE_COMPLETED  2
 
-#define GRACHT_WAIT_BLOCK 0x1
+#define GRACHT_MESSAGE_BLOCK   0x1
+#define GRACHT_MESSAGE_WAITALL 0x2
 
 typedef struct gracht_object_header {
     int                          id;

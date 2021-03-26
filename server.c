@@ -270,7 +270,7 @@ static int handle_sync_event(struct gracht_server* server)
     GRTRACE("[handle_sync_event]");
     
     while (1) {
-        status = server->ops->recv_packet(server->ops, message, MSG_DONTWAIT);
+        status = server->ops->recv_packet(server->ops, message, 0);
         if (status) {
             if (errno != ENODATA) {
                 GRERROR("[handle_sync_event] server_object.ops->recv_packet returned %i\n", errno);
@@ -303,7 +303,7 @@ static int handle_async_event(struct gracht_server* server, int iod, uint32_t ev
     }
     else if ((events & GRACHT_AIO_EVENT_IN) || !events) {
         while (1) {
-            status = server->ops->recv_client(client, message, MSG_DONTWAIT);
+            status = server->ops->recv_client(client, message, 0);
             if (status) {
                 if (errno != ENODATA) {
                     GRERROR("[handle_async_event] server_object.ops->recv_client returned %i\n", errno);
@@ -334,7 +334,7 @@ static int gracht_server_shutdown(void)
     }
     g_grachtServer.clients.head = NULL;
     
-    if (g_grachtServer.set_iod != -1 && !g_grachtServer.set_iod_provided) {
+    if (g_grachtServer.set_iod != AIO_HANDLE_INVALID && !g_grachtServer.set_iod_provided) {
         gracht_aio_destroy(g_grachtServer.set_iod);
     }
 
@@ -442,7 +442,7 @@ int gracht_server_respond(struct gracht_recv_message* messageContext, struct gra
         return g_grachtServer.ops->respond(g_grachtServer.ops, messageContext, message);
     }
 
-    return g_grachtServer.ops->send_client(client, message, MSG_WAITALL);
+    return g_grachtServer.ops->send_client(client, message, GRACHT_MESSAGE_WAITALL);
 }
 
 int gracht_server_send_event(int client, struct gracht_message* message, unsigned int flags)

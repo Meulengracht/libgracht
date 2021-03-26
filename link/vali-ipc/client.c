@@ -86,7 +86,7 @@ static int vali_link_recv(struct vali_link_manager* linkManager, void* messageBu
     int           status;
     unsigned int  convertedFlags = 0;
 
-    if (!(flags & GRACHT_WAIT_BLOCK)) {
+    if (!(flags & GRACHT_MESSAGE_BLOCK)) {
         convertedFlags |= IPMSG_DONTWAIT;
     }
 

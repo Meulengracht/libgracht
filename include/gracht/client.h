@@ -94,7 +94,7 @@ int gracht_client_iod(gracht_client_t* client);
  * @param client A pointer to a previously created gracht client.
  * @param context The message context if required.
  * @param messageBuffer A pointer to buffer storage of size GRACHT_MAX_MESSAGE_SIZE. The buffer may not be smaller than this.
- * @param flags The flag GRACHT_WAIT_BLOCK can be specified to block untill a new message is received.
+ * @param flags The flag GRACHT_MESSAGE_BLOCK can be specified to block untill a new message is received.
  * @return int Result of the wait. Returns 0 if a message was received and handled. Returns -1 if no messages are in queue.
  */
 int gracht_client_wait_message(gracht_client_t *client, struct gracht_message_context *context, void *messageBuffer, unsigned int flags);

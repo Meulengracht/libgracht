@@ -248,7 +248,7 @@ int gracht_client_wait_message(
     }
 
     if (mtx_trylock(&client->wait_object) != thrd_success) {
-        if (!(flags & GRACHT_WAIT_BLOCK)) {
+        if (!(flags & GRACHT_MESSAGE_BLOCK)) {
             errno = EBUSY;
             return -1;
         }

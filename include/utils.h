@@ -25,6 +25,11 @@
 
 #include "gracht/types.h"
 
+#ifdef _WIN32
+#include <malloc.h>
+#define alloca _alloca
+#endif
+
 gracht_protocol_function_t* get_protocol_action(struct gracht_list* protocols, uint8_t protocol_id, uint8_t action_id);
 void unpack_parameters(struct gracht_param* params, uint8_t count, void* params_storage, uint8_t* unpackBuffer);
 

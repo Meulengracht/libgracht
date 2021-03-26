@@ -211,7 +211,7 @@ static int socket_link_recv(struct socket_link_manager* linkManager,
 {
     unsigned int convertedFlags = MSG_WAITALL;
     
-    if (!(flags & GRACHT_WAIT_BLOCK)) {
+    if (!(flags & GRACHT_MESSAGE_BLOCK)) {
         convertedFlags |= MSG_DONTWAIT;
     }
     

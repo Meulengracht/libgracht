@@ -24,8 +24,8 @@
 #define __GRACHT_SOCKET_OS_H__
 
 #if defined(_WIN32)
+#include "../../include/utils.h"
 #include <io.h>
-#include <malloc.h>
 #define i_iobuf_t  WSABUF
 #define i_iobuf_set_buf(iobuf, base) (iobuf)->buf = (char*)(base);
 #define i_iobuf_set_len(iobuf, _len) (iobuf)->len = (_len);
@@ -37,7 +37,6 @@
 #define i_msghdr_addr_len(msg)  ((msg)->namelen)
 #define i_msghdr_flags(msg)     ((msg)->dwFlags)
 #define close closesocket
-#define alloca _alloca
 
 #define AF_LOCAL AF_INET
 

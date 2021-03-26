@@ -45,10 +45,23 @@ struct socket_link_manager {
     int dgram_socket;
 };
 
+static unsigned int get_socket_flags(unsigned int flags)
+{
+    unsigned int socketFlags = 0;
+    if (!(flags & GRACHT_MESSAGE_BLOCK)) {
+        socketFlags |= MSG_DONTWAIT;
+    }
+    if (flags & GRACHT_MESSAGE_WAITALL) {
+        socketFlags |= MSG_WAITALL;
+    }
+    return socketFlags;
+}
+
 static int socket_link_send_client(struct socket_link_client* client,
     struct gracht_message* message, unsigned int flags)
 {
     i_iobuf_t*    iov = alloca(sizeof(i_iobuf_t) * (1 + message->header.param_in));
+    unsigned int  socketFlags = get_socket_flags(flags);
     int           i;
     int           iovCount = 1;
     intmax_t      bytesWritten;
@@ -75,7 +88,7 @@ static int socket_link_send_client(struct socket_link_client* client,
     i_msghdr_set_bufs(&msg, &iov[0], iovCount);
 
     GRTRACE("[socket_link_send] sending message\n");
-    bytesWritten = sendmsg(client->base.iod, &msg, 0);
+    bytesWritten = sendmsg(client->base.iod, &msg, socketFlags);
     if (bytesWritten != message->header.length) {
         return -1;
     }
@@ -88,10 +101,11 @@ static int socket_link_recv_client(struct socket_link_client* client,
 {
     struct gracht_message* message        = (struct gracht_message*)&context->payload[0];
     char*                  params_storage = NULL;
+    unsigned int           socketFlags    = get_socket_flags(flags);
     intmax_t               bytes_read;
     
     GRTRACE("[gracht_connection_recv_stream] reading message header\n");
-    bytes_read = recv(client->base.iod, message, sizeof(struct gracht_message), flags);
+    bytes_read = recv(client->base.iod, message, sizeof(struct gracht_message), socketFlags);
     if (bytes_read != sizeof(struct gracht_message)) {
         if (bytes_read == 0) {
             errno = (ENODATA);
@@ -248,6 +262,7 @@ static int socket_link_recv_packet(struct socket_link_manager* linkManager,
 {
     struct gracht_message* message        = (struct gracht_message*)&context->payload[linkManager->config.dgram_address_length];
     void*                  params_storage = NULL;
+    unsigned int           socketFlags    = get_socket_flags(flags);
     uint32_t               addressCrc;
     i_iobuf_t              iov[1];
     i_msghdr_t             msg = I_MSGHDR_INIT;
@@ -260,7 +275,7 @@ static int socket_link_recv_packet(struct socket_link_manager* linkManager,
     
     // Packets are atomic, either the full packet is there, or none is. So avoid
     // the use of MSG_WAITALL here.
-    intmax_t bytes_read = recvmsg(linkManager->dgram_socket, &msg, flags);
+    intmax_t bytes_read = recvmsg(linkManager->dgram_socket, &msg, socketFlags);
     if (bytes_read <= 0) {
         if (bytes_read == 0) {
             errno = (ENODATA);
