@@ -57,8 +57,8 @@ struct gracht_server {
     int                            initialized;
     gracht_handle_t                set_handle;
     int                            set_handle_provided;
-    gracht_handle_t                listen_handle;
-    gracht_handle_t                dgram_handle;
+    gracht_conn_t                  listen_handle;
+    gracht_conn_t                  dgram_handle;
     mtx_t                          sync_object;
     struct gracht_list             protocols;
     struct gracht_list             clients;

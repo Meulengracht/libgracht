@@ -26,10 +26,10 @@
 #include "types.h"
 
 struct gracht_server_callbacks {
-    void (*clientConnected)(gracht_handle_t client);    // invoked only when a new stream-based client has connected
-                                                        // or when a new connectionless-client has subscribed to the server
-    void (*clientDisconnected)(gracht_handle_t client); // invoked only when a new stream-based client has disconnected
-                                                        // or when a connectionless-client has unsubscribed from the server
+    void (*clientConnected)(gracht_conn_t client);    // invoked only when a new stream-based client has connected
+                                                      // or when a new connectionless-client has subscribed to the server
+    void (*clientDisconnected)(gracht_conn_t client); // invoked only when a new stream-based client has disconnected
+                                                      // or when a connectionless-client has unsubscribed from the server
 };
 
 typedef struct gracht_server_configuration {

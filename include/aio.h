@@ -79,23 +79,23 @@ static int gracht_aio_add(int aio, int iod) {
 #include <windows.h>
 
 typedef struct gracht_aio_win32_event {
-    unsigned int events;
-    unsigned int iod;
+    unsigned int  events;
+    gracht_conn_t iod;
 } gracht_aio_event_t;
 #define GRACHT_AIO_EVENT_IN         0x1
 #define GRACHT_AIO_EVENT_DISCONNECT 0x2
 
 #define gracht_aio_create()            CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0);
 #define gracht_aio_destroy(aio)        CloseHandle(aio)
-#define gracht_aio_event_handle(event)    (event)->iod
+#define gracht_aio_event_handle(event) (event)->iod
 #define gracht_aio_event_events(event) (event)->events
 
-static int gracht_aio_add(aio_handle_t aio, unsigned int iod) {
+static int gracht_aio_add(gracht_handle_t aio, gracht_conn_t iod) {
     HANDLE handle = CreateIoCompletionPort((HANDLE)(uintptr_t)iod, aio, iod, 0);
     return handle == NULL ? -1 : 0;
 }
 
-static int gracht_aio_remove(aio_handle_t aio, unsigned int iod)
+static int gracht_aio_remove(gracht_handle_t aio, gracht_conn_t iod)
 {
     // null op
     (void)aio;
@@ -103,7 +103,7 @@ static int gracht_aio_remove(aio_handle_t aio, unsigned int iod)
     return 0;
 }
 
-static int gracht_io_wait(aio_handle_t aio, gracht_aio_event_t* events, int count)
+static int gracht_io_wait(gracht_handle_t aio, gracht_aio_event_t* events, int count)
 {
     OVERLAPPED* overlapped      = NULL;
     DWORD       bytesTransfered = 0;
@@ -114,7 +114,7 @@ static int gracht_io_wait(aio_handle_t aio, gracht_aio_event_t* events, int coun
         return -1;
     }
 
-    events[0].iod = (unsigned int)(uintptr_t)context;
+    events[0].iod = (gracht_conn_t)(uintptr_t)context;
     if (status == FALSE || (status == TRUE && bytesTransfered == 0)) {
         events[0].events = GRACHT_AIO_EVENT_DISCONNECT;
     }
