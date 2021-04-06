@@ -254,7 +254,7 @@ int gracht_client_wait_message(
     // them. This means the listening thread is now the orchestrator for the rest.
 listenForMessage:
     if (mtx_trylock(&client->wait_object) != thrd_success) {
-        if (!(flags & GRACHT_WAIT_BLOCK)) {
+        if (!(flags & GRACHT_MESSAGE_BLOCK)) {
             errno = EBUSY;
             return -1;
         }
@@ -283,7 +283,7 @@ listenForMessage:
     // If the message is not an event, then do not invoke any actions. In any case if a context is provided
     // we expect the caller to wanting to listen for that specific message. That means any incoming event and/or
     // response we recieve should be for that, or we should keep waiting.
-    TRACE("[gracht] [client] invoking message type %u - %u/%u",
+    GRTRACE("[gracht] [client] invoking message type %u - %u/%u\n",
         message->header.flags, message->header.protocol, message->header.action);
     if (MESSAGE_FLAG_TYPE(message->header.flags) == MESSAGE_FLAG_EVENT) {
         status = client_invoke_action(&client->protocols, message);
@@ -293,7 +293,7 @@ listenForMessage:
             gracht_list_lookup(&client->messages, (int)message->header.id);
         if (!descriptor) {
             // what the heck?
-            ERROR("[gracht_client_wait_message] no-one was listening for message %u", message->header.id);
+            GRERROR("[gracht_client_wait_message] no-one was listening for message %u\n", message->header.id);
             status = -1;
             goto listenOrExit;
         }

@@ -1,4 +1,3 @@
 {
     "cmake.configureOnOpen": true,
-    "cmake.buildDirectory": "${workspaceFolder}/../gracht-build"
 }

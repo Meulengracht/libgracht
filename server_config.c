@@ -33,7 +33,7 @@ void gracht_server_configuration_set_link(gracht_server_configuration_t* config,
     config->link = link;
 }
 
-void gracht_server_configuration_set_aio_descriptor(gracht_server_configuration_t* config, aio_handle_t descriptor)
+void gracht_server_configuration_set_aio_descriptor(gracht_server_configuration_t* config, gracht_handle_t descriptor)
 {
     config->set_descriptor = descriptor;
     config->set_descriptor_provided = 1;

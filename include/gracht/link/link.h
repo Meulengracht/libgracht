@@ -41,7 +41,7 @@ enum gracht_link_type {
 struct gracht_server_client {
     struct gracht_object_header header;
     uint32_t                    subscriptions[8]; // 32 bytes to cover 255 bits
-    int                         iod;
+    gracht_conn_t               handle;
 };
 
 // forward declares
@@ -54,11 +54,11 @@ typedef int (*server_recv_client_fn)(struct gracht_server_client*, struct gracht
 typedef int (*server_send_client_fn)(struct gracht_server_client*, struct gracht_message*, unsigned int flags);
 typedef int (*server_destroy_client_fn)(struct gracht_server_client*);
 
-typedef int  (*server_link_listen_fn)(struct server_link_ops*, int mode);
-typedef int  (*server_link_accept_fn)(struct server_link_ops*, struct gracht_server_client**);
-typedef int  (*server_link_recv_packet_fn)(struct server_link_ops*, struct gracht_recv_message*, unsigned int flags);
-typedef int  (*server_link_respond_fn)(struct server_link_ops*, struct gracht_recv_message*, struct gracht_message*);
-typedef void (*server_link_destroy_fn)(struct server_link_ops*);
+typedef gracht_conn_t (*server_link_listen_fn)(struct server_link_ops*, int mode);
+typedef int           (*server_link_accept_fn)(struct server_link_ops*, struct gracht_server_client**);
+typedef int           (*server_link_recv_packet_fn)(struct server_link_ops*, struct gracht_recv_message*, unsigned int flags);
+typedef int           (*server_link_respond_fn)(struct server_link_ops*, struct gracht_recv_message*, struct gracht_message*);
+typedef void          (*server_link_destroy_fn)(struct server_link_ops*);
 
 struct server_link_ops {
     server_create_client_fn  create_client;

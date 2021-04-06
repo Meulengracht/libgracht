@@ -39,17 +39,20 @@
 #endif
 
 #if defined(_WIN32)
-typedef void* aio_handle_t;
-typedef void* gracht_handle_t;
-#define AIO_HANDLE_INVALID NULL
+typedef void*        gracht_handle_t;
+typedef unsigned int gracht_conn_t;
+#define GRACHT_HANDLE_INVALID NULL
+#define GRACHT_CONN_INVALID   (unsigned int)0
 #elif defined(MOLLENOS)
-typedef int aio_handle_t
 typedef int gracht_handle_t;
-#define AIO_HANDLE_INVALID (int)-1
+typedef int gracht_conn_t;
+#define GRACHT_HANDLE_INVALID (int)-1
+#define GRACHT_CONN_INVALID   (int)-1
 #else
-typedef int aio_handle_t;
 typedef int gracht_handle_t;
-#define AIO_HANDLE_INVALID (int)-1
+typedef int gracht_conn_t;
+#define GRACHT_HANDLE_INVALID (int)-1
+#define GRACHT_CONN_INVALID   (int)-1
 #endif
 
 #define MESSAGE_FLAG_TYPE(flags) (flags & 0x3)

@@ -171,7 +171,7 @@ static int socket_link_recv_packet(struct socket_link_manager* linkManager,
     // the use of MSG_WAITALL here.
     GRTRACE("[gracht_connection_recv_stream] reading full message");
     intmax_t bytes_read = recvmsg(linkManager->iod, &msg, flags);
-    if (bytes_read < sizeof(struct gracht_message)) {
+    if (bytes_read < (intmax_t)sizeof(struct gracht_message)) {
         if (bytes_read == 0) {
             errno = (ENODATA);
         }
@@ -229,6 +229,9 @@ static int socket_link_recv(struct socket_link_manager* linkManager,
 static int socket_link_send(struct socket_link_manager* linkManager,
     struct gracht_message* message, void* messageContext)
 {
+    // not used for socket
+    (void)messageContext;
+
     // perform length check before sending
     if (message->header.length > GRACHT_MAX_MESSAGE_SIZE) {
         errno = (E2BIG);

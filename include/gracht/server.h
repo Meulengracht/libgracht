@@ -26,10 +26,10 @@
 #include "types.h"
 
 struct gracht_server_callbacks {
-    void (*clientConnected)(int client);    // invoked only when a new stream-based client has connected
-                                            // or when a new connectionless-client has subscribed to the server
-    void (*clientDisconnected)(int client); // invoked only when a new stream-based client has disconnected
-                                            // or when a connectionless-client has unsubscribed from the server
+    void (*clientConnected)(gracht_handle_t client);    // invoked only when a new stream-based client has connected
+                                                        // or when a new connectionless-client has subscribed to the server
+    void (*clientDisconnected)(gracht_handle_t client); // invoked only when a new stream-based client has disconnected
+                                                        // or when a connectionless-client has unsubscribed from the server
 };
 
 typedef struct gracht_server_configuration {
@@ -44,7 +44,7 @@ typedef struct gracht_server_configuration {
     // Server configuration parameters, in this case the set descriptor (select/poll descriptor) to use
     // when the application wants control of the main loop and not use the gracht_server_main_loop function.
     // Then the application can manually call gracht_server_handle_event with the fd's that it does not handle.
-    aio_handle_t                   set_descriptor;
+    gracht_handle_t                set_descriptor;
     int                            set_descriptor_provided;
 
     // Server configuration parameters relating to the performance/capabilities of the server.
@@ -66,7 +66,7 @@ extern "C" {
  */
 void gracht_server_configuration_init(gracht_server_configuration_t* config);
 void gracht_server_configuration_set_link(gracht_server_configuration_t* config, struct server_link_ops* link);
-void gracht_server_configuration_set_aio_descriptor(gracht_server_configuration_t* config, aio_handle_t descriptor);
+void gracht_server_configuration_set_aio_descriptor(gracht_server_configuration_t* config, gracht_handle_t descriptor);
 void gracht_server_configuration_set_num_workers(gracht_server_configuration_t* config, int workerCount);
 void gracht_server_configuration_set_max_msg_size(gracht_server_configuration_t* config, int maxMessageSize);
 
@@ -124,14 +124,14 @@ int gracht_server_main_loop(void);
  * 
  * @return int The datagram (connectionless) file descriptor.
  */
-int gracht_server_get_dgram_iod(void);
+gracht_handle_t gracht_server_get_dgram_iod(void);
 
 /**
  * Returns the epoll/select/completion port handle/descriptor that is used by the server.
  * 
  * @return aio_handle_t The handle/descriptor.
  */
-aio_handle_t gracht_server_get_set_iod(void);
+gracht_handle_t gracht_server_get_set_iod(void);
 
 /**
  * Invoked by protocol generated functions to respond to receieved messages.

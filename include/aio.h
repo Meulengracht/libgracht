@@ -47,7 +47,7 @@ static int gracht_aio_add(int aio, int iod) {
     return ioset_ctrl(aio, IOSET_ADD, iod, &event);
 }
 
-#define gracht_aio_event_iod(event)    (event)->data.iod
+#define gracht_aio_event_handle(event)    (event)->data.iod
 #define gracht_aio_event_events(event) (event)->events
 
 #elif defined(__linux__)
@@ -72,7 +72,7 @@ static int gracht_aio_add(int aio, int iod) {
     return epoll_ctl(aio, EPOLL_CTL_ADD, iod, &event);
 }
 
-#define gracht_aio_event_iod(event)    (event)->data.fd
+#define gracht_aio_event_handle(event)    (event)->data.fd
 #define gracht_aio_event_events(event) (event)->events
 
 #elif defined(_WIN32)
@@ -87,7 +87,7 @@ typedef struct gracht_aio_win32_event {
 
 #define gracht_aio_create()            CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0);
 #define gracht_aio_destroy(aio)        CloseHandle(aio)
-#define gracht_aio_event_iod(event)    (event)->iod
+#define gracht_aio_event_handle(event)    (event)->iod
 #define gracht_aio_event_events(event) (event)->events
 
 static int gracht_aio_add(aio_handle_t aio, unsigned int iod) {

@@ -103,14 +103,14 @@ static int vali_link_destroy_client(struct vali_link_client* client)
     return status;
 }
 
-static int vali_link_listen(struct vali_link_manager* linkManager, int mode)
+static gracht_conn_t vali_link_listen(struct vali_link_manager* linkManager, int mode)
 {
     if (mode == LINK_LISTEN_DGRAM) {
         return linkManager->iod;
     }
     
     errno = (ENOTSUP);
-    return -1;
+    return GRACHT_CONN_INVALID;
 }
 
 static int vali_link_accept(struct vali_link_manager* linkManager, struct gracht_server_client** clientOut)

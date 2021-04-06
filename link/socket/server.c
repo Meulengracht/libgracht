@@ -88,7 +88,7 @@ static int socket_link_send_client(struct socket_link_client* client,
     i_msghdr_set_bufs(&msg, &iov[0], iovCount);
 
     GRTRACE("[socket_link_send] sending message\n");
-    bytesWritten = sendmsg(client->base.iod, &msg, socketFlags);
+    bytesWritten = sendmsg(client->base.handle, &msg, socketFlags);
     if (bytesWritten != message->header.length) {
         return -1;
     }
@@ -105,7 +105,7 @@ static int socket_link_recv_client(struct socket_link_client* client,
     intmax_t               bytes_read;
     
     GRTRACE("[gracht_connection_recv_stream] reading message header\n");
-    bytes_read = recv(client->base.iod, message, sizeof(struct gracht_message), socketFlags);
+    bytes_read = recv(client->base.handle, message, sizeof(struct gracht_message), socketFlags);
     if (bytes_read != sizeof(struct gracht_message)) {
         if (bytes_read == 0) {
             errno = (ENODATA);
@@ -118,7 +118,7 @@ static int socket_link_recv_client(struct socket_link_client* client,
 
         GRTRACE("[gracht_connection_recv_stream] reading message payload\n");
         params_storage = (char*)&context->payload[sizeof(struct gracht_message)];
-        bytes_read     = recv(client->base.iod, params_storage, (size_t)bytesToRead, MSG_WAITALL);
+        bytes_read     = recv(client->base.handle, params_storage, (size_t)bytesToRead, MSG_WAITALL);
         if (bytes_read != bytesToRead) {
             // do not process incomplete requests
             // TODO error code / handling
@@ -159,7 +159,7 @@ static int socket_link_create_client(struct socket_link_manager* linkManager, st
 
     memset(client, 0, sizeof(struct socket_link_client));
     client->base.header.id = message->client;
-    client->base.iod = linkManager->dgram_socket;
+    client->base.handle    = linkManager->dgram_socket;
 
     address = (struct sockaddr_storage*)&message->payload[0];
     memcpy(&client->address, address, (size_t)linkManager->config.server_address_length);
@@ -177,12 +177,12 @@ static int socket_link_destroy_client(struct socket_link_client* client)
         return -1;
     }
     
-    status = close(client->base.iod);
+    status = close(client->base.handle);
     free(client);
     return status;
 }
 
-static int socket_link_listen(struct socket_link_manager* linkManager, int mode)
+static gracht_conn_t socket_link_listen(struct socket_link_manager* linkManager, int mode)
 {
     int status;
     
@@ -191,14 +191,14 @@ static int socket_link_listen(struct socket_link_manager* linkManager, int mode)
         // delivered to fixed sockets on the local system.
         linkManager->dgram_socket = socket(AF_LOCAL, SOCK_DGRAM, 0);
         if (linkManager->dgram_socket < 0) {
-            return -1;
+            return GRACHT_CONN_INVALID;
         }
         
         status = bind(linkManager->dgram_socket,
             (const struct sockaddr*)&linkManager->config.dgram_address,
             linkManager->config.dgram_address_length);
         if (status) {
-            return -1;
+            return GRACHT_CONN_INVALID;
         }
         
         return linkManager->dgram_socket;
@@ -206,27 +206,27 @@ static int socket_link_listen(struct socket_link_manager* linkManager, int mode)
     else if (mode == LINK_LISTEN_SOCKET) {
         linkManager->client_socket = socket(AF_LOCAL, SOCK_STREAM, 0);
         if (linkManager->client_socket < 0) {
-            return -1;
+            return GRACHT_CONN_INVALID;
         }
         
         status = bind(linkManager->client_socket,
             (const struct sockaddr*)&linkManager->config.server_address,
             linkManager->config.server_address_length);
         if (status) {
-            return -1;
+            return GRACHT_CONN_INVALID;
         }
         
         // Enable listening for connections, with a maximum of 2 on backlog
         status = listen(linkManager->client_socket, 2);
         if (status) {
-            return -1;
+            return GRACHT_CONN_INVALID;
         }
         
         return linkManager->client_socket;
     }
     
     errno = (ENOTSUP);
-    return -1;
+    return GRACHT_CONN_INVALID;
 }
 
 static int socket_link_accept(struct socket_link_manager* linkManager, struct gracht_server_client** clientOut)
@@ -245,13 +245,13 @@ static int socket_link_accept(struct socket_link_manager* linkManager, struct gr
     memset(client, 0, sizeof(struct socket_link_client));
 
     // TODO handle disconnects in accept in netmanager
-    client->base.iod = accept(linkManager->client_socket, (struct sockaddr*)&client->address, &address_length);
-    if (client->base.iod < 0) {
+    client->base.handle = accept(linkManager->client_socket, (struct sockaddr*)&client->address, &address_length);
+    if (client->base.handle < 0) {
         GRERROR("link_server: failed to accept client\n");
         free(client);
         return -1;
     }
-    client->base.header.id = client->base.iod;
+    client->base.header.id = client->base.handle;
     
     *clientOut = &client->base;
     return 0;
