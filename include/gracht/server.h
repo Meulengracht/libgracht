@@ -124,7 +124,7 @@ int gracht_server_main_loop(void);
  * 
  * @return int The datagram (connectionless) file descriptor.
  */
-gracht_handle_t gracht_server_get_dgram_iod(void);
+gracht_conn_t gracht_server_get_dgram_iod(void);
 
 /**
  * Returns the epoll/select/completion port handle/descriptor that is used by the server.

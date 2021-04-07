@@ -83,8 +83,8 @@ int gracht_client_invoke(gracht_client_t* client, struct gracht_message_context*
     
     // require intermediate buffer for sync operations
     if (MESSAGE_FLAG_TYPE(message->header.flags) == MESSAGE_FLAG_SYNC) {
-        size_t bufferLength = sizeof(struct gracht_message_descriptor) + (message->header.param_out * sizeof(struct gracht_param));
-        int    i;
+        size_t   bufferLength = sizeof(struct gracht_message_descriptor) + (message->header.param_out * sizeof(struct gracht_param));
+        uint32_t i;
 
         if (!context) {
             errno = EINVAL;
@@ -172,7 +172,7 @@ int gracht_client_status(gracht_client_t* client, struct gracht_message_context*
     struct gracht_message_descriptor* descriptor;
     char*                             pointer = NULL;
     int                               status;
-    int                               i;
+    uint32_t                          i;
     GRTRACE("[gracht] [client] get status from context\n");
     
     if (!client || !context || !params) {

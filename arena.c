@@ -73,7 +73,7 @@ int gracht_arena_create(size_t size, struct gracht_arena** arenaOut)
     arena->length = size;
 
     // initialize the first header
-    arena->base->length = size - HEADER_SIZE;
+    arena->base->length = (uint32_t)(size & 0x00FFFFFF) - HEADER_SIZE;
     arena->base->flags  = 0;
     arena->base->allocated = 0;
 
@@ -95,7 +95,7 @@ static inline void create_header(void* memory, size_t size)
 {
     GRTRACE("create_header(memory=00x%p, size=%lu)\n", memory, size);
     struct gracht_header* header = memory;
-    header->length = size - HEADER_SIZE;
+    header->length = (uint32_t)(size & 0x00FFFFFF) - HEADER_SIZE;
     header->allocated = 0;
     header->flags = 0;
 }
@@ -154,9 +154,11 @@ void* gracht_arena_allocate(struct gracht_arena* arena, void* allocation, size_t
         }
         else {
             // we are able to safely extend the current allocation
-            header->length += size;
-            nextHeader->length -= size;
-            move_header(nextHeader, (long)size);
+            uint32_t allocLength = (uint32_t)(size & 0x00FFFFFF);
+
+            header->length += allocLength;
+            nextHeader->length -= allocLength;
+            move_header(nextHeader, (long)allocLength);
             return &header->payload[0];
         }
     }
@@ -196,19 +198,23 @@ void gracht_arena_free(struct gracht_arena* arena, void* memory, size_t size)
     // currently we only merge in forward direction, to merge in backwards
     // direction without iterating we need to add an allocation footer
     if (size != 0 && header->length != size) {
+        uint32_t allocLength = (uint32_t)(size & 0x00FFFFFF);
+
         // must free atleast enough, otherwise skip partial-free operation
-        if (size < sizeof(struct gracht_header)) {
+        if (allocLength < sizeof(struct gracht_header)) {
             return;
         }
 
-        header->length -= size;
+        header->length -= allocLength;
 
         // either we must adjust the header link or create a new
         // based on whether its free or not
         if (!nextHeader->allocated) {
+            long negated = -((long)allocLength);
+
             // header is not allocated, we add the size to it and move it
-            nextHeader->length += size;
-            move_header(nextHeader, -((long)size));
+            nextHeader->length += allocLength;
+            move_header(nextHeader, negated);
         }
         else {
             // it was allocated, we must create a new header with the size that was freed

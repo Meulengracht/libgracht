@@ -493,7 +493,7 @@ void gracht_server_unregister_protocol(gracht_protocol_t* protocol)
     gracht_list_remove(&g_grachtServer.protocols, &protocol->header);
 }
 
-gracht_handle_t gracht_server_get_dgram_iod(void)
+gracht_conn_t gracht_server_get_dgram_iod(void)
 {
     return g_grachtServer.dgram_handle;
 }

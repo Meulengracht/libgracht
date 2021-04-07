@@ -41,8 +41,8 @@ struct socket_link_manager {
     struct server_link_ops             ops;
     struct socket_server_configuration config;
     
-    int client_socket;
-    int dgram_socket;
+    gracht_conn_t client_socket;
+    gracht_conn_t dgram_socket;
 };
 
 static unsigned int get_socket_flags(unsigned int flags)
@@ -62,7 +62,7 @@ static int socket_link_send_client(struct socket_link_client* client,
 {
     i_iobuf_t*    iov = alloca(sizeof(i_iobuf_t) * (1 + message->header.param_in));
     unsigned int  socketFlags = get_socket_flags(flags);
-    int           i;
+    uint32_t      i;
     int           iovCount = 1;
     intmax_t      bytesWritten;
     i_msghdr_t    msg = I_MSGHDR_INIT;
@@ -308,7 +308,7 @@ static int socket_link_respond(struct socket_link_manager* linkManager,
     struct gracht_recv_message* messageContext, struct gracht_message* message)
 {
     i_iobuf_t*    iov = alloca(sizeof(i_iobuf_t) * (1 + message->header.param_in));
-    int           i;
+    uint32_t      i;
     int           iovCount = 1;
     intmax_t      bytesWritten;
     i_msghdr_t    msg = I_MSGHDR_INIT;

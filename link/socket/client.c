@@ -32,14 +32,14 @@
 struct socket_link_manager {
     struct client_link_ops             ops;
     struct socket_client_configuration config;
-    int                                iod;
+    gracht_conn_t                      iod;
 };
 
 static int socket_link_send_stream(struct socket_link_manager* linkManager,
     struct gracht_message* message)
 {
     i_iobuf_t*    iov = alloca(sizeof(i_iobuf_t) * (1 + message->header.param_in));
-    int           i;
+    uint32_t      i;
     int           iovCount = 1;
     intmax_t      byteCount;
     i_msghdr_t    msg = I_MSGHDR_INIT;
@@ -115,7 +115,7 @@ static int socket_link_recv_stream(struct socket_link_manager* linkManager,
 static int socket_link_send_packet(struct socket_link_manager* linkManager, struct gracht_message* message)
 {
     i_iobuf_t*    iov = alloca(sizeof(i_iobuf_t) * (1 + message->header.param_in));
-    int           i;
+    uint32_t      i;
     int           iovCount = 1;
     intmax_t      byteCount;
     i_msghdr_t    msg = I_MSGHDR_INIT;
