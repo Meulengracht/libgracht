@@ -74,8 +74,8 @@ struct gracht_server {
         0,
         GRACHT_HANDLE_INVALID,
         0,
-        GRACHT_HANDLE_INVALID,
-        GRACHT_HANDLE_INVALID,
+        GRACHT_CONN_INVALID,
+        GRACHT_CONN_INVALID,
         { { 0 } },
         { 0 },
         { 0 }
@@ -192,7 +192,7 @@ static int create_links(struct gracht_server* server)
     // try to create the listening link. We do support that one of the links
     // are not supported by the link operations.
     server->listen_handle = server->ops->listen(server->ops, LINK_LISTEN_SOCKET);
-    if (server->listen_handle == GRACHT_HANDLE_INVALID) {
+    if (server->listen_handle == GRACHT_CONN_INVALID) {
         if (errno != ENOTSUP) {
             return -1;
         }
@@ -202,7 +202,7 @@ static int create_links(struct gracht_server* server)
     }
 
     server->dgram_handle = server->ops->listen(server->ops, LINK_LISTEN_DGRAM);
-    if (server->dgram_handle == GRACHT_HANDLE_INVALID) {
+    if (server->dgram_handle == GRACHT_CONN_INVALID) {
         if (errno != ENOTSUP) {
             return -1;
         }
@@ -211,7 +211,7 @@ static int create_links(struct gracht_server* server)
         gracht_aio_add(server->set_handle, server->dgram_handle);
     }
 
-    if (server->listen_handle == GRACHT_HANDLE_INVALID && server->dgram_handle == GRACHT_HANDLE_INVALID) {
+    if (server->listen_handle == GRACHT_CONN_INVALID && server->dgram_handle == GRACHT_CONN_INVALID) {
         GRERROR("create_links: neither of client and dgram links were supported");
         return -1;
     }
@@ -283,12 +283,12 @@ static int handle_sync_event(struct gracht_server* server)
     return status;
 }
 
-static int handle_async_event(struct gracht_server* server, gracht_handle_t handle, uint32_t events)
+static int handle_async_event(struct gracht_server* server, gracht_conn_t handle, uint32_t events)
 {
     int                          status;
     struct gracht_recv_message*  message = server->get_message(server);
     struct gracht_server_client* client = 
-        (struct gracht_server_client*)gracht_list_lookup(&server->clients, handle);
+        (struct gracht_server_client*)gracht_list_lookup(&server->clients, (int)handle);
     GRTRACE("[handle_async_event] %i, 0x%x\n", handle, events);
     
     // Check for control event. On non-passive sockets, control event is the
@@ -391,7 +391,7 @@ void server_cleanup_message(struct gracht_server* server, struct gracht_recv_mes
     mtx_unlock(&server->sync_object);
 }
 
-int gracht_server_handle_event(gracht_handle_t handle, unsigned int events)
+int gracht_server_handle_event(gracht_conn_t handle, unsigned int events)
 {
     if (handle == g_grachtServer.listen_handle) {
         return handle_client_socket(&g_grachtServer);
@@ -414,8 +414,8 @@ int gracht_server_main_loop(void)
         int num_events = gracht_io_wait(g_grachtServer.set_handle, &events[0], 32);
         GRTRACE("gracht_server: %i events received!\n", num_events);
         for (i = 0; i < num_events; i++) {
-            gracht_handle_t handle = gracht_aio_event_handle(&events[i]);
-            uint32_t        flags  = gracht_aio_event_events(&events[i]);
+            gracht_conn_t handle = gracht_aio_event_handle(&events[i]);
+            uint32_t      flags  = gracht_aio_event_events(&events[i]);
 
             GRTRACE("gracht_server: event %u from %i\n", flags, handle);
             gracht_server_handle_event(handle, flags);
