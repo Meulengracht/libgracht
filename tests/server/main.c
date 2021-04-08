@@ -27,9 +27,10 @@
 #include <gracht/server.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/un.h>
 
 #include <test_utils_protocol_server.h>
+
+extern int init_server_with_socket_link(void);
 
 void test_utils_print_callback(struct gracht_recv_message* message, struct test_utils_print_args*);
 
@@ -37,9 +38,6 @@ static gracht_protocol_function_t test_utils_callbacks[1] = {
     { PROTOCOL_TEST_UTILS_PRINT_ID , test_utils_print_callback },
 };
 DEFINE_TEST_UTILS_SERVER_PROTOCOL(test_utils_callbacks, 1);
-
-static const char* dgramPath = "/tmp/g_dgram";
-static const char* clientsPath = "/tmp/g_clients";
 
 void test_utils_print_callback(struct gracht_recv_message* message, struct test_utils_print_args* args)
 {
@@ -49,37 +47,17 @@ void test_utils_print_callback(struct gracht_recv_message* message, struct test_
 
 int main(void)
 {
-    struct socket_server_configuration linkConfiguration = { 0 };
-    struct gracht_server_configuration serverConfiguration;
-    int                                code;
+    int code;
     
-    struct sockaddr_un* dgramAddr = (struct sockaddr_un*)&linkConfiguration.dgram_address;
-    struct sockaddr_un* serverAddr = (struct sockaddr_un*)&linkConfiguration.server_address;
-    
-    gracht_server_configuration_init(&serverConfiguration);
-    
-    linkConfiguration.dgram_address_length = sizeof(struct sockaddr_un);
-    linkConfiguration.server_address_length = sizeof(struct sockaddr_un);
-    
-    // Setup path for dgram
-    unlink(dgramPath);
-    dgramAddr->sun_family = AF_LOCAL;
-    strncpy (dgramAddr->sun_path, dgramPath, sizeof(dgramAddr->sun_path));
-    dgramAddr->sun_path[sizeof(dgramAddr->sun_path) - 1] = '\0';
-    
-    // Setup path for serverAddr
-    unlink(clientsPath);
-    serverAddr->sun_family = AF_LOCAL;
-    strncpy (serverAddr->sun_path, clientsPath, sizeof(serverAddr->sun_path));
-    serverAddr->sun_path[sizeof(serverAddr->sun_path) - 1] = '\0';
-
-    gracht_link_socket_server_create(&serverConfiguration.link, &linkConfiguration);
-    code = gracht_server_initialize(&serverConfiguration);
+    // initialize server
+    code = init_server_with_socket_link();
     if (code) {
-        printf("gracht_server: error initializing server library %i\n", errno);
         return code;
     }
     
+    // register protocols
     gracht_server_register_protocol(&test_utils_server_protocol);
+
+    // run server
     return gracht_server_main_loop();
 }

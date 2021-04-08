@@ -179,7 +179,7 @@ void* gracht_arena_allocate(struct gracht_arena* arena, void* allocation, size_t
 
     // update current header
     allocHeader->allocated = 1;
-    allocHeader->length = correctedSize;
+    allocHeader->length = (uint32_t)(correctedSize & 0x00FFFFFF);
     return &allocHeader->payload[0];
 }
 

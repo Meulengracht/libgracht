@@ -27,40 +27,28 @@
 #include <gracht/server.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/un.h>
 
 #include <test_utils_protocol_client.h>
 
-//static const char* dgramPath = "/tmp/g_dgram";
-static const char* clientsPath = "/tmp/g_clients";
-static char        messageBuffer[GRACHT_MAX_MESSAGE_SIZE];
+extern int init_client_with_socket_link(gracht_client_t** clientOut);
+
+static char messageBuffer[GRACHT_MAX_MESSAGE_SIZE];
 
 int main(int argc, char **argv)
 {
-    struct socket_client_configuration linkConfiguration = { 0 };
-    struct gracht_client_configuration clientConfiguration;
-    gracht_client_t*                   client;
-    int                                code, status = -1337;
-    struct gracht_message_context      context;
+    gracht_client_t*              client;
+    int                           code, status = -1337;
+    struct gracht_message_context context;
 
-    struct sockaddr_un* addr = (struct sockaddr_un*)&linkConfiguration.address;
-    linkConfiguration.address_length = sizeof(struct sockaddr_un);
-
-    //linkConfiguration.type = gracht_link_packet_based;
-    linkConfiguration.type = gracht_link_stream_based;
-
-    addr->sun_family = AF_LOCAL;
-    //strncpy (addr->sun_path, dgramPath, sizeof(addr->sun_path));
-    strncpy (addr->sun_path, clientsPath, sizeof(addr->sun_path));
-    addr->sun_path[sizeof(addr->sun_path) - 1] = '\0';
-
-    gracht_link_socket_client_create(&clientConfiguration.link, &linkConfiguration);
-    code = gracht_client_create(&clientConfiguration, &client);
+    // create client
+    code = init_client_with_socket_link(&client);
     if (code) {
-        printf("gracht_client: error initializing client library %i, %i\n", errno, code);
         return code;
     }
 
+    // register protocols
+
+    // run test
     if (argc > 1) {
         code = test_utils_print(client, &context, argv[1]);
     }

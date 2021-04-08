@@ -92,12 +92,14 @@ if (GRACHT_BUILD_TESTS)
 
     add_executable(gclient
         tests/client/main.c
+        tests/init_client_socket.c
         ${CMAKE_CURRENT_BINARY_DIR}/test_utils_protocol_client.c
     )
     target_link_libraries(gclient libgracht)
 
     add_executable(gserver
         tests/server/main.c
+        tests/init_server_socket.c
         ${CMAKE_CURRENT_BINARY_DIR}/test_utils_protocol_server.c
     )
     target_link_libraries(gserver libgracht)
