@@ -58,7 +58,7 @@ static void init_socket_config(struct socket_server_configuration* socketConfig)
 #elif defined(_WIN32)
 #include <windows.h>
 
-static void init_socket_config(struct socket_client_configuration* socketConfig)
+static void init_socket_config(struct socket_server_configuration* socketConfig)
 {
     struct sockaddr_in* addrStream;
     struct sockaddr_in* addrPacket;
@@ -69,8 +69,8 @@ static void init_socket_config(struct socket_client_configuration* socketConfig)
     addrStream = (struct sockaddr_in*)&socketConfig->server_address;
     addrPacket = (struct sockaddr_in*)&socketConfig->dgram_address;
 
-    socketConfig->dgram_address_length = sizeof(struct sockaddr_un);
-    socketConfig->server_address_length = sizeof(struct sockaddr_un);
+    socketConfig->dgram_address_length = sizeof(struct sockaddr_in);
+    socketConfig->server_address_length = sizeof(struct sockaddr_in);
     
     // AF_INET is the Internet address family.
     addrPacket->sin_family = AF_INET;
