@@ -25,6 +25,11 @@
 #include <string.h>
 #include <stdlib.h>
 
+#ifdef _WIN32
+#include <malloc.h>
+#define alloca _alloca
+#endif
+
 struct hashtable_element {
     uint16_t probeCount;
     uint64_t hash;
@@ -108,7 +113,7 @@ void* hashtable_set(hashtable_t* hashtable, const void* element)
         return NULL;
     }
 
-    uint8_t                   elementBuffer[hashtable->element_size];
+    uint8_t*                  elementBuffer = alloca(hashtable->element_size);
     struct hashtable_element* iterElement = (struct hashtable_element*)&elementBuffer[0];
     size_t                    index;
 
