@@ -12,6 +12,13 @@
                     </response>
                 </function>
             </functions>
+
+            <events>
+                <event name="error">
+                    <param name="message_id" type="uint32_t" />
+                    <param name="error_code" type="int" />
+                </event>
+            </events>
         </protocol>
     </protocols>
 </root>

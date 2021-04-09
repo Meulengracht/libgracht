@@ -23,27 +23,31 @@
 #include <errno.h>
 #include "include/aio.h"
 #include "include/debug.h"
-#include "include/list.h"
 #include "include/gracht/server.h"
 #include "include/gracht/link/link.h"
 #include "include/thread_api.h"
 #include "include/utils.h"
 #include "include/server_private.h"
+#include "include/hashtable.h"
+#include "include/control.h"
 #include <stdlib.h>
 #include <string.h>
 
-GRACHT_STRUCT(gracht_subscription_args, {
-    uint8_t protocol_id;
-});
-
-static void gracht_control_subscribe_callback(struct gracht_recv_message* message, struct gracht_subscription_args*);
-static void gracht_control_unsubscribe_callback(struct gracht_recv_message* message, struct gracht_subscription_args*);
-
 static gracht_protocol_function_t control_functions[2] = {
-   { 0 , gracht_control_subscribe_callback },
-   { 1 , gracht_control_unsubscribe_callback },
+   { GRACHT_CONTROL_PROTOCOL_SUBSCRIBE_ID , gracht_control_subscribe_callback },
+   { GRACHT_CONTROL_PROTOCOL_UNSUBSCRIBE_ID , gracht_control_unsubscribe_callback },
 };
 static gracht_protocol_t control_protocol = GRACHT_PROTOCOL_INIT(0, "gctrl", 2, control_functions);
+
+struct client_wrapper {
+    gracht_conn_t                handle;
+    struct gracht_server_client* client;
+};
+
+struct broadcast_context {
+    struct gracht_message* message;
+    unsigned int           flags;
+};
 
 struct gracht_server {
     struct server_link_ops*        ops;
@@ -60,8 +64,8 @@ struct gracht_server {
     gracht_conn_t                  listen_handle;
     gracht_conn_t                  dgram_handle;
     mtx_t                          sync_object;
-    struct gracht_list             protocols;
-    struct gracht_list             clients;
+    hashtable_t                    protocols;
+    hashtable_t                    clients;
 } g_grachtServer = {
         NULL,
         { NULL, NULL },
@@ -81,10 +85,15 @@ struct gracht_server {
         { 0 }
 };
 
-static void client_destroy(struct gracht_server_client*);
+static void client_destroy(struct gracht_server*, gracht_conn_t);
 static void client_subscribe(struct gracht_server_client*, uint8_t);
 static void client_unsubscribe(struct gracht_server_client*, uint8_t);
 static int  client_is_subscribed(struct gracht_server_client*, uint8_t);
+
+static uint64_t client_hash(const void*);
+static int      client_cmp(const void*, const void*);
+static void     client_enum_destroy(int index, const void* element, void* userContext);
+static void     client_enum_broadcast(int index, const void* element, void* userContext);
 
 static struct gracht_recv_message* get_message_st(struct gracht_server*);
 static struct gracht_recv_message* get_message_mt(struct gracht_server*);
@@ -119,6 +128,9 @@ int gracht_server_initialize(gracht_server_configuration_t* configuration)
         GRERROR("gracht_server_initialize: failed to initialize underlying links\n");
         return -1;
     }
+
+    hashtable_construct(&g_grachtServer.protocols, 0, sizeof(struct gracht_protocol), protocol_hash, protocol_cmp);
+    hashtable_construct(&g_grachtServer.clients, 0, sizeof(struct client_wrapper), client_hash, client_cmp);
 
     gracht_server_register_protocol(&control_protocol);
     g_grachtServer.initialized = 1;
@@ -228,7 +240,7 @@ static int handle_client_socket(struct gracht_server* server)
         return status;
     }
     
-    gracht_list_append(&server->clients, &client->header);
+    hashtable_set(&server->clients, &(struct client_wrapper){ .handle = client->handle, .client = client });
     gracht_aio_add(server->set_handle, client->handle);
 
     // invoke the new client callback at last
@@ -245,10 +257,7 @@ static struct gracht_recv_message* get_message_st(struct gracht_server* server)
 
 static void dispatch_st(struct gracht_server* server, struct gracht_recv_message* message)
 {
-    int status = server_invoke_action(server, message);
-    if (status) {
-        GRWARNING("[dispatch_st] failed to invoke server action\n");
-    }
+    server_invoke_action(server, message);
 }
 
 static void dispatch_mt(struct gracht_server* server, struct gracht_recv_message* message)
@@ -285,10 +294,8 @@ static int handle_sync_event(struct gracht_server* server)
 
 static int handle_async_event(struct gracht_server* server, gracht_conn_t handle, uint32_t events)
 {
-    int                          status;
-    struct gracht_recv_message*  message = server->get_message(server);
-    struct gracht_server_client* client = 
-        (struct gracht_server_client*)gracht_list_lookup(&server->clients, (int)handle);
+    int                         status;
+    struct gracht_recv_message* message = server->get_message(server);
     GRTRACE("[handle_async_event] %i, 0x%x\n", handle, events);
     
     // Check for control event. On non-passive sockets, control event is the
@@ -299,11 +306,14 @@ static int handle_async_event(struct gracht_server* server, gracht_conn_t handle
             GRWARNING("handle_async_event: failed to remove descriptor from aio");
         }
         
-        client_destroy(client);
+        client_destroy(server, handle);
     }
     else if ((events & GRACHT_AIO_EVENT_IN) || !events) {
-        while (1) {
-            status = server->ops->recv_client(client, message, 0);
+        struct client_wrapper* entry;
+        
+        entry = hashtable_get(&server->clients, &(struct client_wrapper){ .handle = handle });
+        while (entry) {
+            status = server->ops->recv_client(entry->client, message, 0);
             if (status) {
                 if (errno != ENODATA) {
                     GRERROR("[handle_async_event] server_object.ops->recv_client returned %i\n", errno);
@@ -319,30 +329,33 @@ static int handle_async_event(struct gracht_server* server, gracht_conn_t handle
 
 static int gracht_server_shutdown(void)
 {
-    struct gracht_server_client* client;
-    
     if (!g_grachtServer.initialized) {
         errno = ENOTSUP;
         return -1;
     }
     
-    client = (struct gracht_server_client*)g_grachtServer.clients.head;
-    while (client) {
-        struct gracht_server_client* temp = (struct gracht_server_client*)client->header.link;
-        client_destroy(client);
-        client = temp;
-    }
-    g_grachtServer.clients.head = NULL;
+    hashtable_enumerate(&g_grachtServer.clients, client_enum_destroy, NULL);
     
     if (g_grachtServer.set_handle != GRACHT_HANDLE_INVALID && !g_grachtServer.set_handle_provided) {
         gracht_aio_destroy(g_grachtServer.set_handle);
+    }
+
+    if (g_grachtServer.worker_pool) {
+        gracht_worker_pool_destroy(g_grachtServer.worker_pool);
+    }
+    
+    hashtable_destroy(&g_grachtServer.protocols);
+    hashtable_destroy(&g_grachtServer.clients);
+
+    if (g_grachtServer.arena) {
+        gracht_arena_destroy(g_grachtServer.arena);
     }
 
     if (g_grachtServer.messageBuffer) {
         free(g_grachtServer.messageBuffer);
     }
     
-    if (g_grachtServer.ops != NULL) {
+    if (g_grachtServer.ops) {
         g_grachtServer.ops->destroy(g_grachtServer.ops);
     }
 
@@ -350,7 +363,7 @@ static int gracht_server_shutdown(void)
     return 0;
 }
 
-int server_invoke_action(struct gracht_server* server, struct gracht_recv_message* recvMessage)
+void server_invoke_action(struct gracht_server* server, struct gracht_recv_message* recvMessage)
 {
     gracht_protocol_function_t* function;
     void*                       param_storage;
@@ -359,8 +372,9 @@ int server_invoke_action(struct gracht_server* server, struct gracht_recv_messag
     function = get_protocol_action(&server->protocols, recvMessage->protocol, recvMessage->action);
     mtx_unlock(&server->sync_object);
     if (!function) {
-        // TODO send invalid invocation response
-        return -1;
+        GRWARNING("[dispatch_st] failed to invoke server action\n");
+        gracht_control_event_error_single(recvMessage->client, recvMessage->message_id, ENOENT);
+        return;
     }
     
     param_storage = ((char*)recvMessage->params + (recvMessage->param_count * sizeof(struct gracht_param)));
@@ -377,7 +391,6 @@ int server_invoke_action(struct gracht_server* server, struct gracht_recv_messag
     else {
         ((server_invoke00_t)function->address)(recvMessage);
     }
-    return 0;
 }
 
 void server_cleanup_message(struct gracht_server* server, struct gracht_recv_message* recvMessage)
@@ -427,7 +440,7 @@ int gracht_server_main_loop(void)
 
 int gracht_server_respond(struct gracht_recv_message* messageContext, struct gracht_message* message)
 {
-    struct gracht_server_client* client;
+    struct client_wrapper* entry;
 
     if (!messageContext || !message) {
         GRERROR("gracht_server: null message or context");
@@ -437,39 +450,37 @@ int gracht_server_respond(struct gracht_recv_message* messageContext, struct gra
 
     // update the id for the response
     message->header.id = messageContext->message_id;
-
-    client = (struct gracht_server_client*)gracht_list_lookup(&g_grachtServer.clients, messageContext->client);
-    if (!client) {
+        
+    entry = hashtable_get(&g_grachtServer.clients, &(struct client_wrapper){ .handle = messageContext->client });
+    if (!entry) {
         return g_grachtServer.ops->respond(g_grachtServer.ops, messageContext, message);
     }
 
-    return g_grachtServer.ops->send_client(client, message, GRACHT_MESSAGE_BLOCK);
+    return g_grachtServer.ops->send_client(entry->client, message, GRACHT_MESSAGE_BLOCK);
 }
 
-int gracht_server_send_event(int client, struct gracht_message* message, unsigned int flags)
+int gracht_server_send_event(gracht_conn_t client, struct gracht_message* message, unsigned int flags)
 {
-    struct gracht_server_client* serverClient = 
-        (struct gracht_server_client*)gracht_list_lookup(&g_grachtServer.clients, client);
-    if (!serverClient) {
+    struct client_wrapper* clientEntry;
+
+    clientEntry = hashtable_get(&g_grachtServer.clients, &(struct client_wrapper){ .handle = client });
+    if (!clientEntry) {
         errno = (ENOENT);
         return -1;
     }
     
     // When sending target specific events - we do not care about subscriptions
-    return g_grachtServer.ops->send_client(serverClient, message, flags);
+    return g_grachtServer.ops->send_client(clientEntry->client, message, flags);
 }
 
 int gracht_server_broadcast_event(struct gracht_message* message, unsigned int flags)
 {
-    struct gracht_server_client* client;
-    
-    client = (struct gracht_server_client*)g_grachtServer.clients.head;
-    while (client) {
-        if (client_is_subscribed(client, message->header.protocol)) {
-            g_grachtServer.ops->send_client(client, message, flags);
-        }
-        client = (struct gracht_server_client*)client->header.link;
-    }
+    struct broadcast_context context = {
+        .message = message,
+        .flags   = flags
+    };
+
+    hashtable_enumerate(&g_grachtServer.clients, client_enum_broadcast, &context);
     return 0;
 }
 
@@ -480,7 +491,7 @@ int gracht_server_register_protocol(gracht_protocol_t* protocol)
         return -1;
     }
     
-    gracht_list_append(&g_grachtServer.protocols, &protocol->header);
+    hashtable_set(&g_grachtServer.protocols, protocol);
     return 0;
 }
 
@@ -490,7 +501,7 @@ void gracht_server_unregister_protocol(gracht_protocol_t* protocol)
         return;
     }
     
-    gracht_list_remove(&g_grachtServer.protocols, &protocol->header);
+    hashtable_remove(&g_grachtServer.protocols, protocol);
 }
 
 gracht_conn_t gracht_server_get_dgram_iod(void)
@@ -504,14 +515,19 @@ gracht_handle_t gracht_server_get_set_iod(void)
 }
 
 // Client helpers
-static void client_destroy(struct gracht_server_client* client)
+static void client_destroy(struct gracht_server* server, gracht_conn_t client)
 {
-    if (g_grachtServer.callbacks.clientDisconnected) {
-        g_grachtServer.callbacks.clientDisconnected(client->handle);
+    struct client_wrapper* entry;
+
+    if (server->callbacks.clientDisconnected) {
+        server->callbacks.clientDisconnected(client);
     }
 
-    gracht_list_remove(&g_grachtServer.clients, &client->header);
-    g_grachtServer.ops->destroy_client(client);
+    entry = hashtable_remove(&server->clients, &(struct client_wrapper){ .handle = client });
+    if (!entry) {
+        return;
+    }
+    server->ops->destroy_client(entry->client);
 }
 
 // Client subscription helpers
@@ -553,35 +569,73 @@ static int client_is_subscribed(struct gracht_server_client* client, uint8_t id)
 // Server control protocol implementation
 void gracht_control_subscribe_callback(struct gracht_recv_message* message, struct gracht_subscription_args* input)
 {
-    struct gracht_server_client* client = 
-        (struct gracht_server_client*)gracht_list_lookup(&g_grachtServer.clients, message->client);
-    if (!client) {
-        if (g_grachtServer.ops->create_client(g_grachtServer.ops, message, &client)) {
+    struct client_wrapper* entry;
+    
+    entry = hashtable_get(&g_grachtServer.clients, &(struct client_wrapper){ .handle = message->client });
+    if (!entry) {
+        struct client_wrapper newEntry;
+        if (g_grachtServer.ops->create_client(g_grachtServer.ops, message, &newEntry.client)) {
             GRERROR("[gracht_control_subscribe_callback] server_object.ops->create_client returned error");
             return;
         }
-        gracht_list_append(&g_grachtServer.clients, &client->header);
+
+        newEntry.handle = message->client;
+        hashtable_set(&g_grachtServer.clients, &newEntry);
 
         if (g_grachtServer.callbacks.clientConnected) {
-            g_grachtServer.callbacks.clientConnected(client->handle);
+            g_grachtServer.callbacks.clientConnected(message->client);
         }
     }
 
-    client_subscribe(client, input->protocol_id);
+    client_subscribe(entry->client, input->protocol_id);
 }
 
 void gracht_control_unsubscribe_callback(struct gracht_recv_message* message, struct gracht_subscription_args* input)
 {
-    struct gracht_server_client* client = 
-        (struct gracht_server_client*)gracht_list_lookup(&g_grachtServer.clients, message->client);
-    if (!client) {
+    struct client_wrapper* entry;
+    
+    entry = hashtable_get(&g_grachtServer.clients, &(struct client_wrapper){ .handle = message->client });
+    if (!entry) {
         return;
     }
 
-    client_unsubscribe(client, input->protocol_id);
+    client_unsubscribe(entry->client, input->protocol_id);
     
     // cleanup the client if we unsubscripe
     if (input->protocol_id == 0xFF) {
-        client_destroy(client);
+        client_destroy(&g_grachtServer, message->client);
     }
+}
+
+static uint64_t client_hash(const void* element)
+{
+    const struct client_wrapper* client = element;
+    return (uint64_t)client->handle;
+}
+
+static int client_cmp(const void* element1, const void* element2)
+{
+    const struct client_wrapper* client1 = element1;
+    const struct client_wrapper* client2 = element2;
+    return client1->handle == client2->handle ? 0 : 1;
+}
+
+static void client_enum_broadcast(int index, const void* element, void* userContext)
+{
+    const struct client_wrapper* entry   = element;
+    struct broadcast_context*    context = userContext;
+    (void)index;
+
+    if (client_is_subscribed(entry->client, context->message->header.protocol)) {
+        g_grachtServer.ops->send_client(entry->client, context->message, context->flags);
+    }
+}
+
+static void client_enum_destroy(int index, const void* element, void* userContext)
+{
+    const struct client_wrapper* entry = element;
+    (void)index;
+    (void)userContext;
+
+    g_grachtServer.ops->destroy_client(entry->client);
 }

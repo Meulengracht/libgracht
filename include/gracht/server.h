@@ -150,7 +150,7 @@ int gracht_server_respond(struct gracht_recv_message* context, struct gracht_mes
  * @param flags The flags for the event.
  * @return int Result code of the send.
  */
-int gracht_server_send_event(int client, struct gracht_message* message, unsigned int flags);
+int gracht_server_send_event(gracht_conn_t client, struct gracht_message* message, unsigned int flags);
 
 /**
  * Invoked by protocol generated events to broadcast events to all subscribed clients.

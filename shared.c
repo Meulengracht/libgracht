@@ -21,23 +21,19 @@
  */
 
 #include "include/gracht/types.h"
-#include "include/list.h"
+#include "include/hashtable.h"
 #include "include/debug.h"
 #include "include/utils.h"
 #include <errno.h>
 #include <stdlib.h>
 
-// client callbacks
-typedef void (*client_invoke00_t)(void);
-typedef void (*client_invokeA0_t)(void*);
-
-gracht_protocol_function_t* get_protocol_action(struct gracht_list* protocols,
+gracht_protocol_function_t* get_protocol_action(hashtable_t* protocols,
     uint8_t protocol_id, uint8_t action_id)
 {
     int                i;
-    gracht_protocol_t* protocol = (struct gracht_protocol*)
-        gracht_list_lookup(protocols, (int)(uint32_t)protocol_id);
+    gracht_protocol_t* protocol;
     
+    protocol = hashtable_get(protocols, &(gracht_protocol_t) { .id = protocol_id });
     if (!protocol) {
         GRERROR("[get_protocol_action] protocol %u was not implemented", protocol_id);
         errno = ENOTSUP;
@@ -98,32 +94,4 @@ void unpack_parameters(struct gracht_param* params, uint8_t count, void* params_
             unpackIndex += sizeof(void*);
         }
     }
-}
-
-int client_invoke_action(struct gracht_list* protocols, struct gracht_message* message)
-{
-    gracht_protocol_function_t* function = get_protocol_action(protocols,
-        message->header.protocol, message->header.action);
-    uint32_t param_count;
-    void*    param_storage;
-
-    if (!function) {
-        return -1;
-    }
-    
-    param_count   = message->header.param_in + message->header.param_out;
-    param_storage = (char*)message + sizeof(struct gracht_message) +
-            (message->header.param_in * sizeof(struct gracht_param));
-    
-    // parse parameters into a parameter struct
-    GRTRACE("offset: %lu, param count %i\n", param_count * sizeof(struct gracht_param), param_count);
-    if (param_count) {
-        uint8_t* unpackBuffer = alloca(param_count * sizeof(void*));
-        unpack_parameters(&message->params[0], message->header.param_in, param_storage, &unpackBuffer[0]);
-        ((client_invokeA0_t)function->address)(&unpackBuffer[0]);
-    }
-    else {
-        ((client_invoke00_t)function->address)();
-    }
-    return 0;
 }

@@ -25,10 +25,14 @@
 #include <assert.h>
 #include <errno.h>
 #include "include/gracht/client.h"
+#include "include/client_private.h"
 #include "include/crc.h"
 #include "include/list.h"
+#include "include/hashtable.h"
 #include "include/debug.h"
 #include "include/thread_api.h"
+#include "include/control.h"
+#include "include/utils.h"
 #include <string.h>
 #include <stdlib.h>
 
@@ -51,7 +55,7 @@ typedef struct gracht_client {
     int                     iod;
     uint32_t                current_message_id;
     struct client_link_ops* ops;
-    struct gracht_list      protocols;
+    hashtable_t             protocols;
     struct gracht_list      awaiters;
     struct gracht_list      messages;
     mtx_t                   sync_object;
@@ -63,8 +67,10 @@ static uint32_t get_message_id(gracht_client_t*);
 static void     mark_awaiters(gracht_client_t*, uint32_t);
 static int      check_awaiter_condition(gracht_client_t*, struct gracht_message_awaiter*, struct gracht_message_context**, int);
 
-// extern methods
-extern int client_invoke_action(struct gracht_list*, struct gracht_message*);
+static gracht_protocol_function_t control_events[1] = {
+   { GRACHT_CONTROL_PROTOCOL_ERROR_EVENT_ID , gracht_control_error_event }
+};
+static gracht_protocol_t control_protocol = GRACHT_PROTOCOL_INIT(0, "gctrl", 1, control_events);
 
 // allocated => list_header, message_id, output_buffer
 int gracht_client_invoke(gracht_client_t* client, struct gracht_message_context* context,
@@ -191,15 +197,14 @@ int gracht_client_status(gracht_client_t* client, struct gracht_message_context*
         return -1;
     }
     
-    if (descriptor->status == GRACHT_MESSAGE_COMPLETED || 
-        descriptor->status == GRACHT_MESSAGE_ERROR) {
+    if (descriptor->status == GRACHT_MESSAGE_COMPLETED || descriptor->status == GRACHT_MESSAGE_ERROR) {
         gracht_list_remove(&client->messages, &descriptor->header);
-        pointer = (char*)&descriptor->message.params[descriptor->message.header.param_in];
     }
     mtx_unlock(&client->sync_object);
 
-    status = descriptor->status;
-    if (pointer) {
+    if (descriptor->status == GRACHT_MESSAGE_COMPLETED) {
+        pointer = (char*)&descriptor->message.params[descriptor->message.header.param_in];
+
         GRTRACE("[gracht] [client] unpacking parameters\n");
         for (i = 0; i < descriptor->message.header.param_in; i++) {
             struct gracht_param* out_param = &params[i];
@@ -227,10 +232,41 @@ int gracht_client_status(gracht_client_t* client, struct gracht_message_context*
             }
         }
         
+    }
+
+    status = descriptor->status;
+    if (descriptor->status == GRACHT_MESSAGE_COMPLETED || descriptor->status == GRACHT_MESSAGE_ERROR) {
         free(context->descriptor);
     }
-    
     return status;
+}
+
+int client_invoke_action(gracht_client_t* client, struct gracht_message* message)
+{
+    gracht_protocol_function_t* function = get_protocol_action(&client->protocols,
+        message->header.protocol, message->header.action);
+    uint32_t param_count;
+    void*    param_storage;
+
+    if (!function) {
+        return -1;
+    }
+    
+    param_count   = message->header.param_in + message->header.param_out;
+    param_storage = (char*)message + sizeof(struct gracht_message) +
+            (message->header.param_in * sizeof(struct gracht_param));
+    
+    // parse parameters into a parameter struct
+    GRTRACE("offset: %lu, param count %i\n", param_count * sizeof(struct gracht_param), param_count);
+    if (param_count) {
+        uint8_t* unpackBuffer = alloca(param_count * sizeof(void*));
+        unpack_parameters(&message->params[0], message->header.param_in, param_storage, &unpackBuffer[0]);
+        ((client_invokeA0_t)function->address)(client, &unpackBuffer[0]);
+    }
+    else {
+        ((client_invoke00_t)function->address)(client);
+    }
+    return 0;
 }
 
 int gracht_client_wait_message(
@@ -286,7 +322,7 @@ listenForMessage:
     GRTRACE("[gracht] [client] invoking message type %u - %u/%u\n",
         message->header.flags, message->header.protocol, message->header.action);
     if (MESSAGE_FLAG_TYPE(message->header.flags) == MESSAGE_FLAG_EVENT) {
-        status = client_invoke_action(&client->protocols, message);
+        status = client_invoke_action(client, message);
     }
     else if (MESSAGE_FLAG_TYPE(message->header.flags) == MESSAGE_FLAG_RESPONSE) {
         struct gracht_message_descriptor* descriptor = (struct gracht_message_descriptor*)
@@ -345,6 +381,7 @@ int gracht_client_create(gracht_client_configuration_t* config, gracht_client_t*
     memset(client, 0, sizeof(gracht_client_t));
     mtx_init(&client->sync_object, mtx_plain);
     mtx_init(&client->wait_object, mtx_plain);
+    hashtable_construct(&client->protocols, 0, sizeof(struct gracht_protocol), protocol_hash, protocol_cmp);
 
     client->ops = config->link;
     client->iod = client->ops->connect(client->ops);
@@ -353,6 +390,9 @@ int gracht_client_create(gracht_client_configuration_t* config, gracht_client_t*
         gracht_client_shutdown(client);
         return -1;
     }
+
+    // register the control protocol
+    gracht_client_register_protocol(client, &control_protocol);
     
     *clientOut = client;
     return 0;
@@ -368,6 +408,7 @@ void gracht_client_shutdown(gracht_client_t* client)
         client->ops->destroy(client->ops);
     }
     
+    hashtable_destroy(&client->protocols);
     mtx_destroy(&client->sync_object);
     mtx_destroy(&client->wait_object);
     free(client);
@@ -389,7 +430,7 @@ int gracht_client_register_protocol(gracht_client_t* client, gracht_protocol_t* 
         return -1;
     }
     
-    gracht_list_append(&client->protocols, &protocol->header);
+    hashtable_set(&client->protocols, protocol);
     return 0;
 }
 
@@ -399,7 +440,7 @@ void gracht_client_unregister_protocol(gracht_client_t* client, gracht_protocol_
         return;
     }
     
-    gracht_list_remove(&client->protocols, &protocol->header);
+    hashtable_remove(&client->protocols, protocol);
 }
 
 static void mark_awaiters(gracht_client_t* client, uint32_t messageId)
@@ -466,4 +507,23 @@ static int check_awaiter_condition(gracht_client_t* client,
 static uint32_t get_message_id(gracht_client_t* client)
 {
     return client->current_message_id++;
+}
+
+void gracht_control_error_event(gracht_client_t* client, struct gracht_control_error_event* event)
+{
+    struct gracht_message_descriptor* descriptor = (struct gracht_message_descriptor*)
+        gracht_list_lookup(&client->messages, (int)event->message_id);
+    if (!descriptor) {
+        // what the heck?
+        GRERROR("[gracht_control_error_event] no-one was listening for message %u\n", event->message_id);
+        return;
+    }
+    
+    // set status
+    descriptor->status = GRACHT_MESSAGE_ERROR;
+    
+    // iterate awaiters and mark those that contain this message
+    mtx_lock(&client->sync_object);
+    mark_awaiters(client, event->message_id);
+    mtx_unlock(&client->sync_object);
 }

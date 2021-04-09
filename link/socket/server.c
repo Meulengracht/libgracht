@@ -35,6 +35,7 @@
 struct socket_link_client {
     struct gracht_server_client base;
     struct sockaddr_storage     address;
+    int                         socket;
 };
 
 struct socket_link_manager {
@@ -130,7 +131,7 @@ static int socket_link_recv_client(struct socket_link_client* client,
     }
 
     context->message_id  = message->header.id;
-    context->client      = client->base.header.id;
+    context->client      = client->socket;
     context->params      = (void*)params_storage;
     
     context->param_in    = message->header.param_in;
@@ -158,8 +159,8 @@ static int socket_link_create_client(struct socket_link_manager* linkManager, st
     }
 
     memset(client, 0, sizeof(struct socket_link_client));
-    client->base.header.id = message->client;
-    client->base.handle    = linkManager->dgram_socket;
+    client->base.handle = message->client;
+    client->socket      = linkManager->dgram_socket;
 
     address = (struct sockaddr_storage*)&message->payload[0];
     memcpy(&client->address, address, (size_t)linkManager->config.server_address_length);
@@ -245,13 +246,13 @@ static int socket_link_accept(struct socket_link_manager* linkManager, struct gr
     memset(client, 0, sizeof(struct socket_link_client));
 
     // TODO handle disconnects in accept in netmanager
-    client->base.handle = accept(linkManager->client_socket, (struct sockaddr*)&client->address, &address_length);
-    if (client->base.handle < 0) {
+    client->socket = accept(linkManager->client_socket, (struct sockaddr*)&client->address, &address_length);
+    if (client->socket < 0) {
         GRERROR("link_server: failed to accept client\n");
         free(client);
         return -1;
     }
-    client->base.header.id = client->base.handle;
+    client->base.handle = client->socket;
     
     *clientOut = &client->base;
     return 0;

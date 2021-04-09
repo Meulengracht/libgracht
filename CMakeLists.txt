@@ -60,12 +60,12 @@ endif ()
 
 configure_file(config.h.in config.h @ONLY)
 add_sources(link/socket/client.c link/socket/server.c link/socket/shared.c)
-add_sources(client.c crc.c server.c server_config.c shared.c arena.c dispatch.c)
+add_sources(client.c crc.c server.c server_config.c shared.c arena.c dispatch.c hashtable.c)
 
-add_library(libgracht ${SRCS})
+add_library(gracht ${SRCS})
 
 if (VALI_BUILD)
-    install(TARGETS libgracht
+    install(TARGETS gracht
         ARCHIVE DESTINATION vali-ddk/lib
         LIBRARY DESTINATION vali-ddk/lib
         RUNTIME DESTINATION vali-ddk/bin
@@ -73,7 +73,7 @@ if (VALI_BUILD)
     install(DIRECTORY include/ DESTINATION vali-ddk/include)
     install(DIRECTORY generator/ DESTINATION vali-ddk/share/vali)
 else ()
-    install(TARGETS libgracht
+    install(TARGETS gracht
         ARCHIVE DESTINATION lib
         LIBRARY DESTINATION lib
         RUNTIME DESTINATION bin
@@ -95,14 +95,14 @@ if (GRACHT_BUILD_TESTS)
         tests/init_client_socket.c
         ${CMAKE_CURRENT_BINARY_DIR}/test_utils_protocol_client.c
     )
-    target_link_libraries(gclient libgracht)
+    target_link_libraries(gclient gracht)
 
     add_executable(gserver
         tests/server/main.c
         tests/init_server_socket.c
         ${CMAKE_CURRENT_BINARY_DIR}/test_utils_protocol_server.c
     )
-    target_link_libraries(gserver libgracht)
+    target_link_libraries(gserver gracht)
 
     if (UNIX)
         target_link_libraries(gclient -lrt -lc)

@@ -123,13 +123,12 @@ typedef struct gracht_protocol_function {
 } gracht_protocol_function_t;
 
 typedef struct gracht_protocol {
-    gracht_object_header_t      header;
     uint8_t                     id;
     char*                       name;
     uint8_t                     num_functions;
     gracht_protocol_function_t* functions;
 } gracht_protocol_t;
 
-#define GRACHT_PROTOCOL_INIT(id, name, num_functions, functions) { { id, NULL }, id, name, num_functions, functions }
+#define GRACHT_PROTOCOL_INIT(id, name, num_functions, functions) { id, name, num_functions, functions }
 
 #endif // !__GRACHT_TYPES_H__

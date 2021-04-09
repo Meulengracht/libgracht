@@ -121,9 +121,8 @@ void gracht_worker_pool_dispatch(struct gracht_worker_pool* pool, struct gracht_
  * 
  * @param server A pointer to the server instance
  * @param recvMessage A pointer to the recv_message structure that contains message data.
- * @return int Returns 0 if the callback was successfully found.
  */
-int server_invoke_action(struct gracht_server* server, struct gracht_recv_message* recvMessage);
+void server_invoke_action(struct gracht_server* server, struct gracht_recv_message* recvMessage);
 
 /**
  * Defined in server.c

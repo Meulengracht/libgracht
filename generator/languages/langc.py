@@ -107,6 +107,16 @@ def write_param_values(protocol, func, param, outfile):
     outfile.write("\n")
     return
 
+def is_param_const(param):
+    if param.is_output():
+        return False
+    
+    # skip reserved names
+    if "gracht_message_context" in param.get_typename():
+        return False
+    if "gracht_client_t" in param.get_typename():
+        return False
+    return True
 
 def get_param_typename(protocol, param, case):
     # resolve enums and structs
@@ -138,6 +148,10 @@ def get_param_typename(protocol, param, case):
             if param.is_value():
                 param_typename = param_typename + "*"
             param_name = param_name + "_out"
+        
+        if is_param_const(param):
+            param_typename = "const " + param_typename
+
         param_typename = param_typename + " " + param_name
         if param.is_array():
             param_typename = param_typename + "[" + str(param.get_count()) + "]"
@@ -186,7 +200,7 @@ def get_protocol_client_event_callback_name(protocol, evt):
 
 
 def get_protocol_event_prototype_name_single(protocol, evt, case):
-    evt_client_param = get_param_typename(protocol, Parameter("client", "int"), case)
+    evt_client_param = get_param_typename(protocol, Parameter("client", "gracht_conn_t"), case)
     evt_name = "int " + protocol.get_namespace() + "_" + protocol.get_name() + "_event_" + evt.get_name() + "_single(" + evt_client_param
 
     if len(evt.get_params()) > 0:
@@ -265,7 +279,7 @@ def get_size_function(protocol, param, case):
         return param.get_name() + "_length"
 
     if param.is_string():
-        return "((" + param.get_name() + " == NULL) ? 0 : (strlen(&" + param.get_name() + "[0]) + 1))"
+        return "((" + param.get_name() + " == NULL) ? 0 : (strlen(" + param.get_name() + ") + 1))"
 
     # otherwise we use sizeof with optional * count
     if param.is_array():
@@ -274,6 +288,36 @@ def get_size_function(protocol, param, case):
 
     return "sizeof(" + get_param_typename(protocol, param, CONST.TYPENAME_CASE_SIZEOF) + ")"
 
+def get_message_data_variable_str(param):
+    if param.is_hidden() and param.get_default_value():
+        return ".data.value = (size_t)" + param.get_default_value()
+    elif param.is_value():
+        return ".data.value = (size_t)" + param.get_name()
+    elif param.is_buffer() or param.is_string() or param.is_array():
+        return ".data.buffer = (void*)" + param.get_name()
+    elif param.is_shm():
+        return ".data.buffer = (void*)" + param.get_name()
+    return ""
+
+def get_message_data_type_str(param):
+    if param.is_hidden() and param.get_default_value():
+        return "GRACHT_PARAM_VALUE"
+    elif param.is_value():
+        return "GRACHT_PARAM_VALUE"
+    elif param.is_buffer() or param.is_string() or param.is_array():
+        return "GRACHT_PARAM_BUFFER"
+    elif param.is_shm():
+        return "GRACHT_PARAM_SHM"
+    return ""
+
+def get_status_message_data_type_str(param):
+    if param.is_value():
+        return "GRACHT_PARAM_VALUE"
+    elif param.is_buffer() or param.is_string() or param.is_array():
+        return "GRACHT_PARAM_BUFFER"
+    elif param.is_shm():
+        return "GRACHT_PARAM_SHM"
+    return ""
 
 def define_message_struct(protocol, action_id, params_in, params_out, flags, case, outfile):
     params_all = params_in + params_out
@@ -306,22 +350,14 @@ def define_message_struct(protocol, action_id, params_in, params_out, flags, cas
         outfile.write("\n    }, .__params = {\n")
         for index, param in enumerate(params_in):
             size_function = get_size_function(protocol, param, case)
-            if param.is_hidden() and param.get_default_value():
-                outfile.write(
-                    "            { .type = GRACHT_PARAM_VALUE, .data.value = (size_t)"
-                    + param.get_default_value() + ", .length = " + size_function + " }")
-            elif param.is_value():
-                outfile.write(
-                    "            { .type = GRACHT_PARAM_VALUE, .data.value = (size_t)"
-                    + param.get_name() + ", .length = " + size_function + " }")
-            elif param.is_buffer() or param.is_string() or param.is_array():
-                outfile.write(
-                    "            { .type = GRACHT_PARAM_BUFFER, .data.buffer = "
-                    + param.get_name() + ", .length = " + size_function + " }")
-            elif param.is_shm():
-                outfile.write(
-                    "            { .type = GRACHT_PARAM_SHM, .data.buffer = "
-                    + param.get_name() + ", .length = " + size_function + " }")
+            type_name = get_message_data_type_str(param)
+            data_name = get_message_data_variable_str(param)
+            outfile.write(
+                "            { "
+                + ".length = " + size_function + ", "
+                + ".type = " + type_name + ", "
+                + data_name + " "
+                + "}")
 
             if index + 1 < len(params_all):
                 outfile.write(",\n")
@@ -329,18 +365,13 @@ def define_message_struct(protocol, action_id, params_in, params_out, flags, cas
                 outfile.write("\n")
         for index, param in enumerate(params_out):
             size_function = get_size_function(protocol, param, case)
-            if param.is_value():
-                outfile.write(
-                    "            { .type = GRACHT_PARAM_VALUE, .data.buffer = NULL, .length = "
-                    + size_function + " }")
-            elif param.is_buffer() or param.is_string() or param.is_array():
-                outfile.write(
-                    "            { .type = GRACHT_PARAM_BUFFER, .data.buffer = NULL, .length = "
-                    + size_function + " }")
-            elif param.is_shm():
-                outfile.write(
-                    "            { .type = GRACHT_PARAM_SHM, .data.buffer = NULL, .length = "
-                    + size_function + " }")
+            type_name = get_status_message_data_type_str(param)
+            outfile.write(
+                "            { "
+                + ".length = " + size_function + ", "
+                + ".type = " + type_name + ", "
+                + ".data.buffer = NULL "
+                + "}")
 
             if index + 1 < len(params_out):
                 outfile.write(",\n")
@@ -350,25 +381,17 @@ def define_message_struct(protocol, action_id, params_in, params_out, flags, cas
     outfile.write("\n    };\n\n")
     return
 
-
 def define_status_struct(protocol, params_out, case, outfile):
     outfile.write("    struct gracht_param __params[" + str(len(params_out)) + "] = {\n")
     for index, param in enumerate(params_out):
         size_function = get_size_function(protocol, param, case)
         buffer_variable = param.get_name() + "_out"
-
-        if param.is_value():
-            outfile.write(
-                "            { .type = GRACHT_PARAM_VALUE, .data.buffer = "
-                + buffer_variable + ", .length = " + size_function + " }")
-        elif param.is_buffer() or param.is_string() or param.is_array():
-            outfile.write(
-                "            { .type = GRACHT_PARAM_BUFFER, .data.buffer = "
-                + buffer_variable + ", .length = " + size_function + " }")
-        elif param.is_shm():
-            outfile.write(
-                "            { .type = GRACHT_PARAM_SHM, .data.buffer = "
-                + buffer_variable + ", .length = " + size_function + " }")
+        outfile.write(
+            "            { "
+            + ".length = " + size_function + ", "
+            + ".type = " + get_status_message_data_type_str(param) + ", "
+            + ".data.buffer = (void*)" + buffer_variable + " "
+            + " }")
 
         if index + 1 < len(params_out):
             outfile.write(",\n")
@@ -658,10 +681,9 @@ class CGenerator:
 
     def get_client_protocol_event_callback(self, protocol, evt):
         prototype = "void " + get_protocol_client_event_callback_name(protocol, evt) + "("
+        prototype = prototype + "gracht_client_t* client"
         if len(evt.get_params()) > 0:
-            prototype = prototype + "struct " + get_event_struct_name(protocol, evt) + "*"
-        else:
-            prototype = prototype + "void"
+            prototype = prototype + ", struct " + get_event_struct_name(protocol, evt) + "*"
         return prototype + ")"
 
     def write_client_protocol_prototype(self, protocol, outfile):

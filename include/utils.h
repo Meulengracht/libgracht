@@ -25,12 +25,27 @@
 
 #include "gracht/types.h"
 
+typedef struct hashtable hashtable_t;
+
 #ifdef _WIN32
 #include <malloc.h>
 #define alloca _alloca
 #endif
 
-gracht_protocol_function_t* get_protocol_action(struct gracht_list* protocols, uint8_t protocol_id, uint8_t action_id);
+gracht_protocol_function_t* get_protocol_action(hashtable_t* protocols, uint8_t protocol_id, uint8_t action_id);
 void unpack_parameters(struct gracht_param* params, uint8_t count, void* params_storage, uint8_t* unpackBuffer);
+
+static uint64_t protocol_hash(const void* element)
+{
+    const struct gracht_protocol* protocol = element;
+    return protocol->id;
+}
+
+static int protocol_cmp(const void* element1, const void* element2)
+{
+    const struct gracht_protocol* protocol1 = element1;
+    const struct gracht_protocol* protocol2 = element2;
+    return protocol1->id == protocol2->id ? 0 : 1;
+}
 
 #endif // !__GRACHT_UTILS_H__

@@ -15,13 +15,13 @@
  * along with this program.If not, see <http://www.gnu.org/licenses/>.
  *
  *
- * Gracht List Type Definitions & Structures
- * - This header describes the base list-structure, prototypes
+ * Gracht Queue Type Definitions & Structures
+ * - This header describes the base queue-structure, prototypes
  *   and functionality, refer to the individual things for descriptions
  */
 
-#ifndef __GRACHT_LIST_H__
-#define __GRACHT_LIST_H__
+#ifndef __GRACHT_QUEUE_H__
+#define __GRACHT_QUEUE_H__
 
 #include "gracht/types.h"
 
@@ -60,4 +60,4 @@ gracht_queue_dequeue(struct gracht_queue* queue)
     return item;
 }
 
-#endif // !__GRACHT_LIST_H__
+#endif // !__GRACHT_QUEUE_H__

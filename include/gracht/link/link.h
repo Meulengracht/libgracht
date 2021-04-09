@@ -39,9 +39,8 @@ enum gracht_link_type {
 // Represents a client from the server point of view, and will be given when trying
 // to communicate with the client. The link functions will have this information available.
 struct gracht_server_client {
-    struct gracht_object_header header;
-    uint32_t                    subscriptions[8]; // 32 bytes to cover 255 bits
-    gracht_conn_t               handle;
+    gracht_conn_t handle;
+    uint32_t      subscriptions[8]; // 32 bytes to cover 255 bits
 };
 
 // forward declares
