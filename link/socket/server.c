@@ -88,7 +88,7 @@ static int socket_link_send_client(struct socket_link_client* client,
 
     i_msghdr_set_bufs(&msg, &iov[0], iovCount);
 
-    GRTRACE("[socket_link_send] sending message\n");
+    GRTRACE(GRSTR("[socket_link_send] sending message"));
     bytesWritten = sendmsg(client->base.handle, &msg, socketFlags);
     if (bytesWritten != message->header.length) {
         return -1;
@@ -105,7 +105,7 @@ static int socket_link_recv_client(struct socket_link_client* client,
     unsigned int           socketFlags    = get_socket_flags(flags);
     intmax_t               bytes_read;
     
-    GRTRACE("[gracht_connection_recv_stream] reading message header\n");
+    GRTRACE(GRSTR("[gracht_connection_recv_stream] reading message header"));
     bytes_read = recv(client->base.handle, message, sizeof(struct gracht_message), socketFlags);
     if (bytes_read != sizeof(struct gracht_message)) {
         if (bytes_read == 0) {
@@ -117,13 +117,13 @@ static int socket_link_recv_client(struct socket_link_client* client,
     if (message->header.param_in) {
         intmax_t bytesToRead = message->header.length - sizeof(struct gracht_message);
 
-        GRTRACE("[gracht_connection_recv_stream] reading message payload\n");
+        GRTRACE(GRSTR("[gracht_connection_recv_stream] reading message payload"));
         params_storage = (char*)&context->payload[sizeof(struct gracht_message)];
         bytes_read     = recv(client->base.handle, params_storage, (size_t)bytesToRead, MSG_WAITALL);
         if (bytes_read != bytesToRead) {
             // do not process incomplete requests
             // TODO error code / handling
-            GRERROR("[gracht_connection_recv_message] did not read full amount of bytes (%u, expected %u)\n",
+            GRERROR(GRSTR("[gracht_connection_recv_message] did not read full amount of bytes (%u, expected %u)"),
                   (uint32_t)bytes_read, (uint32_t)(message->header.length - sizeof(struct gracht_message)));
             errno = (EPIPE);
             return -1;
@@ -234,11 +234,11 @@ static int socket_link_accept(struct socket_link_manager* linkManager, struct gr
 {
     struct socket_link_client* client;
     socklen_t                  address_length;
-    GRTRACE("[socket_link_accept]\n");
+    GRTRACE(GRSTR("[socket_link_accept]"));
 
     client = (struct socket_link_client*)malloc(sizeof(struct socket_link_client));
     if (!client) {
-        GRERROR("link_server: failed to allocate data for link\n");
+        GRERROR(GRSTR("link_server: failed to allocate data for link"));
         errno = (ENOMEM);
         return -1;
     }
@@ -248,7 +248,7 @@ static int socket_link_accept(struct socket_link_manager* linkManager, struct gr
     // TODO handle disconnects in accept in netmanager
     client->socket = accept(linkManager->client_socket, (struct sockaddr*)&client->address, &address_length);
     if (client->socket < 0) {
-        GRERROR("link_server: failed to accept client\n");
+        GRERROR(GRSTR("link_server: failed to accept client"));
         free(client);
         return -1;
     }
@@ -285,11 +285,11 @@ static int socket_link_recv_packet(struct socket_link_manager* linkManager,
     }
 
     addressCrc = crc32_generate((const unsigned char*)i_msghdr_addr_name(&msg), (size_t)i_msghdr_addr_len(&msg));
-    GRTRACE("[gracht_connection_recv_stream] read [%u/%u] addr bytes, %p\n",
+    GRTRACE(GRSTR("[gracht_connection_recv_stream] read [%u/%u] addr bytes, %p"),
             i_msghdr_addr_len(&msg), linkManager->config.dgram_address_length,
             i_msghdr_addr_name(&msg));
-    GRTRACE("[gracht_connection_recv_stream] read %lu bytes, %u\n", bytes_read, i_msghdr_flags(&msg));
-    GRTRACE("[gracht_connection_recv_stream] parameter offset %lu\n", (uintptr_t)&message->params[0] - (uintptr_t)message);
+    GRTRACE(GRSTR("[gracht_connection_recv_stream] read %lu bytes, %u"), bytes_read, i_msghdr_flags(&msg));
+    GRTRACE(GRSTR("[gracht_connection_recv_stream] parameter offset %lu"), (uintptr_t)&message->params[0] - (uintptr_t)message);
     if (message->header.param_in) {
         params_storage = &message->params[0];
     }
@@ -337,9 +337,9 @@ static int socket_link_respond(struct socket_link_manager* linkManager,
 
     bytesWritten = sendmsg(linkManager->dgram_socket, &msg, MSG_WAITALL);
     if (bytesWritten != message->header.length) {
-        GRERROR("link_server: failed to respond [%li/%i]\n", bytesWritten, message->header.length);
+        GRERROR(GRSTR("link_server: failed to respond [%li/%i]"), bytesWritten, message->header.length);
         if (bytesWritten == -1) {
-            GRERROR("link_server: errno %i\n", errno);
+            GRERROR(GRSTR("link_server: errno %i"), errno);
         }
         return -1;
     }

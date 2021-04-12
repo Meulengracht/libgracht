@@ -117,7 +117,7 @@ int gracht_link_vali_client_create(struct client_link_ops** linkOut)
 
     linkManager = (struct vali_link_manager*)malloc(sizeof(struct vali_link_manager));
     if (!linkManager) {
-        ERROR("[gracht] [client-link] [vali] failed to allocate memory");
+        ERROR("[gracht] [client-link] [vali] failed to allocate memory"));
         errno = (ENOMEM);
         return -1;
     }

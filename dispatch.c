@@ -140,7 +140,7 @@ static void initialize_worker(struct gracht_server* server, struct gracht_worker
 
     context = malloc(sizeof(struct gracht_worker_context));
     if (!context) {
-        GRERROR("initialize_worker: failed to allocate memory for worker context");
+        GRERROR(GRSTR("initialize_worker: failed to allocate memory for worker context"));
         return;
     }
 
@@ -153,7 +153,7 @@ static void initialize_worker(struct gracht_server* server, struct gracht_worker
     cnd_init(&worker->signal);
     worker->state = WORKER_STARTUP;
     if (thrd_create(&worker->id, worker_dowork, context) != thrd_success) {
-        GRERROR("initialize_worker: failed to create worker-thread");
+        GRERROR(GRSTR("initialize_worker: failed to create worker-thread"));
     }
 }
 
@@ -168,6 +168,7 @@ static int worker_dowork(void* context)
     struct gracht_worker_context* workerContext = context;
     struct gracht_object_header*  job_header;
     struct gracht_worker*         worker;
+    GRTRACE(GRSTR("worker_dowork: running"));
 
     worker = workerContext->worker;
     worker->state = WORKER_ALIVE;
@@ -188,6 +189,7 @@ static int worker_dowork(void* context)
         mtx_unlock(&worker->sync_object);
 
         // handle the job
+        GRTRACE(GRSTR("worker_dowork: handling message"));
         server_invoke_action(workerContext->server, (struct gracht_recv_message*)job_header);
         server_cleanup_message(workerContext->server, (struct gracht_recv_message*)job_header);
 
@@ -197,6 +199,7 @@ static int worker_dowork(void* context)
             break;
         }
     }
+    GRTRACE(GRSTR("worker_dowork: shutting down"));
 
     job_header = gracht_queue_dequeue(&worker->job_queue);
     while (job_header) {

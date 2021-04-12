@@ -27,11 +27,13 @@
 //#define __TRACE
 #include <ddk/utils.h>
 
-#define GRTRACE   TRACE
-#define GRWARNING WARNING
-#define GRERROR   ERROR
+#define GRSTR(str) str
+#define GRTRACE    TRACE
+#define GRWARNING  WARNING
+#define GRERROR    ERROR
 #elif defined(__linux__) || defined(_WIN32)
 #include <stdio.h>
+#define GRSTR(str)     str "\n"
 #define GRTRACE(...)   printf(__VA_ARGS__)
 #define GRWARNING(...) printf(__VA_ARGS__)
 #define GRERROR(...)   printf(__VA_ARGS__)

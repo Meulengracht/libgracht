@@ -35,7 +35,7 @@ gracht_protocol_function_t* get_protocol_action(hashtable_t* protocols,
     
     protocol = hashtable_get(protocols, &(gracht_protocol_t) { .id = protocol_id });
     if (!protocol) {
-        GRERROR("[get_protocol_action] protocol %u was not implemented", protocol_id);
+        GRERROR(GRSTR("[get_protocol_action] protocol %u was not implemented"), protocol_id);
         errno = ENOTSUP;
         return NULL;
     }
@@ -46,7 +46,7 @@ gracht_protocol_function_t* get_protocol_action(hashtable_t* protocols,
         }
     }
 
-    GRERROR("[get_protocol_action] action %u was not implemented", action_id);
+    GRERROR(GRSTR("[get_protocol_action] action %u was not implemented"), action_id);
     errno = ENOTSUP;
     return NULL;
 }
@@ -59,7 +59,7 @@ void unpack_parameters(struct gracht_param* params, uint8_t count, void* params_
 
     for (i = 0; i < count; i++) {
         if (params[i].type == GRACHT_PARAM_VALUE) {
-            GRTRACE("push value: %u\n", (uint32_t)(params[i].data.value & 0xFFFFFFFF));
+            GRTRACE(GRSTR("push value: %u"), (uint32_t)(params[i].data.value & 0xFFFFFFFF));
             if (params[i].length == 1) {
                 unpackBuffer[unpackIndex] = (uint8_t)(params[i].data.value & 0xFF);
             }
@@ -79,7 +79,7 @@ void unpack_parameters(struct gracht_param* params, uint8_t count, void* params_
             unpackIndex += params[i].length;
         }
         else if (params[i].type == GRACHT_PARAM_BUFFER) {
-            GRTRACE("push pointer: 0x%p %u\n", pointer, params[i].length);
+            GRTRACE(GRSTR("push pointer: 0x%p %u"), pointer, params[i].length);
             if (params[i].length == 0) {
                 *((char**)&unpackBuffer[unpackIndex]) = NULL;
             }

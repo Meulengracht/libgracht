@@ -100,3 +100,23 @@ int init_server_with_socket_link(void)
     }
     return code;
 }
+
+int init_mt_server_with_socket_link(int workerCount)
+{
+    struct socket_server_configuration linkConfiguration = { 0 };
+    struct gracht_server_configuration serverConfiguration;
+    int                                code;
+    
+    gracht_server_configuration_init(&serverConfiguration);
+    init_socket_config(&linkConfiguration);
+
+    // setup the number of workers
+    gracht_server_configuration_set_num_workers(&serverConfiguration, workerCount);
+    
+    gracht_link_socket_server_create(&serverConfiguration.link, &linkConfiguration);
+    code = gracht_server_initialize(&serverConfiguration);
+    if (code) {
+        printf("init_server_with_socket_link: error initializing server library %i\n", errno);
+    }
+    return code;
+}

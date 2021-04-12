@@ -66,7 +66,7 @@ static int socket_link_send_stream(struct socket_link_manager* linkManager,
 
     byteCount = sendmsg(linkManager->iod, &msg, 0);
     if (byteCount != message->header.length) {
-        GRERROR("link_client: failed to send message, bytes sent: %li, expected: %u (%i)\n",
+        GRERROR(GRSTR("link_client: failed to send message, bytes sent: %li, expected: %u (%i)"),
               byteCount, message->header.length, errno);
         errno = (EPIPE);
         return GRACHT_MESSAGE_ERROR;
@@ -82,7 +82,7 @@ static int socket_link_recv_stream(struct socket_link_manager* linkManager,
     char*                  params_storage;
     size_t                 bytes_read;
     
-    GRTRACE("[gracht_connection_recv_stream] reading message header\n");
+    GRTRACE(GRSTR("[gracht_connection_recv_stream] reading message header"));
     bytes_read = recv(linkManager->iod, message, sizeof(struct gracht_message), flags);
     if (bytes_read != sizeof(struct gracht_message)) {
         if (bytes_read == 0) {
@@ -95,13 +95,13 @@ static int socket_link_recv_stream(struct socket_link_manager* linkManager,
     }
     
     if (message->header.param_in) {
-        GRTRACE("[gracht_connection_recv_stream] reading message payload\n");
+        GRTRACE(GRSTR("[gracht_connection_recv_stream] reading message payload"));
         
         params_storage = (char*)messageBuffer + sizeof(struct gracht_message);
         bytes_read     = recv(linkManager->iod, params_storage, message->header.length - sizeof(struct gracht_message), MSG_WAITALL);
         if (bytes_read != message->header.length - sizeof(struct gracht_message)) {
             // do not process incomplete requests
-            GRERROR("[gracht_connection_recv_message] did not read full amount of bytes (%u, expected %u)",
+            GRERROR(GRSTR("[gracht_connection_recv_message] did not read full amount of bytes (%u, expected %u)"),
                   (uint32_t)bytes_read, (uint32_t)(message->header.length - sizeof(struct gracht_message)));
             errno = (EPIPE);
             return -1; 
@@ -120,7 +120,7 @@ static int socket_link_send_packet(struct socket_link_manager* linkManager, stru
     intmax_t      byteCount;
     i_msghdr_t    msg = I_MSGHDR_INIT;
 
-    GRTRACE("link_client: send message (%u, in %i, out %i)\n",
+    GRTRACE(GRSTR("link_client: send message (%u, in %i, out %i)"),
           message->header.length, message->header.param_in, message->header.param_out);
 
     // Prepare the header
@@ -145,7 +145,7 @@ static int socket_link_send_packet(struct socket_link_manager* linkManager, stru
     
     byteCount = sendmsg(linkManager->iod, &msg, 0);
     if (byteCount != message->header.length) {
-        GRERROR("link_client: failed to send message, bytes sent: %u, expected: %u\n",
+        GRERROR(GRSTR("link_client: failed to send message, bytes sent: %u, expected: %u"),
               (uint32_t)byteCount, message->header.length);
         errno = (EPIPE);
         return GRACHT_MESSAGE_ERROR;
@@ -169,7 +169,7 @@ static int socket_link_recv_packet(struct socket_link_manager* linkManager,
     
     // Packets are atomic, either the full packet is there, or none is. So avoid
     // the use of MSG_WAITALL here.
-    GRTRACE("[gracht_connection_recv_stream] reading full message");
+    GRTRACE(GRSTR("[gracht_connection_recv_stream] reading full message"));
     intmax_t bytes_read = recvmsg(linkManager->iod, &msg, flags);
     if (bytes_read < (intmax_t)sizeof(struct gracht_message)) {
         if (bytes_read == 0) {
@@ -191,7 +191,7 @@ static int socket_link_connect(struct socket_link_manager* linkManager)
     
     linkManager->iod = socket(AF_LOCAL, type, 0);
     if (linkManager->iod < 0) {
-        GRERROR("client_link: failed to create socket\n");
+        GRERROR(GRSTR("client_link: failed to create socket"));
         return -1;
     }
     
@@ -199,7 +199,7 @@ static int socket_link_connect(struct socket_link_manager* linkManager)
         (const struct sockaddr*)&linkManager->config.address,
         linkManager->config.address_length);
     if (status) {
-        GRERROR("client_link: failed to connect to socket\n");
+        GRERROR(GRSTR("client_link: failed to connect to socket"));
         close(linkManager->iod);
         return status;
     }

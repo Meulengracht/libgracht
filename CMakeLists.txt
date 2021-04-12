@@ -1,8 +1,5 @@
 # Project setup
-if (NOT VALI_BUILD)
-    cmake_minimum_required (VERSION 3.8.2)
-endif ()
-
+cmake_minimum_required (VERSION 3.8.2)
 project (Gracht)
 enable_language (C)
 
@@ -84,35 +81,5 @@ else ()
 endif ()
 
 if (GRACHT_BUILD_TESTS)
-    add_custom_command(
-        OUTPUT  test_utils_protocol_server.c test_utils_protocol_client.c
-        COMMAND python ${CMAKE_CURRENT_SOURCE_DIR}/generator/parser.py --protocol ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_protocol.xml --out ${CMAKE_CURRENT_BINARY_DIR} --lang-c --server --client
-        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_protocol.xml
-    )
-
-    add_executable(gclient
-        tests/client/main.c
-        tests/init_client_socket.c
-        ${CMAKE_CURRENT_BINARY_DIR}/test_utils_protocol_client.c
-    )
-    target_link_libraries(gclient gracht)
-
-    add_executable(gserver
-        tests/server/main.c
-        tests/init_server_socket.c
-        ${CMAKE_CURRENT_BINARY_DIR}/test_utils_protocol_server.c
-    )
-    target_link_libraries(gserver gracht)
-
-    if (UNIX)
-        target_link_libraries(gclient -lrt -lc)
-        target_link_libraries(gserver -lrt -lc)
-        if (HAVE_PTHREAD)
-            target_link_libraries(gclient -lpthread)
-            target_link_libraries(gserver -lpthread)
-        endif ()
-    elseif (WIN32)
-        target_link_libraries(gclient ws2_32)
-        target_link_libraries(gserver ws2_32)
-    endif ()
+    add_subdirectory(tests)
 endif ()

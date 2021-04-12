@@ -179,7 +179,7 @@ int gracht_client_status(gracht_client_t* client, struct gracht_message_context*
     char*                             pointer = NULL;
     int                               status;
     uint32_t                          i;
-    GRTRACE("[gracht] [client] get status from context\n");
+    GRTRACE(GRSTR("[gracht] [client] get status from context"));
     
     if (!client || !context || !params) {
         errno = (EINVAL);
@@ -192,7 +192,7 @@ int gracht_client_status(gracht_client_t* client, struct gracht_message_context*
     if (!descriptor) {
         mtx_unlock(&client->sync_object);
 
-        GRERROR("[gracht] [client] descriptor for message was not found\n");
+        GRERROR(GRSTR("[gracht] [client] descriptor for message was not found"));
         errno = (EALREADY);
         return -1;
     }
@@ -205,7 +205,7 @@ int gracht_client_status(gracht_client_t* client, struct gracht_message_context*
     if (descriptor->status == GRACHT_MESSAGE_COMPLETED) {
         pointer = (char*)&descriptor->message.params[descriptor->message.header.param_in];
 
-        GRTRACE("[gracht] [client] unpacking parameters\n");
+        GRTRACE(GRSTR("[gracht] [client] unpacking parameters"));
         for (i = 0; i < descriptor->message.header.param_in; i++) {
             struct gracht_param* out_param = &params[i];
             struct gracht_param* in_param  = &descriptor->message.params[i];
@@ -257,7 +257,7 @@ int client_invoke_action(gracht_client_t* client, struct gracht_message* message
             (message->header.param_in * sizeof(struct gracht_param));
     
     // parse parameters into a parameter struct
-    GRTRACE("offset: %lu, param count %i\n", param_count * sizeof(struct gracht_param), param_count);
+    GRTRACE(GRSTR("offset: %lu, param count %i"), param_count * sizeof(struct gracht_param), param_count);
     if (param_count) {
         uint8_t* unpackBuffer = alloca(param_count * sizeof(void*));
         unpack_parameters(&message->params[0], message->header.param_in, param_storage, &unpackBuffer[0]);
@@ -319,7 +319,7 @@ listenForMessage:
     // If the message is not an event, then do not invoke any actions. In any case if a context is provided
     // we expect the caller to wanting to listen for that specific message. That means any incoming event and/or
     // response we recieve should be for that, or we should keep waiting.
-    GRTRACE("[gracht] [client] invoking message type %u - %u/%u\n",
+    GRTRACE(GRSTR("[gracht] [client] invoking message type %u - %u/%u"),
         message->header.flags, message->header.protocol, message->header.action);
     if (MESSAGE_FLAG_TYPE(message->header.flags) == MESSAGE_FLAG_EVENT) {
         status = client_invoke_action(client, message);
@@ -329,7 +329,7 @@ listenForMessage:
             gracht_list_lookup(&client->messages, (int)message->header.id);
         if (!descriptor) {
             // what the heck?
-            GRERROR("[gracht_client_wait_message] no-one was listening for message %u\n", message->header.id);
+            GRERROR(GRSTR("[gracht_client_wait_message] no-one was listening for message %u"), message->header.id);
             status = -1;
             goto listenOrExit;
         }
@@ -366,14 +366,14 @@ int gracht_client_create(gracht_client_configuration_t* config, gracht_client_t*
     gracht_client_t* client;
     
     if (!config || !config->link || !clientOut) {
-        GRERROR("[gracht] [client] config or config link was null");
+        GRERROR(GRSTR("[gracht] [client] config or config link was null"));
         errno = EINVAL;
         return -1;
     }
     
     client = (gracht_client_t*)malloc(sizeof(gracht_client_t));
     if (!client) {
-        GRERROR("gracht_client: failed to allocate memory for client data\n");
+        GRERROR(GRSTR("gracht_client: failed to allocate memory for client data"));
         errno = (ENOMEM);
         return -1;
     }
@@ -386,7 +386,7 @@ int gracht_client_create(gracht_client_configuration_t* config, gracht_client_t*
     client->ops = config->link;
     client->iod = client->ops->connect(client->ops);
     if (client->iod < 0) {
-        GRERROR("gracht_client: failed to connect client\n");
+        GRERROR(GRSTR("gracht_client: failed to connect client"));
         gracht_client_shutdown(client);
         return -1;
     }
@@ -515,7 +515,7 @@ void gracht_control_error_event(gracht_client_t* client, struct gracht_control_e
         gracht_list_lookup(&client->messages, (int)event->message_id);
     if (!descriptor) {
         // what the heck?
-        GRERROR("[gracht_control_error_event] no-one was listening for message %u\n", event->message_id);
+        GRERROR(GRSTR("[gracht_control_error_event] no-one was listening for message %u"), event->message_id);
         return;
     }
     

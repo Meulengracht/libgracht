@@ -28,38 +28,36 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "test_utils_protocol_client.h"
+#include <test_utils_protocol_server.h>
 
-extern int init_client_with_socket_link(gracht_client_t** clientOut);
+extern int init_mt_server_with_socket_link(int workerCount);
 
-static char messageBuffer[GRACHT_MAX_MESSAGE_SIZE];
+void test_utils_print_callback(struct gracht_recv_message* message, struct test_utils_print_args*);
 
-int main(int argc, char **argv)
+static gracht_protocol_function_t test_utils_callbacks[1] = {
+    { PROTOCOL_TEST_UTILS_PRINT_ID , test_utils_print_callback },
+};
+DEFINE_TEST_UTILS_SERVER_PROTOCOL(test_utils_callbacks, 1);
+
+void test_utils_print_callback(struct gracht_recv_message* message, struct test_utils_print_args* args)
 {
-    gracht_client_t*              client;
-    int                           code, status = -1337;
-    struct gracht_message_context context;
+    printf("print: received message: %s\n", args->message);
+    test_utils_print_response(message, strlen(args->message));
+}
 
-    // create client
-    code = init_client_with_socket_link(&client);
+int main(void)
+{
+    int code;
+    
+    // initialize server
+    code = init_mt_server_with_socket_link(4);
     if (code) {
         return code;
     }
-
-    // register protocols
-
-    // run test
-    if (argc > 1) {
-        code = test_utils_print(client, &context, argv[1]);
-    }
-    else {
-        code = test_utils_print(client, &context, "hello from wm_client!");
-    }
-
-    gracht_client_wait_message(client, &context, &messageBuffer[0], GRACHT_MESSAGE_BLOCK);
-    test_utils_print_result(client, &context, &status);
     
-    printf("gracht_client: recieved status %i\n", status);
-    gracht_client_shutdown(client);
-    return 0;
+    // register protocols
+    gracht_server_register_protocol(&test_utils_server_protocol);
+
+    // run server
+    return gracht_server_main_loop();
 }

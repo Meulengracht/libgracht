@@ -93,7 +93,7 @@ void gracht_arena_destroy(struct gracht_arena* arena)
 
 static inline void create_header(void* memory, size_t size)
 {
-    GRTRACE("create_header(memory=00x%p, size=%lu)\n", memory, size);
+    GRTRACE(GRSTR("create_header(memory=00x%p, size=%lu)"), memory, size);
     struct gracht_header* header = memory;
     header->length = (uint32_t)(size & 0x00FFFFFF) - HEADER_SIZE;
     header->allocated = 0;
@@ -111,9 +111,9 @@ static inline struct gracht_header* find_free_header(struct gracht_arena* arena,
     struct gracht_header* itr    = arena->base;
     size_t                length = 0;
 
-    GRTRACE("find_free_header(arena=0x%p, size=%lu)\n", arena, size);
+    GRTRACE(GRSTR("find_free_header(arena=0x%p, size=%lu)"), arena, size);
     while (length < arena->length) {
-        GRTRACE("header: at=0x%p length=%u, allocated=%i\n", itr, itr->length, itr->allocated);
+        GRTRACE(GRSTR("header: at=0x%p length=%u, allocated=%i"), itr, itr->length, itr->allocated);
         if (!itr->allocated && itr->length >= size) {
             return itr;
         }
@@ -132,7 +132,7 @@ void* gracht_arena_allocate(struct gracht_arena* arena, void* allocation, size_t
 {
     struct gracht_header* allocHeader;
     size_t                correctedSize = size;
-    GRTRACE("gracht_arena_allocate(arena=0x%p, allocation=0x%p, size=%lu)\n", arena, allocation, size);
+    GRTRACE(GRSTR("gracht_arena_allocate(arena=0x%p, allocation=0x%p, size=%lu)"), arena, allocation, size);
 
     if (!arena || !size) {
         return NULL;
@@ -187,6 +187,7 @@ void gracht_arena_free(struct gracht_arena* arena, void* memory, size_t size)
 {
     struct gracht_header* header;
     struct gracht_header* nextHeader;
+    GRTRACE(GRSTR("gracht_arena_free(arena=0x%p, memory=0x%p, size=%lu)"), arena, memory, size);
 
     if (!arena || !memory) {
         return;
@@ -237,19 +238,19 @@ int main()
     struct gracht_arena* arena;
     void* alloc0, *alloc1, *alloc2;
 
-    GRTRACE("gracht_arena_create(10000, &arena) = %i\n", gracht_arena_create(10000, &arena));
+    GRTRACE(GRSTR("gracht_arena_create(10000, &arena) = %i"), gracht_arena_create(10000, &arena));
 
     alloc0 = gracht_arena_allocate(arena, NULL, 512);
-    GRTRACE("gracht_arena_allocate(arena, NULL, 512) = 0x%p\n", alloc0);
+    GRTRACE(GRSTR("gracht_arena_allocate(arena, NULL, 512) = 0x%p"), alloc0);
 
     alloc1 = gracht_arena_allocate(arena, NULL, 512);
-    GRTRACE("gracht_arena_allocate(arena, NULL, 512) = 0x%p\n", alloc1);
+    GRTRACE(GRSTR("gracht_arena_allocate(arena, NULL, 512) = 0x%p"), alloc1);
 
     alloc0 = gracht_arena_allocate(arena, alloc0, 512);
-    GRTRACE("gracht_arena_allocate(arena, alloc0, 512) = 0x%p\n", alloc0);
+    GRTRACE(GRSTR("gracht_arena_allocate(arena, alloc0, 512) = 0x%p"), alloc0);
 
     alloc2 = gracht_arena_allocate(arena, NULL, 512);
-    GRTRACE("gracht_arena_allocate(arena, NULL, 512) = 0x%p\n", alloc2);
+    GRTRACE(GRSTR("gracht_arena_allocate(arena, NULL, 512) = 0x%p"), alloc2);
 
     gracht_arena_free(arena, alloc2, 128);
     gracht_arena_free(arena, alloc2, 128);

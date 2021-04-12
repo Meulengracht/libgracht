@@ -28,7 +28,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include <test_utils_protocol_server.h>
+#include "test_utils_protocol_server.h"
 
 extern int init_server_with_socket_link(void);
 
