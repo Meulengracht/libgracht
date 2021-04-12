@@ -291,11 +291,12 @@ static void put_message_mt(struct gracht_server* server, struct gracht_recv_mess
 
 static int handle_sync_event(struct gracht_server* server)
 {
-    struct gracht_recv_message* message = server->get_message(server);
-    int                         status;
+    int status;
     GRTRACE(GRSTR("[handle_sync_event]"));
     
     while (1) {
+        struct gracht_recv_message* message = server->get_message(server);
+
         status = server->ops->recv_packet(server->ops, message, 0);
         if (status) {
             if (errno != ENODATA) {
@@ -326,11 +327,12 @@ static int handle_async_event(struct gracht_server* server, gracht_conn_t handle
         client_destroy(server, handle);
     }
     else if ((events & GRACHT_AIO_EVENT_IN) || !events) {
-        struct client_wrapper*      entry;
-        struct gracht_recv_message* message = server->get_message(server);
+        struct client_wrapper* entry;
         
         entry = hashtable_get(&server->clients, &(struct client_wrapper){ .handle = handle });
         while (entry) {
+            struct gracht_recv_message* message = server->get_message(server);
+            
             status = server->ops->recv_client(entry->client, message, 0);
             if (status) {
                 if (errno != ENODATA) {
