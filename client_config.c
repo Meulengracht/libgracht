@@ -18,33 +18,26 @@
  * Gracht Server Configuration Helpers
  */
 
-#include "include/gracht/server.h"
+#include "include/gracht/client.h"
 #include <string.h>
 
-void gracht_server_configuration_init(gracht_server_configuration_t* config)
+void gracht_client_configuration_init(gracht_client_configuration_t* config)
 {
-    memset(config, 0, sizeof(gracht_server_configuration_t));
-    config->server_workers = 1;
+    memset(config, 0, sizeof(gracht_client_configuration_t));
     config->max_message_size = GRACHT_DEFAULT_MESSAGE_SIZE;
 }
 
-void gracht_server_configuration_set_link(gracht_server_configuration_t* config, struct server_link_ops* link)
+void gracht_client_configuration_set_link(gracht_client_configuration_t* config, struct client_link_ops* link)
 {
     config->link = link;
 }
 
-void gracht_server_configuration_set_aio_descriptor(gracht_server_configuration_t* config, gracht_handle_t descriptor)
+void gracht_client_configuration_set_msg_buffer(gracht_client_configuration_t* config, void* buffer)
 {
-    config->set_descriptor = descriptor;
-    config->set_descriptor_provided = 1;
+    config->message_buffer = buffer;
 }
 
-void gracht_server_configuration_set_num_workers(gracht_server_configuration_t* config, int workerCount)
-{
-    config->server_workers = workerCount;
-}
-
-void gracht_server_configuration_set_max_msg_size(gracht_server_configuration_t* config, int maxMessageSize)
+void gracht_client_configuration_set_max_msg_size(gracht_client_configuration_t* config, int maxMessageSize)
 {
     config->max_message_size = maxMessageSize;
 }

@@ -74,16 +74,25 @@ static void init_socket_config(struct socket_client_configuration* socketConfig)
 int init_client_with_socket_link(gracht_client_t** clientOut)
 {
     struct socket_client_configuration linkConfiguration = { 0 };
-    struct gracht_client_configuration clientConfiguration = { 0 };
+    struct gracht_client_configuration clientConfiguration;
     gracht_client_t*                   client = NULL;
     int                                code;
 
+    gracht_client_configuration_init(&clientConfiguration);
     init_socket_config(&linkConfiguration);
+
     gracht_link_socket_client_create(&clientConfiguration.link, &linkConfiguration);
     code = gracht_client_create(&clientConfiguration, &client);
     if (code) {
         printf("init_client_with_socket_link: error initializing client library %i, %i\n", errno, code);
+        return code;
     }
+
+    code = gracht_client_connect(client);
+    if (code) {
+        printf("init_client_with_socket_link: failed to connect client %i, %i\n", errno, code);
+    }
+
     *clientOut = client;
     return code;
 }

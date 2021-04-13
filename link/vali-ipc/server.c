@@ -124,7 +124,7 @@ static int vali_link_recv_packet(struct vali_link_manager* linkManager, struct g
     struct ipmsg* message = (struct ipmsg*)&context->payload[0];
     int           status;
     
-    status = getmsg(linkManager->iod, message, GRACHT_MAX_MESSAGE_SIZE, IPMSG_DONTWAIT);
+    status = getmsg(linkManager->iod, message, GRACHT_DEFAULT_MESSAGE_SIZE, IPMSG_DONTWAIT);
     if (status) {
         return status;
     }

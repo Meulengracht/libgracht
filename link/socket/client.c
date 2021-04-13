@@ -162,7 +162,7 @@ static int socket_link_recv_packet(struct socket_link_manager* linkManager,
     i_iobuf_t              iov[1];
     
     i_iobuf_set_buf(&iov[0], message);
-    i_iobuf_set_len(&iov[0], GRACHT_MAX_MESSAGE_SIZE);
+    i_iobuf_set_len(&iov[0], GRACHT_DEFAULT_MESSAGE_SIZE);
     
     i_msghdr_set_addr(&msg, messageBuffer, linkManager->config.address_length);
     i_msghdr_set_bufs(&msg, &iov[0], 1);
@@ -185,7 +185,7 @@ static int socket_link_recv_packet(struct socket_link_manager* linkManager,
     return 0;
 }
 
-static int socket_link_connect(struct socket_link_manager* linkManager)
+static gracht_conn_t socket_link_connect(struct socket_link_manager* linkManager)
 {
     int type = linkManager->config.type == gracht_link_stream_based ? SOCK_STREAM : SOCK_DGRAM;
     
@@ -233,7 +233,7 @@ static int socket_link_send(struct socket_link_manager* linkManager,
     (void)messageContext;
 
     // perform length check before sending
-    if (message->header.length > GRACHT_MAX_MESSAGE_SIZE) {
+    if (message->header.length > GRACHT_DEFAULT_MESSAGE_SIZE) {
         errno = (E2BIG);
         return GRACHT_MESSAGE_ERROR;
     }

@@ -269,7 +269,7 @@ static int socket_link_recv_packet(struct socket_link_manager* linkManager,
     i_msghdr_t             msg = I_MSGHDR_INIT;
 
     i_iobuf_set_buf(&iov[0], message);
-    i_iobuf_set_len(&iov[0], (size_t)(GRACHT_MAX_MESSAGE_SIZE - linkManager->config.dgram_address_length));
+    i_iobuf_set_len(&iov[0], (size_t)(GRACHT_DEFAULT_MESSAGE_SIZE - linkManager->config.dgram_address_length));
 
     i_msghdr_set_addr(&msg, &context->payload[0], linkManager->config.dgram_address_length);
     i_msghdr_set_bufs(&msg, &iov[0], 1);

@@ -62,8 +62,8 @@ static int vali_link_send_message(struct vali_link_manager* linkManager,
     message.base     = messageBase;
     message.sender   = GetNativeHandle(linkManager->iod);
 
-    if (messageBase->header.length > GRACHT_MAX_MESSAGE_SIZE) {
-        for (i = 0; messageBase->header.length > GRACHT_MAX_MESSAGE_SIZE && i < messageBase->header.param_in; i++) {
+    if (messageBase->header.length > GRACHT_DEFAULT_MESSAGE_SIZE) {
+        for (i = 0; messageBase->header.length > GRACHT_DEFAULT_MESSAGE_SIZE && i < messageBase->header.param_in; i++) {
             if (messageBase->params[i].length > GRACHT_MESSAGE_THRESHOLD) {
                 messageBase->params[i].type = GRACHT_PARAM_SHM;
                 messageBase->header.length -= messageBase->params[i].length;
@@ -90,7 +90,7 @@ static int vali_link_recv(struct vali_link_manager* linkManager, void* messageBu
         convertedFlags |= IPMSG_DONTWAIT;
     }
 
-    status = getmsg(linkManager->iod, message, GRACHT_MAX_MESSAGE_SIZE, convertedFlags);
+    status = getmsg(linkManager->iod, message, GRACHT_DEFAULT_MESSAGE_SIZE, convertedFlags);
     if (status) {
         return status;
     }

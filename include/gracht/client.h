@@ -30,6 +30,13 @@ typedef struct gracht_client_configuration {
     // Link operations, which can be filled by any link-implementation under <link/*>
     // these provide the underlying link implementation like a socket interface or a serial interface.
     struct client_link_ops* link;
+
+    // <message_buffer>   if set, provides a buffer that the client should use for recieving messages. The size of this
+    //                    buffer must be provided in max_message_size. This buffer is not freed upon calling gracht_client_shutdown
+    // <max_message_size> specifies the maximum message size that can be handled at once. If not set it defaults
+    //                    to GRACHT_DEFAULT_MESSAGE_SIZE as the default value.
+    void*                   message_buffer;
+    int                     max_message_size;
 } gracht_client_configuration_t;
 
 // Prototype declaration to hide implementation details.
@@ -38,6 +45,14 @@ typedef struct gracht_client gracht_client_t;
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/**
+ * Configuration interface, use these as helpers instead of accessing the raw structure.
+ */
+void gracht_client_configuration_init(gracht_client_configuration_t* config);
+void gracht_client_configuration_set_link(gracht_client_configuration_t* config, struct client_link_ops* link);
+void gracht_client_configuration_set_msg_buffer(gracht_client_configuration_t* config, void* buffer);
+void gracht_client_configuration_set_max_msg_size(gracht_client_configuration_t* config, int maxMessageSize);
 
 /**
  * Creates a new instance of a gracht client based on the link configuration. An application
@@ -49,6 +64,14 @@ extern "C" {
  * @return int Returns 0 if the creation was successful.
  */
 int gracht_client_create(gracht_client_configuration_t* config, gracht_client_t** clientOut);
+
+/**
+ * Connects the client to the configured server.
+ * 
+ * @param client A client previously created by using gracht_client_create.
+ * @return int Returns 0 if the connection was successful
+ */
+int gracht_client_connect(gracht_client_t* client);
 
 /**
  * Registers a new protocol with the client. A max of 255 protocols can be registered, and if
@@ -81,38 +104,39 @@ void gracht_client_shutdown(gracht_client_t* client);
  * usefull if an application wants to support async transfers with epoll/select/completion ports.
  * 
  * @param client A pointer to a previously created gracht client.
- * @return int The connection descriptor/handle.
+ * @return gracht_conn_t The connection descriptor/handle.
  */
-int gracht_client_iod(gracht_client_t* client);
+gracht_conn_t gracht_client_iod(gracht_client_t* client);
 
 /**
- * Wait for any incomming message and store the message recieved in the provided buffer. This function can
- * be used to block untill a message is recieved. This should not be invoked to wait for a specific message,
- * but rather be used to poll for new events. It is not mandatory to use this call if the client is not used
- * for events.
+ * Wait for any incomming message. This function can be used to block untill a message is recieved. 
+ * This should not be invoked to wait for a specific message, but rather be used to poll for new events. 
+ * It is not mandatory to use this call if the client is not used for events.
  * 
  * @param client A pointer to a previously created gracht client.
  * @param context The message context if required.
- * @param messageBuffer A pointer to buffer storage of size GRACHT_MAX_MESSAGE_SIZE. The buffer may not be smaller than this.
  * @param flags The flag GRACHT_MESSAGE_BLOCK can be specified to block untill a new message is received.
  * @return int Result of the wait. Returns 0 if a message was received and handled. Returns -1 if no messages are in queue.
  */
-int gracht_client_wait_message(gracht_client_t *client, struct gracht_message_context *context, void *messageBuffer, unsigned int flags);
-
+int gracht_client_wait_message(gracht_client_t *client, struct gracht_message_context *context, unsigned int flags);
 
 /**
  * Can be used to await a response for a specific function invoke. This only returns when the function response
- * was received.
+ * was received. The default waiting mode is synchronous, and that means that this function internally calls 
+ * wait_message unless an asynchronous mode was specified.
  * 
  * @param client A pointer to a previously created gracht client.
  * @param context The message context that should be awaited.
+ * @param flags The waiting mode that should be used.
  * @return int Status of the wait. Only returns -1 if there was any connection issues.
  */
-int gracht_client_await(gracht_client_t* client, struct gracht_message_context* context);
+int gracht_client_await(gracht_client_t* client, struct gracht_message_context* context, unsigned int flags);
 
 /**
  * Can be used to await multiple response for function invokes. The client can initiate multiple function calls
- * and wait for one or all to complete. The wait operation is specified by the flags GRACHT_AWAIT_*.
+ * and wait for one or all to complete. The wait operation is specified by the flags GRACHT_AWAIT_*. The default
+ * waiting mode is synchronous, and that means that this function internally calls wait_message unless an asynchronous
+ * mode was specified.
  * 
  * @param client A pointer to a previously created gracht client.
  * @param context The message contexts that should be awaited.

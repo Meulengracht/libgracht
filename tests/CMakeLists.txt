@@ -46,7 +46,8 @@ add_custom_target(
 )
 
 # Client test applications
-add_client_test(gclient client/main.c)
+add_client_test(gclient_single client/main.c)
+add_client_test(gclient_many client_parallel/main.c)
 
 # Server test applications
 add_server_test(gserver server/main.c)

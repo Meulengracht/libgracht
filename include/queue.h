@@ -23,7 +23,10 @@
 #ifndef __GRACHT_QUEUE_H__
 #define __GRACHT_QUEUE_H__
 
-#include "gracht/types.h"
+typedef struct gracht_object_header {
+    int                          id;
+    struct gracht_object_header* link;
+} gracht_object_header_t;
 
 typedef struct gracht_queue {
     struct gracht_object_header* head;

@@ -61,14 +61,15 @@ typedef int gracht_conn_t;
 #define MESSAGE_FLAG_EVENT    0x00000002
 #define MESSAGE_FLAG_RESPONSE 0x00000003
 
-#define GRACHT_MAX_MESSAGE_SIZE 512
+#define GRACHT_DEFAULT_MESSAGE_SIZE 512
 
 #define GRACHT_PARAM_VALUE  0
 #define GRACHT_PARAM_BUFFER 1
 #define GRACHT_PARAM_SHM    2
 
-#define GRACHT_AWAIT_ANY 0
-#define GRACHT_AWAIT_ALL 1
+#define GRACHT_AWAIT_ANY   0x0
+#define GRACHT_AWAIT_ALL   0x1
+#define GRACHT_AWAIT_ASYNC 0x2
 
 #define GRACHT_MESSAGE_ERROR      -1
 #define GRACHT_MESSAGE_CREATED    0
@@ -77,11 +78,6 @@ typedef int gracht_conn_t;
 
 #define GRACHT_MESSAGE_BLOCK   0x1
 #define GRACHT_MESSAGE_WAITALL 0x2
-
-typedef struct gracht_object_header {
-    int                          id;
-    struct gracht_object_header* link;
-} gracht_object_header_t;
 
 // Pack structures transmitted to make debugging wire format easier
 GRACHT_STRUCT(gracht_param, {
@@ -112,9 +108,15 @@ struct gracht_message {
 
 struct gracht_recv_message;
 
+/**
+ * The context of a message. This is used as the message identifier when using
+ * function calls that expect responses. The context that the message was invoked with
+ * must be valid for the entire operation. Some links may have their own message contexts which
+ * extend this one. Always use the one defined in the link header for the specific link used. 
+ */
 struct gracht_message_context {
     uint32_t message_id;
-    void*    descriptor;
+    void*    internal_handle;
 };
 
 typedef struct gracht_protocol_function {

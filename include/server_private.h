@@ -24,6 +24,7 @@
 #define __SERVER_PRIVATE_H__
 
 #include "gracht/types.h"
+#include "queue.h"
 
 // forward declarations
 struct gracht_server;

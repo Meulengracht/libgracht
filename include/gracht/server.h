@@ -52,7 +52,7 @@ typedef struct gracht_server_configuration {
     //                    worker pool will not be created, and that means the server will handle incoming messages
     //                    on the current thread.
     // <max_message_size> specifies the maximum message size that can be handled at once. If not set it defaults
-    //                    to GRACHT_MAX_MESSAGE_SIZE as the default value.
+    //                    to GRACHT_DEFAULT_MESSAGE_SIZE as the default value.
     int                            server_workers;
     int                            max_message_size;
 } gracht_server_configuration_t;

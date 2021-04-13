@@ -6,7 +6,7 @@ enable_language (C)
 option (GRACHT_BUILD_TESTS "Build test server and client program for gracht" OFF)
 option (GRACHT_INSTALL_HEADERS "Install headers and library")
 
-set (WARNING_COMPILE_FLAGS "-Wall -Wextra")
+set (WARNING_COMPILE_FLAGS "-Wall -Wextra -Wno-unused-function")
 set (SRCS "")
 
 macro (add_sources)
@@ -57,7 +57,7 @@ endif ()
 
 configure_file(config.h.in config.h @ONLY)
 add_sources(link/socket/client.c link/socket/server.c link/socket/shared.c)
-add_sources(client.c crc.c server.c server_config.c shared.c arena.c dispatch.c hashtable.c)
+add_sources(client.c client_config.c crc.c server.c server_config.c shared.c arena.c dispatch.c hashtable.c)
 
 add_library(gracht ${SRCS})
 
