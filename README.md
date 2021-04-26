@@ -1,5 +1,5 @@
 # libgracht
-A lightweight, cross-platform, modular and dependency free protocol library. Gracht is built upon an abstracted concept of links, which can be anything and hence allows gracht to work on any platform. The links that are provided by default are unix/windows-sockets and a native interface for the Vali OS IPC (which the library is originally built for). Gracht protcols are defined in the in its own format, where we support different kinds of primitives:
+A lightweight, cross-platform, low-dependency, and modular protocol/rpc library. Gracht is built upon an abstracted concept of links, which can be anything and hence allows gracht to work on any platform. The links that are provided by default are unix/windows-sockets and a native interface for the Vali OS IPC (which the library is originally built for). Gracht protocols are defined in the in its own format, where we support different kinds of primitives:
  - Datatypes
  - Enums
  - Synchronous function calls
@@ -10,14 +10,18 @@ The library itself supports different kind of ways to send/receive messages. Thi
 
 Links are defined in include/gracht/links and are seperate objects that must be created before the client or server gets created/initialized. If you want to implement your own link interface you can take a look at the required functions under /include/gracht/link/link.h.
 
+The library itself relies on very little functionality from the OS itself to work.
+
+Required operating system functionality:
+ - Epoll/completion port-like interface. (aio.h)
+ - Threading model with conditions and mutexes. (thread_api.h)
+
 Supported links:
- - Socket
+ - Socket   (link/socket/*)
+ - Vali-IPC (link/vali-ipc/*)
 
 Supported languages for code generation are:
  - C
-
-Libraries the core library depends on:
- - C11 threads or pthreads (linux only)
 
 ## Protocol Format
 
