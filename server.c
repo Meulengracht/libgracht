@@ -31,7 +31,6 @@
 #include "include/server_private.h"
 #include "include/hashtable.h"
 #include "include/control.h"
-#include "include/compiler.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -197,7 +196,7 @@ static int configure_server(struct gracht_server* server, gracht_server_configur
     // handle the worker count, if the worker count is not provided we do not use
     // the dispatcher, but instead handle single-threaded.
     if (configuration->server_workers > 1) {
-        status = gracht_worker_pool_create(server, configuration->server_workers, server->allocationSize, &server->worker_pool);
+        status = gracht_worker_pool_create(server, configuration->server_workers, (int)server->allocationSize, &server->worker_pool);
         if (status) {
             GRERROR(GRSTR("configure_server: failed to create the worker pool"));
             return -1;
@@ -446,7 +445,6 @@ void server_invoke_action(struct gracht_server* server, struct gracht_recv_messa
     uint8_t                     protocol;
     uint8_t                     action;
 
-    smp_mb();
     messageId = *((uint32_t*)&buffer.data[buffer.index + 0]);
     protocol  = *((uint8_t*)&buffer.data[buffer.index + 8]);
     action    = *((uint8_t*)&buffer.data[buffer.index + 9]);

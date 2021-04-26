@@ -112,7 +112,7 @@ static int socket_link_recv_packet(struct socket_link_manager* linkManager, stru
     // Packets are atomic, either the full packet is there, or none is. So avoid
     // the use of MSG_WAITALL here.
     GRTRACE(GRSTR("[gracht_connection_recv_stream] reading full message"));
-    intmax_t bytes_read = recvfrom(linkManager->iod, base, len, flags, 
+    intmax_t bytes_read = (intmax_t)recvfrom(linkManager->iod, base, len, flags, 
         (struct sockaddr*)&message->data[0], &addrlen);
     if (bytes_read < GRACHT_MESSAGE_HEADER_SIZE) {
         if (bytes_read == 0) {

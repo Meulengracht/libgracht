@@ -35,7 +35,7 @@
 struct socket_link_client {
     struct gracht_server_client base;
     struct sockaddr_storage     address;
-    int                         socket;
+    gracht_conn_t               socket;
 };
 
 struct socket_link_manager {
@@ -235,7 +235,7 @@ static int socket_link_recv_packet(struct socket_link_manager* linkManager,
     
     // Packets are atomic, either the full packet is there, or none is. So avoid
     // the use of MSG_WAITALL here.
-    intmax_t bytesRead = recvfrom(linkManager->dgram_socket, base, len, 
+    intmax_t bytesRead = (intmax_t)recvfrom(linkManager->dgram_socket, base, len, 
         socketFlags, (struct sockaddr*)&context->payload[0], &addrlen);
     if (bytesRead <= 0) {
         if (bytesRead == 0) {
