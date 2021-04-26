@@ -38,11 +38,13 @@ struct gracht_worker {
     gracht_queue_t job_queue;
     cnd_t          signal;
     int            state;
+    void*          scratch_pad;
 };
 
 struct gracht_worker_context {
     struct gracht_worker* worker;
     struct gracht_server* server;
+    int                   scratch_pad_size;
 };
 
 struct gracht_worker_pool {
@@ -52,10 +54,12 @@ struct gracht_worker_pool {
 };
 
 static int  worker_dowork(void*);
-static void initialize_worker(struct gracht_server*, struct gracht_worker*);
+static void initialize_worker(struct gracht_server*, int, struct gracht_worker*);
 static void cleanup_worker(struct gracht_worker*);
 
-int gracht_worker_pool_create(struct gracht_server* server, int numberOfWorkers, struct gracht_worker_pool** poolOut)
+__TLS_VAR struct gracht_worker* t_worker = NULL;
+
+int gracht_worker_pool_create(struct gracht_server* server, int numberOfWorkers, int maxMessageSize, struct gracht_worker_pool** poolOut)
 {
     struct gracht_worker_pool* pool;
     struct gracht_worker*      workers;
@@ -85,7 +89,7 @@ int gracht_worker_pool_create(struct gracht_server* server, int numberOfWorkers,
     pool->worker_count = numberOfWorkers;
     pool->rr_index = 0;
     for (i = 0; i < numberOfWorkers; i++) {
-        initialize_worker(server, &pool->workers[i]);
+        initialize_worker(server, maxMessageSize, &pool->workers[i]);
     }
 
     *poolOut = pool;
@@ -134,7 +138,7 @@ void gracht_worker_pool_dispatch(struct gracht_worker_pool* pool, struct gracht_
     }
 }
 
-static void initialize_worker(struct gracht_server* server, struct gracht_worker* worker)
+static void initialize_worker(struct gracht_server* server, int scratchPadSize, struct gracht_worker* worker)
 {
     struct gracht_worker_context* context;
 
@@ -146,12 +150,15 @@ static void initialize_worker(struct gracht_server* server, struct gracht_worker
 
     context->worker = worker;
     context->server = server;
+    context->scratch_pad_size = scratchPadSize;
 
     worker->job_queue.head = NULL;
     worker->job_queue.tail = NULL;
     mtx_init(&worker->sync_object, mtx_plain);
     cnd_init(&worker->signal);
     worker->state = WORKER_STARTUP;
+    worker->scratch_pad = NULL;
+
     if (thrd_create(&worker->id, worker_dowork, context) != thrd_success) {
         GRERROR(GRSTR("initialize_worker: failed to create worker-thread"));
     }
@@ -163,6 +170,12 @@ static void cleanup_worker(struct gracht_worker* worker)
     cnd_destroy(&worker->signal);
 }
 
+void* gracht_worker_pool_get_worker_scratchpad(struct gracht_worker_pool* pool)
+{
+    (void)pool;
+    return t_worker->scratch_pad;
+}
+
 static int worker_dowork(void* context)
 {
     struct gracht_worker_context* workerContext = context;
@@ -171,6 +184,15 @@ static int worker_dowork(void* context)
     GRTRACE(GRSTR("worker_dowork: running"));
 
     worker = workerContext->worker;
+    t_worker = workerContext->worker;
+
+    // initialize the scratchpad area
+    worker->scratch_pad = malloc(workerContext->scratch_pad_size);
+    if (!worker->scratch_pad) {
+        GRERROR(GRSTR("worker_dowork: failed to allocate memory for scratchpad"));
+        return -(ENOMEM);
+    }
+
     worker->state = WORKER_ALIVE;
     while (1) {
         mtx_lock(&worker->sync_object);
@@ -207,6 +229,7 @@ static int worker_dowork(void* context)
         job_header = gracht_queue_dequeue(&worker->job_queue);
     }
 
+    free(worker->scratch_pad);
     free(workerContext);
     return 0;
 }

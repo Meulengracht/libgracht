@@ -28,21 +28,14 @@
 #include <stdio.h>
 #include <string.h>
 
-#include <test_utils_protocol_server.h>
+#include <test_utils_service_server.h>
 
 extern int init_mt_server_with_socket_link(int workerCount);
 
-void test_utils_print_callback(struct gracht_recv_message* message, struct test_utils_print_args*);
-
-static gracht_protocol_function_t test_utils_callbacks[1] = {
-    { PROTOCOL_TEST_UTILS_PRINT_ID , test_utils_print_callback },
-};
-DEFINE_TEST_UTILS_SERVER_PROTOCOL(test_utils_callbacks, 1);
-
-void test_utils_print_callback(struct gracht_recv_message* message, struct test_utils_print_args* args)
+void test_utils_print_invocation(struct gracht_recv_message* message, const char* text)
 {
-    printf("print: received message: %s\n", args->message);
-    test_utils_print_response(message, strlen(args->message));
+    printf("print: received message: %s\n", text);
+    test_utils_print_response(message, strlen(text));
 }
 
 int main(void)

@@ -28,63 +28,18 @@
 
 // forward declarations
 struct gracht_server;
-struct gracht_arena;
 struct gracht_worker_pool;
 
 // Callback prototype
-typedef void (*server_invoke00_t)(struct gracht_recv_message*);
-typedef void (*server_invokeA0_t)(struct gracht_recv_message*, void*);
+typedef void (*server_invoke_t)(struct gracht_recv_message*, struct gracht_buffer*);
 
 //Represents a received message on the server.
 struct gracht_recv_message {
-    struct gracht_object_header header;
-    void* params;
-    
-    gracht_conn_t client;
-    uint32_t      message_id;
-    uint8_t       param_in;
-    uint8_t       param_count;
-    uint8_t       protocol;
-    uint8_t       action;
-    uint8_t       payload[1];
+    struct gracht_object_header header;    
+    gracht_conn_t               client;
+    uint32_t                    index;
+    uint8_t                     payload[];
 };
-
-/**
- * Defined in arena.c
- * 
- * @param size 
- * @param arenaOut 
- * @return int 
- */
-int gracht_arena_create(size_t size, struct gracht_arena** arenaOut);
-
-/**
- * Defined in arena.c
- * 
- * @param arena 
- */
-void gracht_arena_destroy(struct gracht_arena* arena);
-
-/**
- * Defined in arena.c
- * 
- * @param arena 
- * @param allocation 
- * @param size 
- * @return void* 
- */
-void* gracht_arena_allocate(struct gracht_arena* arena, void* allocation, size_t size);
-
-/**
- * Defined in arena.c
- * Partially or fully frees an allocation previously made by *_allocate. The size defines
- * how much of the previous allocation is freed, and is freed from the end of the allocation.
- * 
- * @param arena A pointer to the arena the allocation was made from
- * @param memory A pointer to the memory allocation.
- * @param size How much of the allocation should be freed. If the entire allocation should be freed size can also be 0.
- */
-void gracht_arena_free(struct gracht_arena* arena, void* memory, size_t size);
 
 /**
  * Defined in dispatch.c
@@ -96,7 +51,7 @@ void gracht_arena_free(struct gracht_arena* arena, void* memory, size_t size);
  * @param poolOut A pointer to storage for the worker pool.
  * @return int Returns 0 if creation was succesfull, otherwise errno is set.
  */
-int gracht_worker_pool_create(struct gracht_server* server, int numberOfWorkers, struct gracht_worker_pool** poolOut);
+int gracht_worker_pool_create(struct gracht_server* server, int numberOfWorkers, int maxMessageSize, struct gracht_worker_pool** poolOut);
 
 /**
  * Defined in dispatch.c
@@ -115,6 +70,15 @@ void gracht_worker_pool_destroy(struct gracht_worker_pool* pool);
  * @param recvMessage A pointer to the recieved message.
  */
 void gracht_worker_pool_dispatch(struct gracht_worker_pool* pool, struct gracht_recv_message* recvMessage);
+
+/**
+ * Retrieves a buffer area that is free to be used for the calling thread. In the context of
+ * the gracht server this scratch area is used to build an outoing message.
+ * 
+ * @param pool A pointer to the worker pool that was created earlier.
+ * @return void* A pointer to the scratchpad area
+ */
+void* gracht_worker_pool_get_worker_scratchpad(struct gracht_worker_pool* pool);
 
 /**
  * Defined in server.c

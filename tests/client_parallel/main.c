@@ -28,7 +28,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "test_utils_protocol_client.h"
+#include "test_utils_service_client.h"
 
 #define NUM_PARALLEL_CALLS 10
 

@@ -133,34 +133,6 @@ gracht_conn_t gracht_server_get_dgram_iod(void);
  */
 gracht_handle_t gracht_server_get_set_iod(void);
 
-/**
- * Invoked by protocol generated functions to respond to receieved messages.
- * 
- * @param context The context of the called function.
- * @param message The message format that is the reply.
- * @return int Result code of the send.
- */
-int gracht_server_respond(struct gracht_recv_message* context, struct gracht_message* message);
-
-/**
- * Invoked by protocol generated events to send events to specific clients.
- * 
- * @param client The client descriptor.
- * @param message The event message that should be sent.
- * @param flags The flags for the event.
- * @return int Result code of the send.
- */
-int gracht_server_send_event(gracht_conn_t client, struct gracht_message* message, unsigned int flags);
-
-/**
- * Invoked by protocol generated events to broadcast events to all subscribed clients.
- * 
- * @param message The event message that should be sent.
- * @param flags The flags for the event.
- * @return int Result code of the broadcast.
- */
-int gracht_server_broadcast_event(struct gracht_message* message, unsigned int flags);
-
 #ifdef __cplusplus
 }
 #endif

@@ -29,7 +29,6 @@
 struct gracht_client;
 
 // Callback prototype
-typedef void (*client_invoke00_t)(struct gracht_client*);
-typedef void (*client_invokeA0_t)(struct gracht_client*, void*);
+typedef void (*client_invoke_t)(struct gracht_client*, gracht_buffer_t*);
 
 #endif // !__CLIENT_PRIVATE_H__

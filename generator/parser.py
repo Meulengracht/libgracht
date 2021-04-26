@@ -3,7 +3,6 @@ import argparse
 import copy
 import os
 import sys
-import xml.etree.ElementTree as ET
 
 from languages.langc import CGenerator
 from languages.shared import *
@@ -11,22 +10,258 @@ from languages.shared import *
 global_id = 0
 trace_enabled = 0
 
+class TOKENS(object):
+    __slots__ = ()
+    IDENTIFIER = 0
+    DIGIT = 1
+    LBRACKET = 2
+    RBRACKET = 3
+    LPARENTHESIS = 4
+    RPARENTHESIS = 5
+    LINDEX = 6
+    RINDEX = 7
+    EQUAL = 8
+    COMMA = 9
+    COLON = 10
+    SEMICOLON = 11
+    STRUCT = 12
+    ENUM = 13
+    SERVICE = 14
+    FUNC = 15
+    DEFINE = 16
+    NAMESPACE = 17
+    EVENT = 18
+    IMPORT = 19
+    QUOTE = 20
+    FROM = 21
+
+class Token:
+    def __init__(self, scanner, tokenType, value = None):
+        trace(f"found {str(tokenType)} at line {scanner.line_no()}:{scanner.line_index()} == {value}")
+        self.lineNo = scanner.line_no()
+        self.lineIndex = scanner.line_index()
+        self.tokenType = tokenType
+        self.tokenValue = value
+
+    def token_type(self):
+        return self.tokenType
+
+    def value(self):
+        return self.tokenValue
+
+    def line_no(self):
+        return self.lineNo
+
+    def line_index(self):
+        return self.lineIndex
+
+    def __str__(self):
+        return str(self.tokenType)
+    def __repr__(self):
+        return str(self.tokenType)
+
+class ScanContext:
+    def __init__(self):
+        self.findex = 0
+        self.lineIndex = 0
+        self.lineNo = 0
+    
+    def consume(self, cnt = 1):
+        self.findex += cnt
+        self.lineIndex += cnt
+        return self.index
+    
+    def nextline(self):
+        self.lineNo += 1
+        self.lineIndex = 0
+        self.findex += 1
+
+    def index(self):
+        return self.findex
+
+    def line_index(self):
+        return self.lineIndex
+
+    def line_no(self):
+        return self.lineNo
+
+class ParseContext:
+    def __init__(self, root_file):
+        self.cwd = os.path.dirname(os.path.realpath(root_file))
+        self.namespace = ""
+        self.types = []
+        self.services = []
+        self.enums = []
+        self.structs = []
+
+        # per service arrays
+        self.funcs = []
+        self.events = []
+
+        # temporary arrays
+        self.members = []
+        self.values = []
+
+        # things that are per-file contexts
+        self.stored_cwds = []
+    
+    def set_namespace(self, namespace):
+        self.namespace = namespace
+
+    def create_service(self, id, name):
+        self.services.append(ServiceObject(self.namespace, id, name, self.types.copy(), 
+            self.enums.copy(), self.structs.copy(), self.funcs.copy(), self.events.copy()))
+        self.funcs = []
+        self.events = []
+        return
+
+    def create_function(self, id, name, request_params, response_params):
+        self.funcs.append(FunctionObject(name, id, request_params, response_params))
+        return
+
+    def create_event(self, id, name, params):
+        self.events.append(EventObject(name, id, params))
+        return
+
+    def create_member(self, typeName, name, is_variable, count=1):
+        self.members.append(VariableObject(typeName, name, is_variable, count))
+        return
+
+    def create_define(self, typeName, sourceName):
+        self.types.append(TypeDefinition(typeName, sourceName))
+        return
+
+    def create_value(self, name, value):
+        self.values.append(ValueDefinition(name, value))
+        return
+
+    def create_enum(self, name):
+        self.enums.append(EnumObject(name, self.values.copy()))
+        self.values = []
+        return
+
+    def create_struct(self, name, members):
+        self.structs.append(StructureObject(name, members))
+        return
+
+    def finish_members(self):
+        values = self.members
+        self.members = []
+        return values
+
+    def push_cwd(self, sub_file):
+        self.stored_cwds.append(self.cwd)
+        self.cwd = os.path.dirname(os.path.realpath(os.path.join(self.cwd, sub_file)))
+
+    def pop_cwd(self):
+        self.cwd = self.stored_cwds.pop()
+
+    def get_services(self):
+        return self.services
+
+def get_global_scope_syntax():
+    syntax = {
+        # import "<file>"
+        ("import", handle_import): [TOKENS.IMPORT, TOKENS.QUOTE],
+
+        # namespace <identifier>;
+        ("namespace", handle_namespace): [TOKENS.NAMESPACE, TOKENS.IDENTIFIER],
+
+        # define <identifier> from "<using>"
+        ("define", handle_define): [TOKENS.DEFINE, TOKENS.IDENTIFIER, TOKENS.FROM, TOKENS.QUOTE],
+
+        # enum <identifier> { EXPRESSION }
+        ("enum", handle_enum): [TOKENS.ENUM, TOKENS.IDENTIFIER, TOKENS.LBRACKET, -1, TOKENS.RBRACKET],
+
+        # struct <identifier> { EXPRESSION }
+        ("struct", handle_struct): [TOKENS.STRUCT, TOKENS.IDENTIFIER, TOKENS.LBRACKET, -1, TOKENS.RBRACKET],
+
+        # service <identifer> (<digit>) {
+        ("service", handle_service): [TOKENS.SERVICE, TOKENS.IDENTIFIER, TOKENS.LPARENTHESIS, TOKENS.DIGIT, TOKENS.RPARENTHESIS, TOKENS.LBRACKET]
+    }
+    return syntax
+
+def get_service_scope_syntax():
+    syntax = {
+        # func <identifier>(EXPRESSION) : (EXPRESSION);
+        ("func", handle_func): [TOKENS.FUNC, TOKENS.IDENTIFIER, TOKENS.LPARENTHESIS, -1, TOKENS.RPARENTHESIS, 
+                                TOKENS.COLON, TOKENS.LPARENTHESIS, -1, TOKENS.RPARENTHESIS, TOKENS.SEMICOLON],
+
+        # event <identifier> : (EXPRESSION);
+        ("vevent", handle_event): [TOKENS.EVENT, TOKENS.IDENTIFIER, TOKENS.COLON, TOKENS.LPARENTHESIS, -1, 
+                                   TOKENS.RPARENTHESIS, TOKENS.SEMICOLON],
+        
+        # event <identifier> : <identifier>;
+        ("event", handle_event): [TOKENS.EVENT, TOKENS.IDENTIFIER, TOKENS.COLON, TOKENS.IDENTIFIER, TOKENS.SEMICOLON],
+    }
+    return syntax
+
+def get_enum_scope_syntax():
+    syntax = {
+        # <identifier> = identifier|digit,
+        ("enum_mem0", handle_enum_member_with_value): [TOKENS.IDENTIFIER, TOKENS.EQUAL, [TOKENS.IDENTIFIER, TOKENS.DIGIT], [TOKENS.COMMA, TOKENS.RBRACKET]],
+        
+        # <identifier> }|,
+        ("enum_mem1", handle_enum_member): [TOKENS.IDENTIFIER, [TOKENS.COMMA, TOKENS.RBRACKET]]
+    }
+    return syntax
+
+def get_struct_scope_syntax():
+    syntax = {
+        # <identifier> <identifier>;
+        ("struct_member0", handle_struct_member): [TOKENS.IDENTIFIER, TOKENS.IDENTIFIER, TOKENS.SEMICOLON],
+        
+        # <identifier>[] <identifier>;
+        ("struct_member1", handle_struct_member): [TOKENS.IDENTIFIER, TOKENS.LINDEX, TOKENS.RINDEX, TOKENS.IDENTIFIER, TOKENS.SEMICOLON]
+    }
+    return syntax
+
+def get_param_scope_syntax():
+    syntax = {
+        # <identifier> <identifier> )|,
+        ("param", handle_param): [TOKENS.IDENTIFIER, TOKENS.IDENTIFIER, [TOKENS.RPARENTHESIS, TOKENS.COMMA]],
+        
+        # <identifier>[] <identifier> )|,
+        ("vparam", handle_param): [TOKENS.IDENTIFIER, TOKENS.LINDEX, TOKENS.RINDEX, TOKENS.IDENTIFIER, [TOKENS.RPARENTHESIS, TOKENS.COMMA]]
+    }
+    return syntax
+
+def get_keywords():
+    keywords = {
+        "import": TOKENS.IMPORT,
+        "namespace": TOKENS.NAMESPACE,
+        "service": TOKENS.SERVICE,
+        "enum": TOKENS.ENUM,
+        "define": TOKENS.DEFINE,
+        "struct": TOKENS.STRUCT,
+        "func": TOKENS.FUNC,
+        "event": TOKENS.EVENT,
+        "from": TOKENS.FROM
+    }
+    return keywords
+
+def get_system_types():
+    types = [
+        "uint8", "int8", 
+        "uint16", "int16", 
+        "uint32", "int32", 
+        "uint64", "int64", 
+        "uint", "int", 
+        "string", 
+        "float",
+        "double"
+    ]
+    return types
+
 
 def error(text):
-    print(text)
+    print(f"ENCOUNTERED PARSE ERROR: {text}")
     sys.exit(-1)
 
 
 def trace(text):
     if trace_enabled != 0:
         print(text)
-
-
-def str2bool(v):
-    if v is None:
-        return False
-    return v.lower() in ("yes", "true", "t", "1")
-
 
 def str2int(v):
     try:
@@ -37,287 +272,450 @@ def str2int(v):
     except Exception:
         return None
 
-
-def is_valid_int(s):
-    try:
-        int(s)
-        return True
-    except ValueError:
-        return False
-
-
 def get_dir_or_default(path):
     if not path or not os.path.isdir(path):
         return os.getcwd()
     return path
 
-
 def get_id():
     global global_id
 
     p_id = global_id
-    global_id = global_id + 1
+    global_id += 1
     return p_id
-
 
 def reset_id():
     global global_id
     global_id = 0
     return
 
+def next_n_char(data, index):
+    if len(data) > index:
+        return data[index]
+    return '\0'
 
-def create_type_from_xml(xml_type, global_scope):
-    try:
-        name = xml_type.get("name")
-        header = xml_type.get("header")
-        definition = xml_type.get("definition")
+def element_is_comment_line(data, index):
+    return data[index] == '/' and next_n_char(data, index + 1) == '/'
+    
+def element_is_comment_block(data, index):
+    return data[index] == '/' and next_n_char(data, index + 1) == '*'
 
-        # validation
-        if name is None:
-            raise Exception("name attribute of <type> tag must be specified")
-        if header is None and definition is None:
-            raise Exception("either header or definition must be specified for a <type> tag")
+def skip_line(scanner, data):
+    while scanner.index() < len(data):
+        if data[scanner.index()] == '\n':
+            scanner.nextline()
+            break
+        scanner.consume()
 
-        # continue
-        trace("parsed type: " + name)
-        return TypeDefinition(name, header, definition, global_scope)
-    except:
-        error("could not parse protocol types")
-    return None
+def skip_until(scanner, data, marker):
+    while scanner.index() < len(data):
+        if data[scanner.index()] == '\n':
+            scanner.nextline()
+            continue
 
+        if data[scanner.index()] == marker[0]:
+            found = True
+            for j, el in enumerate(marker):
+                if next_n_char(data, scanner.index() + j) != el:
+                    found = False
+                    break
+            if found:
+                scanner.consume(len(marker))
+                return
+        scanner.consume()
 
-def create_enum_from_xml(xml_enum, global_scope):
-    try:
-        name = xml_enum.get("name")
-        values = []
+def handle_import(context, tokens):
+    fileToImport = tokens[1].value()
+    if ".gr" not in fileToImport:
+        fileToImport += ".gr"
 
-        # validation
-        if name is None:
-            raise Exception("name attribute of <enum> tag must be specified")
+    trace(f"importing {fileToImport}")
+    context.push_cwd(fileToImport)
+    parse_file(context, os.path.join(context.cwd, fileToImport))
+    context.pop_cwd()
 
-        trace("parsing enum: " + name)
-        for xml_value in xml_enum.findall('value'):
-            values.append(parse_value(xml_value))
+    tokens.pop(0) # consume IMPORT
+    tokens.pop(0) # consume QUOTE
 
-        # validation
-        if len(values) == 0:
-            raise Exception("enums must have atleast one value specified")
+def handle_namespace(context, tokens):
+    namespace = tokens[1].value()
+    trace(f"using namespace {namespace}")
+    tokens.pop(0) # consume NAMESPACE
+    tokens.pop(0) # consume IDENTIFIER
+    context.set_namespace(namespace)
 
-        return Enumerator(name, values, global_scope)
-    except Exception as e:
-        error("could not parse enum: " + str(e))
-    return None
+def handle_define(context, tokens):
+    typeName = tokens[1].value()
+    sourceName = tokens[3].value()
+    trace(f"defining {typeName} from {sourceName}")
+    context.create_define(typeName, sourceName)
+    tokens.pop(0) # consume DEFINE
+    tokens.pop(0) # consume IDENTIFIER
+    tokens.pop(0) # consume FROM
+    tokens.pop(0) # consume QUOTE
 
+def handle_service(context, tokens):
+    reset_id()
+    
+    name = tokens[1].value()
+    service_id = tokens[3].value()
+    trace(f"parsing service {name} ({service_id})")
 
-def parse_value(xml_value):
-    try:
-        name = xml_value.get("name")
-        value = xml_value.get("value")
+    tokens.pop(0) # consume SERVICE
+    tokens.pop(0) # consume IDENTIFIER
+    tokens.pop(0) # consume LPARENTHESIS
+    tokens.pop(0) # consume DIGIT
+    tokens.pop(0) # consume RPARENTHESIS
+    tokens.pop(0) # consume LBRACKET
 
-        # validation
-        if name is None:
-            raise Exception("name attribute of <value> tag must be specified")
+    if tokens[0].token_type() != TOKENS.RBRACKET:
+        # create sublist
+        rbracket = next((x for x in tokens if x.token_type() == TOKENS.RBRACKET), None)
+        if rbracket is None:
+            error("expected '}' at end of struct")
+        endOfStruct = tokens.index(rbracket)
+        parse_scope(context, tokens[:endOfStruct], get_service_scope_syntax())
+        del tokens[:endOfStruct]
+    
+    tokens.pop(0) # consume RBRACKET
+    context.create_service(service_id, name)
 
-        if value is None:
-            trace("parsed enum value: " + name)
+def handle_param(context, tokens):
+    # TOKENS.IDENTIFIER, TOKENS.LINDEX, TOKENS.RINDEX, TOKENS.IDENTIFIER, TOKENS.COMMA
+    typeName = tokens[0].value()
+    isVariable = False
+
+    tokens.pop(0) # consume IDENTIFIER
+    if tokens[0].token_type() == TOKENS.LINDEX:
+        tokens.pop(0) # consume LINDEX
+        tokens.pop(0) # consume RINDEX
+        isVariable = True
+    name = tokens[0].value()
+    tokens.pop(0) # consume IDENTIFIER
+    tokens.pop(0) # consume COMMA/RPARENTHESIS
+
+    context.create_member(typeName, name, isVariable)
+
+def handle_func(context, tokens):
+    requestMembers = []
+    responseMembers = []
+
+    name = tokens[1].value()
+    trace(f"parsing function {name}")
+    
+    tokens.pop(0) # consume FUNC
+    tokens.pop(0) # consume IDENTIFIER
+    tokens.pop(0) # consume LPARENTHESIS
+
+    trace("parsing function parameters")
+    if tokens[0].token_type() != TOKENS.RPARENTHESIS:
+        # create sublist
+        rparen = next((x for x in tokens if x.token_type() == TOKENS.RPARENTHESIS), None)
+        if rparen is None:
+            error("expected ')' at end of parameter list")
+        endOfStruct = tokens.index(rparen) + 1
+        parse_scope(context, tokens[:endOfStruct], get_param_scope_syntax())
+        del tokens[:endOfStruct]
+    else:
+        tokens.pop(0) # consume RPARENTHESIS
+    requestMembers = context.finish_members()
+
+    tokens.pop(0) # consume COLON
+    tokens.pop(0) # consume LPARENTHESIS
+
+    trace("parsing function return values")
+    if tokens[0].token_type() != TOKENS.RPARENTHESIS:
+        # create sublist
+        rparen = next((x for x in tokens if x.token_type() == TOKENS.RPARENTHESIS), None)
+        if rparen is None:
+            error("expected ')' at end of parameter list")
+        endOfStruct = tokens.index(rparen) + 1
+        parse_scope(context, tokens[:endOfStruct], get_param_scope_syntax())
+        del tokens[:endOfStruct]
+    else:
+        tokens.pop(0) # consume RPARENTHESIS
+    
+    tokens.pop(0) # consume SEMICOLON
+    responseMembers = context.finish_members()
+
+    context.create_function(get_id(), name, requestMembers, responseMembers)
+
+def handle_event(context, tokens):
+    members = []
+    
+    name = tokens[1].value()
+    trace(f"parsing event {name}")
+    
+    tokens.pop(0) # consume EVENT
+    tokens.pop(0) # consume IDENTIFIER
+    tokens.pop(0) # consume COLON
+
+    if tokens[0].token_type() == TOKENS.IDENTIFIER:
+        context.create_member(tokens[0].value(), tokens[0].value(), False)
+        tokens.pop(0) # consume IDENTIFIER
+    else:
+        # create sublist
+        tokens.pop(0) # consume LPARENTHESIS
+        rparen = next((x for x in tokens if x.token_type() == TOKENS.RPARENTHESIS), None)
+        if rparen is None:
+            error("expected ')' at end of parameter list")
+        endOfParams = tokens.index(rparen) + 1
+        parse_scope(context, tokens[:endOfParams], get_param_scope_syntax())
+        del tokens[:endOfParams]
+
+    tokens.pop(0) # consume SEMICOLON
+    members = context.finish_members()
+    context.create_event(get_id(), name, members)
+
+def handle_enum_member_with_value(context, tokens):
+    trace(f"enum member {tokens[0].value()}: {tokens[2].value()}")
+    name = tokens[0].value()
+    value = tokens[2].value()
+    
+    tokens.pop(0) # consume IDENTIFIER
+    tokens.pop(0) # consume EQUAL
+    tokens.pop(0) # consume IDENTIFIER|DIGIT
+    if tokens[0].token_type() == TOKENS.COMMA:
+        tokens.pop(0) # consume COMMA
+    if tokens[0].token_type() == TOKENS.RBRACKET:
+        tokens.pop(0) # consume RBRACKET
+    context.create_value(name, value)
+    return
+
+def handle_enum_member(context, tokens):
+    trace(f"enum member {tokens[0].value()}")
+    name = tokens[0].value()
+    value = None
+
+    tokens.pop(0) # consume IDENTIFIER
+    if tokens[0].token_type() == TOKENS.COMMA:
+        tokens.pop(0) # consume COMMA
+    if tokens[0].token_type() == TOKENS.RBRACKET:
+        tokens.pop(0) # consume RBRACKET
+    context.create_value(name, value)
+    return
+
+def handle_enum(context, tokens):
+    name = tokens[1].value()
+    trace(f"parsing enum {name}")
+    
+    tokens.pop(0) # consume ENUM
+    tokens.pop(0) # consume IDENTIFIER
+    tokens.pop(0) # consume LBRACKET
+
+    if tokens[0].token_type() != TOKENS.RBRACKET:
+        # create sublist
+        rbracket = next((x for x in tokens if x.token_type() == TOKENS.RBRACKET), None)
+        if rbracket is None:
+            error("expected '}' at end of enum")
+        endOfEnum = tokens.index(rbracket) + 1
+        parse_scope(context, tokens[:endOfEnum], get_enum_scope_syntax())
+        del tokens[:endOfEnum]
+    else:
+        tokens.pop(0) # consume RBRACKET
+    context.create_enum(name)
+    
+def handle_struct_member(context, tokens):
+    trace(f"struct member {tokens[0].value()}")
+    typeName = tokens[0].value()
+    isVariable = False
+    count = 1
+
+    tokens.pop(0) # consume IDENTIFIER
+
+    if tokens[0].token_type() == TOKENS.LINDEX:
+        tokens.pop(0) # consume LINDEX
+        tokens.pop(0) # consume RINDEX
+        isVariable = True
+    name = tokens[0].value()
+    tokens.pop(0) # consume IDENTIFIER
+    tokens.pop(0) # consume SEMICOLON
+
+    context.create_member(typeName, name, isVariable, count)
+
+def handle_struct(context, tokens):
+    name = tokens[1].value()
+    trace(f"parsing struct {name}")
+    
+    tokens.pop(0) # consume ENUM
+    tokens.pop(0) # consume IDENTIFIER
+    tokens.pop(0) # consume LBRACKET
+
+    if tokens[0].token_type() != TOKENS.RBRACKET:
+        # create sublist
+        rbracket = next((x for x in tokens if x.token_type() == TOKENS.RBRACKET), None)
+        if rbracket is None:
+            error("expected '}' at end of struct")
+        endOfStruct = tokens.index(rbracket)
+        parse_scope(context, tokens[:endOfStruct], get_struct_scope_syntax())
+        del tokens[:endOfStruct]
+    
+    tokens.pop(0) # consume RBRACKET
+    context.create_struct(name, context.finish_members())
+
+    
+def match_syntax(tokens, syntax):
+    i = 0
+    j = 0
+    while i < len(tokens) and j < len(syntax):
+        trace(f"matching {tokens[i].token_type()} == {syntax[j]} ({j}/{len(syntax)})")
+        if isinstance(syntax[j], list):
+            foundOption = False
+            for option in syntax[j]:
+                if tokens[i].token_type() == option:
+                    i += 1
+                    j += 1
+                    foundOption = True
+                    break
+            if not foundOption:
+                return False
         else:
-            trace("parsed enum value: " + name + " = " + value)
-        return ValueDefinition(name, value)
-    except Exception as e:
-        error("could not parse enum value: " + str(e))
-    return None
+            if tokens[i].token_type() == syntax[j]:
+                i += 1
+                j += 1
+            elif syntax[j] == -1:
+                # variable entries
+                j += 1
+                while i < len(tokens) and tokens[i].token_type() != syntax[j]:
+                    i += 1
+                if i == len(tokens):
+                    return False
+            else:
+                return False
+    return True
+
+def parse_scope(context, tokens, allowed_syntax):
+    while len(tokens):
+        matched = False
+        for syntax in allowed_syntax.items():
+            matched = match_syntax(tokens, syntax[1])
+            if matched:
+                trace(f"found matching syntax: {syntax[0][0]}")
+                syntax[0][1](context, tokens)
+                break
+        
+        if not matched:
+            error(f"unexpected token at {tokens[0].line_no()}:{tokens[0].line_index()}")
 
 
-def parse_param(xml_param, is_response):
-    try:
-        name = xml_param.get("name")
-        p_type = xml_param.get("type")
-        count = xml_param.get("count")
-        subtype = xml_param.get("subtype")
-        values = []
-
-        # validation
-        if name is None:
-            raise Exception("name attribute of <param> tag must be specified")
-        if p_type is None:
-            raise Exception("type attribute of <param> tag must be specified")
-
-        # set default parameters for optional values
-        if count is None:
-            count = "1"
-        if subtype is None:
-            subtype = "void*"
-
-        if is_valid_int(count):
-            if int(count) < 1:
-                raise Exception(name + ": count can not be less than 1")
-
-            if int(count) > 1 and (p_type == "buffer" or p_type == "shm"):
-                raise Exception(name + ": count is not supported for buffer or shm types")
-
-        if is_response and p_type == "shm":
-            raise Exception(name + ": shm response arguments not supported")
-
-        trace("parsing parameter values: " + name)
-        for xml_value in xml_param.findall('value'):
-            values.append(parse_value(xml_value))
-
-        trace("parsed parameter: " + name)
-        return Parameter(name, p_type, subtype, count, values)
-    except Exception as e:
-        error("could not parse parameter: " + str(e))
-    return None
-
-
-def parse_function(xml_function):
-    try:
-        name = xml_function.get("name")
-        request_params = []
-        response_params = []
-
-        trace("parsing function: " + name)
-
-        # validation
-        if name is None:
-            raise Exception("name attribute of <function> tag must be specified")
-        if name == "subscribe" or name == "unsubscribe":
-            raise Exception("subscribe and unsubscribe are reserved function names")
-
-        # parse parameters
-        for xml_param in xml_function.findall("request/param"):
-            request_params.append(parse_param(xml_param, False))
-        for xml_param in xml_function.findall("response/param"):
-            response_params.append(parse_param(xml_param, True))
-
-        return Function(name, str(get_id()), request_params, response_params)
-    except Exception as e:
-        error("could not parse function: " + str(e))
-    return None
-
-
-def parse_event(xml_event):
-    try:
-        name = xml_event.get("name")
-        params = []
-
-        # validation
-        if name is None:
-            raise Exception("name attribute of <event> tag must be specified")
-
-        trace("parsing event: " + name)
-        for xml_param in xml_event.findall('param'):
-            params.append(parse_param(xml_param, False))
-        return Event(name, str(get_id()), params)
-    except Exception as e:
-        error("could not parse event: " + str(e))
-    return None
-
-
-def parse_protocol(xml_dir, global_types, global_enums, namespace, xml_protocol):
-    try:
-        enums = copy.copy(global_enums)
-        types = copy.copy(global_types)
-        functions = []
-        events = []
-        name = xml_protocol.get("name")
-        p_id = xml_protocol.get("id")
-
-        # validation
-        if name is None:
-            raise Exception("name attribute of <protocol> tag must be specified")
-        if p_id is None:
-            raise Exception("id attribute of <protocol> tag must be specified")
-
-        is_valid_id = str2int(p_id)
-        if is_valid_id is None:
-            raise Exception("id " + p_id + " attribute of <protocol> tag must an integer/hex string")
-        if is_valid_id == 0:
-            raise Exception("id 0 of <protocol> " + name + " is reserved for internal usage")
-        if is_valid_id > 255:
-            raise Exception("id of <protocol> " + name + " can not be higher than 255")
-
-        trace("parsing protocol: " + name)
-        types.extend(parse_types(xml_dir, xml_protocol, False))
-        enums.extend(parse_enums(xml_dir, xml_protocol, False))
-
-        for xml_function in xml_protocol.findall('functions/function'):
-            functions.append(parse_function(xml_function))
-
-        for xml_event in xml_protocol.findall('events/event'):
-            events.append(parse_event(xml_event))
-        return Protocol(namespace, p_id, name, types, enums, functions, events)
-    except Exception as e:
-        error("could not parse protocol: " + str(e))
-
-
-def parse_protocols(xml_dir, global_types, global_enums, root):
-    protocols = []
-    xml_protocols_header = root.find("protocols")
-    if xml_protocols_header is None:
-        error("could not parse protocol: missing <protocols> tag")
-
-    namespace = xml_protocols_header.get("namespace")
-    if namespace is None:
-        error("could not parse protocol: namespace attribute was not defined in the <protocols> tag")
-
-    trace("parsed namespace: " + namespace)
-    for xml_protocol in root.findall('protocols/protocol'):
-        reset_id()
-        protocol_src = xml_protocol.get("src")
-        if protocol_src is not None:
-            protocol_path = os.path.join(xml_dir, protocol_src)
-            protocol_et = ET.parse(protocol_path)
-            if protocol_et is None:
-                continue
-            protocols.append(parse_protocol(os.path.dirname(protocol_path), global_types, global_enums,
-                                            namespace, protocol_et.getroot().find('protocol')))
+def parse_identifier(scanner, data):
+    ident = ""
+    while scanner.index() < len(data):
+        el = data[scanner.index()]
+        if el.isdigit() or el.isalpha() or el == '_':
+            ident += el
+            scanner.consume()
         else:
-            protocols.append(parse_protocol(xml_dir, global_types, global_enums, namespace, xml_protocol))
-    return protocols
+            break
+    return ident
 
+def parse_quoted(scanner, data):
+    unquoted = ""
+    scanner.consume() # consume opening quote
+    while scanner.index() < len(data) and data[scanner.index()] != '\"':
+        unquoted += data[scanner.index()]
+        scanner.consume()
+    
+    if scanner.index == len(data):
+        error("expected closing '\"' but found end of file")
 
-def parse_types(xml_dir, root, global_scope):
-    types = []
-    for xml_types in root.findall('types'):
-        types_src = xml_types.get("src")
-        if types_src is not None:
-            types_path = os.path.join(xml_dir, types_src)
-            types_et = ET.parse(types_path)
-            if types_et is None:
-                continue
-            types.extend(parse_types(os.path.dirname(types_path), types_et.getroot(), global_scope))
+    scanner.consume() # consume closing quote
+    return unquoted
+
+def parse_digit(scanner, data):
+    startIdx = scanner.index()
+    if data[startIdx] == '0' and data[startIdx + 1] == 'x':
+        scanner.consume(2)
+        while scanner.index() < len(data):
+            if data[scanner.index()] not in "0123456789ABCDEF":
+                break
+            scanner.consume()
+        return str2int(data[startIdx : scanner.index()])
+    
+    while data[scanner.index()] == '-':
+        scanner.consume()
+    while data[scanner.index()].isdigit():
+        scanner.consume()
+    return str2int(data[startIdx : scanner.index()])
+
+def create_tokens_from_text(data):
+    scanner = ScanContext()
+    tokens = []
+    while scanner.index() < len(data):
+        el = data[scanner.index()]
+        # skip any spaces, we don't care about them
+        if el.isspace() or el == '\r' or el == '\t':
+            scanner.consume()
+            continue
+        
+        # we want to catch newlines to keep track of context
+        if el == '\n':
+            scanner.nextline()
+            continue
+        
+        # handle comments
+        if element_is_comment_line(data, scanner.index()):
+            skip_line(scanner, data)
+        elif element_is_comment_block(data, scanner.index()):
+            skip_until(scanner, data, "*/")
+        elif el == '{':
+            scanner.consume()
+            tokens.append(Token(scanner, TOKENS.LBRACKET))
+        elif el == '}':
+            scanner.consume()
+            tokens.append(Token(scanner, TOKENS.RBRACKET))
+        elif el == '(':
+            scanner.consume()
+            tokens.append(Token(scanner, TOKENS.LPARENTHESIS))
+        elif el == ')':
+            scanner.consume()
+            tokens.append(Token(scanner, TOKENS.RPARENTHESIS))
+        elif el == '[':
+            scanner.consume()
+            tokens.append(Token(scanner, TOKENS.LINDEX))
+        elif el == ']':
+            scanner.consume()
+            tokens.append(Token(scanner, TOKENS.RINDEX))
+        elif el == ':':
+            scanner.consume()
+            tokens.append(Token(scanner, TOKENS.COLON))
+        elif el == ';':
+            scanner.consume()
+            tokens.append(Token(scanner, TOKENS.SEMICOLON))
+        elif el == ',':
+            scanner.consume()
+            tokens.append(Token(scanner, TOKENS.COMMA))
+        elif el == '=':
+            scanner.consume()
+            tokens.append(Token(scanner, TOKENS.EQUAL))
+        elif el == '\"':
+            unquoted = parse_quoted(scanner, data)
+            tokens.append(Token(scanner, TOKENS.QUOTE, unquoted))
+        elif el.isdigit() or el == '-':
+            digit = parse_digit(scanner, data)
+            tokens.append(Token(scanner, TOKENS.DIGIT, digit))
+        elif el.isalpha() or el == '_':
+            ident = parse_identifier(scanner, data)
+            keywords = get_keywords()
+            if ident in keywords:
+                tokens.append(Token(scanner, keywords[ident]))
+            else:
+                tokens.append(Token(scanner, TOKENS.IDENTIFIER, ident))
         else:
-            for xml_type in xml_types.findall('type'):
-                types.append(create_type_from_xml(xml_type, global_scope))
-    return types
+            error(f"unexpected character '{el}' at line {scanner.line_no()}:{scanner.line_index()}")
+    return tokens
 
 
-def parse_enums(xml_dir, root, global_scope):
-    enums = []
-    for xml_enums in root.findall('enums'):
-        enums_src = xml_enums.get("src")
-        if enums_src is not None:
-            enums_path = os.path.join(xml_dir, enums_src)
-            enums_et = ET.parse(enums_path)
-            if enums_et is None:
-                continue
-            enums.extend(parse_enums(os.path.dirname(enums_path), enums_et.getroot(), global_scope))
-        else:
-            for xml_enum in xml_enums.findall('enum'):
-                enums.append(create_enum_from_xml(xml_enum, global_scope))
-    return enums
+def parse_file(context, file_path):
+    data = ""
+    try:
+        with open(file_path, 'r') as file:
+            data = file.read()
+    except Exception as e:
+        error("could not load file: " + file_path)
 
-
-def parse_protocol_xml(protocol_xml_path):
-    root = ET.parse(protocol_xml_path).getroot()
-    if root is None:
-        return []
-
-    xml_dir_path = os.path.dirname(os.path.abspath(protocol_xml_path))
-    global_types = parse_types(xml_dir_path, root, True)
-    global_enums = parse_enums(xml_dir_path, root, True)
-    protocols = parse_protocols(xml_dir_path, global_types, global_enums, root)
-    return protocols
+    tokens = create_tokens_from_text(data)
+    parse_scope(context, tokens, get_global_scope_syntax())
 
 
 ##########################################
@@ -328,37 +726,39 @@ def main(args):
     if args.trace:
         trace_enabled = 1
 
+    context = ParseContext(args.service)
     output_dir = get_dir_or_default(args.out)
-    protocols = parse_protocol_xml(args.protocol)
-    include_protocols = []
+    parse_file(context, args.service)
+    services = context.get_services()
+    include_services = []
     generator = None
 
     if args.include:
-        include_protocols = args.include.split(',')
+        include_services = args.include.split(',')
 
     if args.lang_c:
         generator = CGenerator()
 
     if generator is not None:
-        generator.generate_shared_files(output_dir, protocols, include_protocols)
+        generator.generate_shared_files(output_dir, services, include_services)
         if args.client:
-            generator.generate_client_files(output_dir, protocols, include_protocols)
+            generator.generate_client_files(output_dir, services, include_services)
         if args.server:
-            generator.generate_server_files(output_dir, protocols, include_protocols)
+            generator.generate_server_files(output_dir, services, include_services)
     return
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Optional app description')
-    parser.add_argument('--protocol', type=str, help='The protocol that should be parsed')
+    parser.add_argument('--service', type=str, help='The service file that should be parsed')
     parser.add_argument('--include', type=str,
-                        help='The protocols that should be generated from the file, comma-seperated list, default is all')
+                        help='The services that should be generated from the file, comma-seperated list, default is all')
     parser.add_argument('--out', type=str, help='Protocol files output directory')
     parser.add_argument('--client', action='store_true', help='Generate client side files')
     parser.add_argument('--server', action='store_true', help='Generate server side files')
     parser.add_argument('--lang-c', action='store_true', help='Generate c-style headers and implementation files')
     parser.add_argument('--trace', action='store_true', help='Trace the protocol parsing process to debug')
     args = parser.parse_args()
-    if not args.protocol or not os.path.isfile(args.protocol):
-        parser.error("a valid protocol path must be specified")
+    if not args.service or not os.path.isfile(args.service):
+        parser.error("a valid service path must be specified")
     main(args)

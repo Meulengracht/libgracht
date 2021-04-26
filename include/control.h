@@ -27,46 +27,29 @@
 #include "gracht/server.h"
 #include "gracht/client.h"
 
-#define GRACHT_CONTROL_PROTOCOL_SUBSCRIBE_ID   0
-#define GRACHT_CONTROL_PROTOCOL_UNSUBSCRIBE_ID 1
-#define GRACHT_CONTROL_PROTOCOL_ERROR_EVENT_ID 2
+#define SERVICE_GRACHT_CONTROL_ID 0
+#define SERVICE_GRACHT_CONTROL_FUNCTION_COUNT 2
+
+#define SERVICE_GRACHT_CONTROL_SUBSCRIBE_ID 0
+#define SERVICE_GRACHT_CONTROL_UNSUBSCRIBE_ID 1
+
+#define SERVICE_GRACHT_CONTROL_EVENT_ERROR_ID 2
 
 // Server part of the internal control protocol
-GRACHT_STRUCT(gracht_subscription_args, {
-    uint8_t protocol_id;
-});
+struct gracht_transfer_complete_event {
+    uint32_t id;
+};
 
-GRACHT_STRUCT(gracht_control_error_event, {
-    uint32_t message_id;
-    int      error_code;
-});
+void gracht_control_subscribe_invocation(const struct gracht_recv_message* message, const uint8_t protocol);
+void gracht_control_unsubscribe_invocation(const struct gracht_recv_message* message, const uint8_t protocol);
 
-void gracht_control_subscribe_callback(struct gracht_recv_message* message, struct gracht_subscription_args*);
-void gracht_control_unsubscribe_callback(struct gracht_recv_message* message, struct gracht_subscription_args*);
-
-static int gracht_control_event_error_single(gracht_conn_t client, uint32_t message_id, int error_code)
-{
-    struct {
-        struct gracht_message_header __base;
-        struct gracht_param          __params[2];
-    } __message = { .__base = { 
-        .id = 0,
-        .length = sizeof(struct gracht_message) + (2 * sizeof(struct gracht_param)),
-        .param_in = 2,
-        .param_out = 0,
-        .flags = MESSAGE_FLAG_EVENT,
-        .protocol = 0,
-        .action = 1
-    }, .__params = {
-            { .type = GRACHT_PARAM_VALUE, .data.value = (size_t)message_id, .length = sizeof(uint32_t) },
-            { .type = GRACHT_PARAM_VALUE, .data.value = (size_t)error_code, .length = sizeof(int) }
-        }
-    };
-
-    return gracht_server_send_event(client, (struct gracht_message*)&__message, 0);
-}
+int gracht_control_event_error_single(const gracht_conn_t client, const uint32_t messageId, const int errorCode);
+int gracht_control_event_error_all(const uint32_t messageId, const int errorCode);
 
 // Client part of the internal control protocol
-void gracht_control_error_event(gracht_client_t* client, struct gracht_control_error_event* event);
+void gracht_control_error_invocation(gracht_client_t* client, const uint32_t messageId, const int errorCode);
+
+extern gracht_protocol_t gracht_control_server_protocol;
+extern gracht_protocol_t gracht_control_client_protocol;
 
 #endif // !__GRACHT_CONTROL_PROTOCOL_H__

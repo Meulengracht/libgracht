@@ -25,6 +25,14 @@
 
 #include "config.h"
 
+#if defined(__clang__)
+#define __TLS_VAR __thread
+#elif defined(__GNUC__) || defined(__GNUG__)
+#define __TLS_VAR __thread
+#elif defined(_MSC_VER)
+#define __TLS_VAR __declspec(thread)
+#endif
+
 #if defined(HAVE_C11_THREADS)
 #include <threads.h>
 #elif defined(HAVE_PTHREAD)

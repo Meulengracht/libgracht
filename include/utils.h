@@ -33,7 +33,6 @@ typedef struct hashtable hashtable_t;
 #endif
 
 gracht_protocol_function_t* get_protocol_action(hashtable_t* protocols, uint8_t protocol_id, uint8_t action_id);
-void unpack_parameters(struct gracht_param* params, uint8_t count, void* params_storage, uint8_t* unpackBuffer);
 
 static uint64_t protocol_hash(const void* element)
 {

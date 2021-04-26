@@ -31,11 +31,15 @@ typedef struct gracht_client_configuration {
     // these provide the underlying link implementation like a socket interface or a serial interface.
     struct client_link_ops* link;
 
-    // <message_buffer>   if set, provides a buffer that the client should use for recieving messages. The size of this
+    // <send_buffer>      if set, provides a buffer that the client should use for sending messages. The size of this
     //                    buffer must be provided in max_message_size. This buffer is not freed upon calling gracht_client_shutdown
+    // <recv_buffer>      if set, provides a buffer that the client should use for receiving messages. The size of this
+    //                    buffer must be atleast twice of max_message_size. 
     // <max_message_size> specifies the maximum message size that can be handled at once. If not set it defaults
     //                    to GRACHT_DEFAULT_MESSAGE_SIZE as the default value.
-    void*                   message_buffer;
+    void*                   send_buffer;
+    void*                   recv_buffer;
+    int                     recv_buffer_size;
     int                     max_message_size;
 } gracht_client_configuration_t;
 
@@ -51,7 +55,8 @@ extern "C" {
  */
 void gracht_client_configuration_init(gracht_client_configuration_t* config);
 void gracht_client_configuration_set_link(gracht_client_configuration_t* config, struct client_link_ops* link);
-void gracht_client_configuration_set_msg_buffer(gracht_client_configuration_t* config, void* buffer);
+void gracht_client_configuration_set_send_buffer(gracht_client_configuration_t* config, void* buffer);
+void gracht_client_configuration_set_recv_buffer(gracht_client_configuration_t* config, void* buffer, int size);
 void gracht_client_configuration_set_max_msg_size(gracht_client_configuration_t* config, int maxMessageSize);
 
 /**
@@ -145,26 +150,6 @@ int gracht_client_await(gracht_client_t* client, struct gracht_message_context* 
  * @return int Status of the wait. Only returns -1 if there was any connection issues.
  */
 int gracht_client_await_multiple(gracht_client_t* client, struct gracht_message_context** contexts, int count, unsigned int flags);
-
-/**
- * Invoked by the generated protocol functions. This is the generic call interface that all functions are built on top of.
- * This should never be invoked manually, but require specific setup.
- * 
- * @param client A pointer to a previously created gracht client.
- * @param context The message context if any is required.
- * @param message The message format that is pre-built.
- * @return int Status of the invoke. Only returns -1 if any connection issues are detected.
- */
-int gracht_client_invoke(gracht_client_t* client, struct gracht_message_context* context, struct gracht_message* message);
-
-/**
- * Invoked by the generated protocol functions. This essentially unpacks any data recieved and stuffs
- * it correctly into the response structures.
- * 
- * @param client A pointer to a previously created gracht client.
- * @return int Result code of the status call.
- */
-int gracht_client_status(gracht_client_t* client, struct gracht_message_context*, struct gracht_param*);
 
 #ifdef __cplusplus
 }

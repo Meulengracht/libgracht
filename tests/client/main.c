@@ -28,7 +28,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "test_utils_protocol_client.h"
+#include "test_utils_service_client.h"
 
 extern int init_client_with_socket_link(gracht_client_t** clientOut);
 

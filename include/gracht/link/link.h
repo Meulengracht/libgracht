@@ -50,13 +50,13 @@ struct client_link_ops;
 // Server link API callbacks.
 typedef int (*server_create_client_fn)(struct server_link_ops*, struct gracht_recv_message*, struct gracht_server_client**);
 typedef int (*server_recv_client_fn)(struct gracht_server_client*, struct gracht_recv_message*, unsigned int flags);
-typedef int (*server_send_client_fn)(struct gracht_server_client*, struct gracht_message*, unsigned int flags);
+typedef int (*server_send_client_fn)(struct gracht_server_client*, struct gracht_buffer*, unsigned int flags);
 typedef int (*server_destroy_client_fn)(struct gracht_server_client*);
 
 typedef gracht_conn_t (*server_link_listen_fn)(struct server_link_ops*, int mode);
 typedef int           (*server_link_accept_fn)(struct server_link_ops*, struct gracht_server_client**);
 typedef int           (*server_link_recv_packet_fn)(struct server_link_ops*, struct gracht_recv_message*, unsigned int flags);
-typedef int           (*server_link_respond_fn)(struct server_link_ops*, struct gracht_recv_message*, struct gracht_message*);
+typedef int           (*server_link_respond_fn)(struct server_link_ops*, struct gracht_recv_message*, struct gracht_buffer*);
 typedef void          (*server_link_destroy_fn)(struct server_link_ops*);
 
 struct server_link_ops {
@@ -74,8 +74,8 @@ struct server_link_ops {
 
 // Client link API callbacks.
 typedef gracht_conn_t (*client_link_connect_fn)(struct client_link_ops*);
-typedef int           (*client_link_recv_fn)(struct client_link_ops*, void* messageBuffer, unsigned int flags, struct gracht_message**);
-typedef int           (*client_link_send_fn)(struct client_link_ops*, struct gracht_message*, void* messageContext);
+typedef int           (*client_link_recv_fn)(struct client_link_ops*, struct gracht_buffer*, unsigned int flags);
+typedef int           (*client_link_send_fn)(struct client_link_ops*, struct gracht_buffer*, void* messageContext);
 typedef void          (*client_link_destroy_fn)(struct client_link_ops*);
 
 struct client_link_ops {

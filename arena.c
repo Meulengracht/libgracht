@@ -93,7 +93,7 @@ void gracht_arena_destroy(struct gracht_arena* arena)
 
 static inline void create_header(void* memory, size_t size)
 {
-    GRTRACE(GRSTR("create_header(memory=00x%p, size=%lu)"), memory, size);
+    GRTRACE(GRSTR("create_header(memory=0x%p, size=%lu)"), memory, size);
     struct gracht_header* header = memory;
     header->length = (uint32_t)(size & 0x00FFFFFF) - HEADER_SIZE;
     header->allocated = 0;
@@ -103,6 +103,8 @@ static inline void create_header(void* memory, size_t size)
 static inline void move_header(struct gracht_header* header, long byteCount)
 {
     void* target = ((char*)header + byteCount);
+    GRTRACE(GRSTR("moving header from %p to %p"), header, target);
+
     memmove(target, header, HEADER_SIZE);
 }
 
@@ -180,6 +182,7 @@ void* gracht_arena_allocate(struct gracht_arena* arena, void* allocation, size_t
     // update current header
     allocHeader->allocated = 1;
     allocHeader->length = (uint32_t)(correctedSize & 0x00FFFFFF);
+    GRTRACE(GRSTR("gracht_arena_allocate returns=%p"), &allocHeader->payload[0]);
     return &allocHeader->payload[0];
 }
 
@@ -187,6 +190,7 @@ void gracht_arena_free(struct gracht_arena* arena, void* memory, size_t size)
 {
     struct gracht_header* header;
     struct gracht_header* nextHeader;
+    uint32_t              allocLength = (uint32_t)(size & 0x00FFFFFF);
     GRTRACE(GRSTR("gracht_arena_free(arena=0x%p, memory=0x%p, size=%lu)"), arena, memory, size);
 
     if (!arena || !memory) {
@@ -198,20 +202,20 @@ void gracht_arena_free(struct gracht_arena* arena, void* memory, size_t size)
 
     // currently we only merge in forward direction, to merge in backwards
     // direction without iterating we need to add an allocation footer
-    if (size != 0 && header->length != size) {
-        uint32_t allocLength = (uint32_t)(size & 0x00FFFFFF);
-
+    if (allocLength != 0 && header->length != allocLength) {
         // must free atleast enough, otherwise skip partial-free operation
         if (allocLength < sizeof(struct gracht_header)) {
             return;
         }
 
+        // reduce the size of this allocation by the number of bytes we free
         header->length -= allocLength;
 
         // either we must adjust the header link or create a new
         // based on whether its free or not
         if (!nextHeader->allocated) {
-            long negated = -((long)allocLength);
+            long negated = 0 - (long)allocLength;
+            GRTRACE(GRSTR("moving the following header by %li bytes"), negated);
 
             // header is not allocated, we add the size to it and move it
             nextHeader->length += allocLength;

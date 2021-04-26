@@ -59,85 +59,51 @@ static unsigned int get_socket_flags(unsigned int flags)
 }
 
 static int socket_link_send_client(struct socket_link_client* client,
-    struct gracht_message* message, unsigned int flags)
+    struct gracht_buffer* message, unsigned int flags)
 {
-    i_iobuf_t*    iov = alloca(sizeof(i_iobuf_t) * (1 + message->header.param_in));
-    unsigned int  socketFlags = get_socket_flags(flags);
-    uint32_t      i;
-    int           iovCount = 1;
-    intmax_t      bytesWritten;
-    i_msghdr_t    msg = I_MSGHDR_INIT;
-    
-    // Prepare the header
-    i_iobuf_set_buf(&iov[0], message);
-    i_iobuf_set_len(&iov[0], sizeof(struct gracht_message) + (
-        (message->header.param_in + message->header.param_out) * sizeof(struct gracht_param)));
-    
-    // Prepare the parameters
-    for (i = 0; i < message->header.param_in; i++) {
-        if (message->params[i].type == GRACHT_PARAM_BUFFER) {
-            i_iobuf_set_buf(&iov[iovCount], message->params[i].data.buffer);
-            i_iobuf_set_len(&iov[iovCount], message->params[i].length);
-            iovCount++;
-        }
-        else if (message->params[i].type == GRACHT_PARAM_SHM) {
-            // NO SUPPORT
-            assert(0);
-        }
-    }
-
-    i_msghdr_set_bufs(&msg, &iov[0], iovCount);
+    unsigned int socketFlags = get_socket_flags(flags);
+    intmax_t     bytesWritten;
 
     GRTRACE(GRSTR("[socket_link_send] sending message"));
-    bytesWritten = sendmsg(client->base.handle, &msg, socketFlags);
-    if (bytesWritten != message->header.length) {
+    bytesWritten = send(client->base.handle, &message->data[0], message->index, socketFlags);
+    if (bytesWritten != message->index) {
         return -1;
     }
-
     return 0;
 }
 
 static int socket_link_recv_client(struct socket_link_client* client,
     struct gracht_recv_message* context, unsigned int flags)
 {
-    struct gracht_message* message        = (struct gracht_message*)&context->payload[0];
-    char*                  params_storage = NULL;
-    unsigned int           socketFlags    = get_socket_flags(flags);
-    intmax_t               bytes_read;
+    unsigned int socketFlags = get_socket_flags(flags);
+    intmax_t     bytesRead;
+    uint32_t     missingData;
     
     GRTRACE(GRSTR("[gracht_connection_recv_stream] reading message header"));
-    bytes_read = recv(client->base.handle, message, sizeof(struct gracht_message), socketFlags);
-    if (bytes_read != sizeof(struct gracht_message)) {
-        if (bytes_read == 0) {
+    bytesRead = recv(client->base.handle, &context->payload[0], GRACHT_MESSAGE_HEADER_SIZE, socketFlags);
+    if (bytesRead != GRACHT_MESSAGE_HEADER_SIZE) {
+        if (bytesRead == 0) {
             errno = (ENODATA);
         }
         return -1;
     }
     
-    if (message->header.param_in) {
-        intmax_t bytesToRead = message->header.length - sizeof(struct gracht_message);
-
+    missingData = *((uint32_t*)&context->payload[4]) - GRACHT_MESSAGE_HEADER_SIZE;
+    if (missingData) {
         GRTRACE(GRSTR("[gracht_connection_recv_stream] reading message payload"));
-        params_storage = (char*)&context->payload[sizeof(struct gracht_message)];
-        bytes_read     = recv(client->base.handle, params_storage, (size_t)bytesToRead, MSG_WAITALL);
-        if (bytes_read != bytesToRead) {
+        bytesRead = recv(client->base.handle, &context->payload[GRACHT_MESSAGE_HEADER_SIZE], 
+            (size_t)missingData, MSG_WAITALL);
+        if (bytesRead != missingData) {
             // do not process incomplete requests
-            // TODO error code / handling
             GRERROR(GRSTR("[gracht_connection_recv_message] did not read full amount of bytes (%u, expected %u)"),
-                  (uint32_t)bytes_read, (uint32_t)(message->header.length - sizeof(struct gracht_message)));
+                  (uint32_t)bytesRead, missingData);
             errno = (EPIPE);
             return -1;
         }
     }
 
-    context->message_id  = message->header.id;
-    context->client      = client->socket;
-    context->params      = (void*)params_storage;
-    
-    context->param_in    = message->header.param_in;
-    context->param_count = message->header.param_in + message->header.param_out;
-    context->protocol    = message->header.protocol;
-    context->action      = message->header.action;
+    context->client = client->socket;
+    context->index  = 0;
     return 0;
 }
 
@@ -261,89 +227,47 @@ static int socket_link_accept(struct socket_link_manager* linkManager, struct gr
 static int socket_link_recv_packet(struct socket_link_manager* linkManager, 
     struct gracht_recv_message* context, unsigned int flags)
 {
-    struct gracht_message* message        = (struct gracht_message*)&context->payload[linkManager->config.dgram_address_length];
-    void*                  params_storage = NULL;
-    unsigned int           socketFlags    = get_socket_flags(flags);
-    uint32_t               addressCrc;
-    i_iobuf_t              iov[1];
-    i_msghdr_t             msg = I_MSGHDR_INIT;
-
-    i_iobuf_set_buf(&iov[0], message);
-    i_iobuf_set_len(&iov[0], (size_t)(GRACHT_DEFAULT_MESSAGE_SIZE - linkManager->config.dgram_address_length));
-
-    i_msghdr_set_addr(&msg, &context->payload[0], linkManager->config.dgram_address_length);
-    i_msghdr_set_bufs(&msg, &iov[0], 1);
+    socklen_t    addrlen = linkManager->config.dgram_address_length;
+    uint32_t     addressCrc;
+    char*        base    = (char*)&context->payload[addrlen];
+    size_t       len     = context->index - addrlen;
+    unsigned int socketFlags    = get_socket_flags(flags);
     
     // Packets are atomic, either the full packet is there, or none is. So avoid
     // the use of MSG_WAITALL here.
-    intmax_t bytes_read = recvmsg(linkManager->dgram_socket, &msg, socketFlags);
-    if (bytes_read <= 0) {
-        if (bytes_read == 0) {
+    intmax_t bytesRead = recvfrom(linkManager->dgram_socket, base, len, 
+        socketFlags, (struct sockaddr*)&context->payload[0], &addrlen);
+    if (bytesRead <= 0) {
+        if (bytesRead == 0) {
             errno = (ENODATA);
         }
         return -1;
     }
 
-    addressCrc = crc32_generate((const unsigned char*)i_msghdr_addr_name(&msg), (size_t)i_msghdr_addr_len(&msg));
+    addressCrc = crc32_generate((const unsigned char*)&context->payload[0], (size_t)addrlen);
     GRTRACE(GRSTR("[gracht_connection_recv_stream] read [%u/%u] addr bytes, %p"),
-            i_msghdr_addr_len(&msg), linkManager->config.dgram_address_length,
-            i_msghdr_addr_name(&msg));
-    GRTRACE(GRSTR("[gracht_connection_recv_stream] read %lu bytes, %u"), bytes_read, i_msghdr_flags(&msg));
-    GRTRACE(GRSTR("[gracht_connection_recv_stream] parameter offset %lu"), (uintptr_t)&message->params[0] - (uintptr_t)message);
-    if (message->header.param_in) {
-        params_storage = &message->params[0];
-    }
+            addrlen, linkManager->config.dgram_address_length, &context->payload[0]);
+    GRTRACE(GRSTR("[gracht_connection_recv_stream] read %lu bytes"), bytesRead);
 
-    context->message_id  = message->header.id;
-    context->client      = (int)addressCrc;
-    context->params      = params_storage;
-
-    context->param_in    = message->header.param_in;
-    context->param_count = message->header.param_in + message->header.param_out;
-    context->protocol    = message->header.protocol;
-    context->action      = message->header.action;
+    context->client = (int)addressCrc;
+    context->index  = addrlen;
     return 0;
 }
 
 static int socket_link_respond(struct socket_link_manager* linkManager,
-    struct gracht_recv_message* messageContext, struct gracht_message* message)
+    struct gracht_recv_message* messageContext, struct gracht_buffer* message)
 {
-    i_iobuf_t*    iov = alloca(sizeof(i_iobuf_t) * (1 + message->header.param_in));
-    uint32_t      i;
-    int           iovCount = 1;
-    intmax_t      bytesWritten;
-    i_msghdr_t    msg = I_MSGHDR_INIT;
+    intmax_t bytesWritten;
+    (void)messageContext;
 
-    // Prepare the header
-    i_iobuf_set_buf(&iov[0], message);
-    i_iobuf_set_len(&iov[0], sizeof(struct gracht_message) + (
-        (message->header.param_in + message->header.param_out) * sizeof(struct gracht_param)));
-    
-    // Prepare the parameters
-    for (i = 0; i < message->header.param_in; i++) {
-        if (message->params[i].type == GRACHT_PARAM_BUFFER) {
-            i_iobuf_set_buf(&iov[iovCount], message->params[i].data.buffer);
-            i_iobuf_set_len(&iov[iovCount], message->params[i].length);
-            iovCount++;
-        }
-        else if (message->params[i].type == GRACHT_PARAM_SHM) {
-            // NO SUPPORT
-            assert(0);
-        }
-    }
-    
-    i_msghdr_set_addr(&msg, &messageContext->payload[0], linkManager->config.dgram_address_length);
-    i_msghdr_set_bufs(&msg, &iov[0], iovCount);
-
-    bytesWritten = sendmsg(linkManager->dgram_socket, &msg, MSG_WAITALL);
-    if (bytesWritten != message->header.length) {
-        GRERROR(GRSTR("link_server: failed to respond [%li/%i]"), bytesWritten, message->header.length);
+    bytesWritten = send(linkManager->dgram_socket, &message->data[0], message->index, MSG_WAITALL);
+    if (bytesWritten != message->index) {
+        GRERROR(GRSTR("link_server: failed to respond [%li/%i]"), bytesWritten, message->index);
         if (bytesWritten == -1) {
             GRERROR(GRSTR("link_server: errno %i"), errno);
         }
         return -1;
     }
-
     return 0;
 }
 

@@ -63,10 +63,6 @@ typedef int gracht_conn_t;
 
 #define GRACHT_DEFAULT_MESSAGE_SIZE 512
 
-#define GRACHT_PARAM_VALUE  0
-#define GRACHT_PARAM_BUFFER 1
-#define GRACHT_PARAM_SHM    2
-
 #define GRACHT_AWAIT_ANY   0x0
 #define GRACHT_AWAIT_ALL   0x1
 #define GRACHT_AWAIT_ASYNC 0x2
@@ -79,34 +75,18 @@ typedef int gracht_conn_t;
 #define GRACHT_MESSAGE_BLOCK   0x1
 #define GRACHT_MESSAGE_WAITALL 0x2
 
-// Pack structures transmitted to make debugging wire format easier
-GRACHT_STRUCT(gracht_param, {
-    uint32_t length : 30;
-    uint32_t type   : 2;
-    union {
-        size_t  value;
-        void*   buffer;
-        uint8_t bytes[8]; // always assure 64 bit length
-    } data;
-});
-
-// Pack structures transmitted to make debugging wire format easier
-GRACHT_STRUCT(gracht_message_header, {
-    uint32_t id;
-    uint32_t length;
-    uint32_t param_in  : 4;
-    uint32_t param_out : 4;
-    uint32_t flags     : 8;
-    uint32_t protocol  : 8;
-    uint32_t action    : 8;
-});
-
-struct gracht_message {
-    struct gracht_message_header header;
-    struct gracht_param          params[];
-};
+#define GRACHT_MESSAGE_HEADER_SIZE 11
 
 struct gracht_recv_message;
+
+/**
+ * The message buffer descriptor. Used internally by the generated system to perform
+ * serialization and deserialization of messages
+ */
+typedef struct gracht_buffer {
+    char*    data;
+    uint32_t index;
+} gracht_buffer_t;
 
 /**
  * The context of a message. This is used as the message identifier when using
@@ -116,7 +96,6 @@ struct gracht_recv_message;
  */
 struct gracht_message_context {
     uint32_t message_id;
-    void*    internal_handle;
 };
 
 typedef struct gracht_protocol_function {

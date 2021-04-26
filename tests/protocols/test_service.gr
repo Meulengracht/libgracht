@@ -1,0 +1,10 @@
+/**
+ * Test example of gracht protocol message version 2
+ * Includes example of a test protocol and some test structures
+ */
+
+namespace test
+
+service utils (0x1) {
+    func print(string text) : (int result);
+}
