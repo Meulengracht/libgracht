@@ -37,7 +37,7 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
 add_custom_command(
     OUTPUT  test_utils_service_server.c test_utils_service_client.c
-    COMMAND python ${CMAKE_SOURCE_DIR}/generator/parser_v2.py --service ${CMAKE_CURRENT_SOURCE_DIR}/protocols/test_service.gr --out ${CMAKE_CURRENT_BINARY_DIR} --lang-c --server --client
+    COMMAND python ${CMAKE_SOURCE_DIR}/generator/parser.py --service ${CMAKE_CURRENT_SOURCE_DIR}/protocols/test_service.gr --out ${CMAKE_CURRENT_BINARY_DIR} --lang-c --server --client
     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/protocols/test_service.gr
 )
 add_custom_target(
