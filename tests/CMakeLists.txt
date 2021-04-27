@@ -45,8 +45,14 @@ add_custom_target(
     DEPENDS test_utils_service_server.c test_utils_service_client.c
 )
 
+if (UNIX)
+    add_definitions("-ggdb")
+endif ()
+
 # Client test applications
-add_client_test(gclient_single client/main.c)
+add_client_test(gclient_0 client/test_string.c)
+add_client_test(gclient_1 client/test_structure.c)
+add_client_test(gclient_2 client/test_events.c)
 add_client_test(gclient_many client_parallel/main.c)
 
 # Server test applications

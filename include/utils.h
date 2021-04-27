@@ -32,6 +32,18 @@ typedef struct hashtable hashtable_t;
 #define alloca _alloca
 #endif
 
+#define GB_MSG_ID_0(buffer)  *((uint32_t*)(&((buffer)->data[0])))
+#define GB_MSG_LEN_0(buffer) *((uint32_t*)(&((buffer)->data[4])))
+#define GB_MSG_SID_0(buffer) *((uint8_t*)(&((buffer)->data[8])))
+#define GB_MSG_AID_0(buffer) *((uint8_t*)(&((buffer)->data[9])))
+#define GB_MSG_FLG_0(buffer) *((uint8_t*)(&((buffer)->data[10])))
+
+#define GB_MSG_ID(buffer)  *((uint32_t*)(&((buffer)->data[(buffer)->index + 0])))
+#define GB_MSG_LEN(buffer) *((uint32_t*)(&((buffer)->data[(buffer)->index + 4])))
+#define GB_MSG_SID(buffer) *((uint8_t*)(&((buffer)->data[(buffer)->index + 8])))
+#define GB_MSG_AID(buffer) *((uint8_t*)(&((buffer)->data[(buffer)->index + 9])))
+#define GB_MSG_FLG(buffer) *((uint8_t*)(&((buffer)->data[(buffer)->index + 10])))
+
 gracht_protocol_function_t* get_protocol_action(hashtable_t* protocols, uint8_t protocol_id, uint8_t action_id);
 
 static uint64_t protocol_hash(const void* element)

@@ -26,6 +26,7 @@
 #include <gracht/link/socket.h>
 #include <gracht/server.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <test_utils_service_server.h>
@@ -34,8 +35,41 @@ extern int init_mt_server_with_socket_link(int workerCount);
 
 void test_utils_print_invocation(struct gracht_recv_message* message, const char* text)
 {
-    printf("print: received message: %s\n", text);
+    printf("print: %s\n", text);
     test_utils_print_response(message, strlen(text));
+}
+
+void test_utils_transfer_invocation(struct gracht_recv_message* message, const struct test_transaction* transaction)
+{
+    struct test_transfer_status status;
+    printf("transfer: %u\n", transaction->test_id);
+
+    status.test_id = transaction->test_id;
+    status.code = 13;
+    test_utils_transfer_response(message, &status);
+}
+
+void test_utils_transfer_many_invocation(struct gracht_recv_message* message, const struct test_transaction* transactions, const uint32_t transactions_count)
+{
+    struct test_transfer_status* statuses;
+    uint32_t                     i;
+
+    statuses = (struct test_transfer_status*)malloc(sizeof(struct test_transfer_status) * transactions_count);
+    for (i = 0; i < transactions_count; i++) {
+        statuses[i].test_id = transactions[i].test_id;
+        statuses[i].code = 13;
+    }
+
+    test_utils_transfer_many_response(message, &statuses[0], transactions_count);
+    free(statuses);
+}
+
+void test_utils_get_event_invocation(struct gracht_recv_message* message, const int count)
+{
+    printf("get_events: %i\n", count);
+    for (int i = 0; i < count; i++) {
+        test_utils_event_myevent_single(message->client, i);
+    }
 }
 
 int main(void)

@@ -341,7 +341,7 @@ static void put_message_mt(struct gracht_server* server, struct gracht_recv_mess
 static int handle_sync_event(struct gracht_server* server)
 {
     int status;
-    GRTRACE(GRSTR("[handle_sync_event]"));
+    GRTRACE(GRSTR("handle_sync_event"));
     
     while (1) {
         struct gracht_recv_message* message = server->ops->get_incoming_buffer(server);
@@ -349,7 +349,7 @@ static int handle_sync_event(struct gracht_server* server)
         status = server->link->recv_packet(server->link, message, 0);
         if (status) {
             if (errno != ENODATA) {
-                GRERROR(GRSTR("[handle_sync_event] server_object.link->recv_packet returned %i"), errno);
+                GRERROR(GRSTR("handle_sync_event server_object.link->recv_packet returned %i"), errno);
             }
             server->ops->put_message(server, message);
             break;
@@ -363,7 +363,7 @@ static int handle_sync_event(struct gracht_server* server)
 static int handle_async_event(struct gracht_server* server, gracht_conn_t handle, uint32_t events)
 {
     int status;
-    GRTRACE(GRSTR("[handle_async_event] %i, 0x%x"), handle, events);
+    GRTRACE(GRSTR("handle_async_event %i, 0x%x"), handle, events);
     
     // Check for control event. On non-passive sockets, control event is the
     // disconnect event.
@@ -384,8 +384,8 @@ static int handle_async_event(struct gracht_server* server, gracht_conn_t handle
             
             status = server->link->recv_client(entry->client, message, 0);
             if (status) {
-                if (errno != ENODATA) {
-                    GRERROR(GRSTR("[handle_async_event] server_object.link->recv_client returned %i"), errno);
+                if (errno != ENODATA && errno != EAGAIN) {
+                    GRERROR(GRSTR("handle_async_event server_object.link->recv_client returned %i"), errno);
                 }
                 server->ops->put_message(server, message);
                 break;
@@ -445,9 +445,9 @@ void server_invoke_action(struct gracht_server* server, struct gracht_recv_messa
     uint8_t                     protocol;
     uint8_t                     action;
 
-    messageId = *((uint32_t*)&buffer.data[buffer.index + 0]);
-    protocol  = *((uint8_t*)&buffer.data[buffer.index + 8]);
-    action    = *((uint8_t*)&buffer.data[buffer.index + 9]);
+    messageId = GB_MSG_ID(&buffer);
+    protocol  = GB_MSG_SID(&buffer);
+    action    = GB_MSG_AID(&buffer);
 
     mtx_lock(&server->sync_object);
     function = get_protocol_action(&server->protocols, protocol, action);
@@ -667,7 +667,7 @@ void gracht_control_subscribe_invocation(const struct gracht_recv_message* messa
     if (!entry) {
         struct client_wrapper newEntry;
         if (g_grachtServer.link->create_client(g_grachtServer.link, (struct gracht_recv_message*)message, &newEntry.client)) {
-            GRERROR(GRSTR("[gracht_control_subscribe_invocation] server_object.link->create_client returned error"));
+            GRERROR(GRSTR("gracht_control_subscribe_invocation server_object.link->create_client returned error"));
             return;
         }
 
@@ -716,7 +716,7 @@ static void client_enum_broadcast(int index, const void* element, void* userCont
 {
     const struct client_wrapper* entry   = element;
     struct broadcast_context*    context = userContext;
-    uint8_t                      protocol = (uint8_t)context->message->data[8];
+    uint8_t                      protocol = GB_MSG_SID(context->message);
     (void)index;
 
     if (client_is_subscribed(entry->client, protocol)) {

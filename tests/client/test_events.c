@@ -24,7 +24,7 @@
 
 #include <errno.h>
 #include <gracht/link/socket.h>
-#include <gracht/server.h>
+#include <gracht/client.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -32,11 +32,25 @@
 
 extern int init_client_with_socket_link(gracht_client_t** clientOut);
 
-int main(int argc, char **argv)
+static volatile int g_eventsReceived = 0;
+
+void test_utils_event_myevent_invocation(gracht_client_t* client, const int n)
 {
-    gracht_client_t*              client;
-    int                           code, status = -1337;
-    struct gracht_message_context context;
+    (void)client;
+    printf("myevent: %i\n", n);
+    g_eventsReceived++;
+}
+
+void test_utils_event_transfer_status_invocation(gracht_client_t* client, const struct test_transfer_status* transfer_status)
+{
+    (void)client;
+    (void)transfer_status;
+}
+
+int main(void)
+{
+    gracht_client_t* client;
+    int              code;
 
     // create client
     code = init_client_with_socket_link(&client);
@@ -45,19 +59,17 @@ int main(int argc, char **argv)
     }
 
     // register protocols
+    gracht_client_register_protocol(client, &test_utils_client_protocol);
 
     // run test
-    if (argc > 1) {
-        code = test_utils_print(client, &context, argv[1]);
-    }
-    else {
-        code = test_utils_print(client, &context, "hello from wm_client!");
-    }
-
-    gracht_client_wait_message(client, &context, GRACHT_MESSAGE_BLOCK);
-    test_utils_print_result(client, &context, &status);
+    code = 50;
     
-    printf("gracht_client: recieved status %i\n", status);
+    test_utils_get_event(client, NULL, code);
+    while (g_eventsReceived != code) {
+        gracht_client_wait_message(client, NULL, GRACHT_MESSAGE_BLOCK);
+    }
+    
+    printf("gracht_client: recieved event count %i\n", g_eventsReceived);
     gracht_client_shutdown(client);
     return 0;
 }

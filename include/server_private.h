@@ -33,14 +33,6 @@ struct gracht_worker_pool;
 // Callback prototype
 typedef void (*server_invoke_t)(struct gracht_recv_message*, struct gracht_buffer*);
 
-//Represents a received message on the server.
-struct gracht_recv_message {
-    struct gracht_object_header header;    
-    gracht_conn_t               client;
-    uint32_t                    index;
-    uint8_t                     payload[];
-};
-
 /**
  * Defined in dispatch.c
  * Creates a new threadpool with the specified number of workers. This can then be used to dispatch messages

@@ -55,7 +55,7 @@ typedef int gracht_conn_t;
 #define GRACHT_CONN_INVALID   (int)-1
 #endif
 
-#define MESSAGE_FLAG_TYPE(flags) (flags & 0x3)
+#define MESSAGE_FLAG_TYPE(flags) ((flags) & 0x3)
 #define MESSAGE_FLAG_SYNC     0x00000000
 #define MESSAGE_FLAG_ASYNC    0x00000001
 #define MESSAGE_FLAG_EVENT    0x00000002
@@ -77,7 +77,18 @@ typedef int gracht_conn_t;
 
 #define GRACHT_MESSAGE_HEADER_SIZE 11
 
-struct gracht_recv_message;
+typedef struct gracht_object_header {
+    int                          id;
+    struct gracht_object_header* link;
+} gracht_object_header_t;
+
+//Represents a received message on the server.
+struct gracht_recv_message {
+    struct gracht_object_header header;    
+    gracht_conn_t               client;
+    uint32_t                    index;
+    uint8_t                     payload[];
+};
 
 /**
  * The message buffer descriptor. Used internally by the generated system to perform

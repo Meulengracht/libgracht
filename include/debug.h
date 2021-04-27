@@ -23,6 +23,8 @@
 #ifndef __GRACHT_DEBUG_H__
 #define __GRACHT_DEBUG_H__
 
+//#define GRACHT_TRACE
+
 #if defined(MOLLENOS)
 //#define __TRACE
 #include <ddk/utils.h>
@@ -39,6 +41,11 @@
 #define GRERROR(...)   printf(__VA_ARGS__)
 #else
 #error "Undefined platform for debug"
+#endif
+
+#ifndef GRACHT_TRACE
+#undef GRTRACE
+#define GRTRACE(...)
 #endif
 
 #endif // !__GRACHT_DEBUG_H__

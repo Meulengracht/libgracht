@@ -595,7 +595,7 @@ def parse_scope(context, tokens, allowed_syntax):
                 break
         
         if not matched:
-            error(f"unexpected token at {tokens[0].line_no()}:{tokens[0].line_index()}")
+            error(f"unexpected token at {tokens[0].line_no()}:{tokens[0].line_index()}: {tokens[0].token_type()}")
 
 
 def parse_identifier(scanner, data):

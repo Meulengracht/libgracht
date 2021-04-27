@@ -5,6 +5,21 @@
 
 namespace test
 
+struct transaction {
+    uint32_t test_id;
+}
+
+struct transfer_status {
+    uint32_t test_id;
+    int      code;
+}
+
 service utils (0x1) {
     func print(string text) : (int result);
+    func transfer(transaction transaction) : (transfer_status result);
+    func transfer_many(transaction[] transactions) : (transfer_status[] results);
+    func get_event(int count) : ();
+
+    event myevent : (int n);
+    event transfer_status : transfer_status;
 }

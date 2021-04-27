@@ -97,20 +97,20 @@ int gracht_client_invoke(gracht_client_t* client, struct gracht_message_context*
     }
     
     // fill in some message details
-    *((uint32_t*)&message->data[0]) = get_message_id(client);
-    *((uint32_t*)&message->data[4]) = message->index;
+    GB_MSG_ID_0(message)  = get_message_id(client);
+    GB_MSG_LEN_0(message) = message->index;
     
     // require intermediate buffer for sync operations
-    if (MESSAGE_FLAG_TYPE((uint8_t)message->data[10]) == MESSAGE_FLAG_SYNC) {
+    if (MESSAGE_FLAG_TYPE(GB_MSG_FLG_0(message)) == MESSAGE_FLAG_SYNC) {
         struct gracht_message_descriptor entry = { 0 };
         if (!context) {
             errno = EINVAL;
             return -1;
         }
 
-        context->message_id = *((uint32_t*)&message->data[0]);
+        context->message_id = GB_MSG_ID_0(message);
 
-        entry.id = *((uint32_t*)&message->data[0]);
+        entry.id = GB_MSG_ID_0(message);
         entry.status = GRACHT_MESSAGE_CREATED;
         
         mtx_lock(&client->data_lock);
@@ -261,7 +261,7 @@ int gracht_client_get_status_buffer(gracht_client_t* client, struct gracht_messa
 int gracht_client_status_finalize(gracht_client_t* client, struct gracht_message_context* context)
 {
     struct gracht_message_descriptor* descriptor;
-    GRTRACE(GRSTR("[gracht] [client] finalize status from context"));
+    GRTRACE(GRSTR("gracht_client_status_finalize()"));
     
     if (!client || !context) {
         errno = (EINVAL);
@@ -277,7 +277,7 @@ int gracht_client_status_finalize(gracht_client_t* client, struct gracht_message
     }
     mtx_unlock(&client->data_lock);
     if (!descriptor) {
-        GRERROR(GRSTR("[gracht] [client] descriptor for message was not found"));
+        GRERROR(GRSTR("gracht_client_status_finalize descriptor for message was not found"));
         errno = (EALREADY);
         return -1;
     }
@@ -287,14 +287,15 @@ int gracht_client_status_finalize(gracht_client_t* client, struct gracht_message
 int client_invoke_action(gracht_client_t* client, struct gracht_buffer* message)
 {
     gracht_protocol_function_t* function;
-    uint8_t protocol = *((uint8_t*)&message->data[8]);
-    uint8_t action   = *((uint8_t*)&message->data[9]);
+    uint8_t protocol = GB_MSG_SID(message);
+    uint8_t action   = GB_MSG_AID(message);
 
     function = get_protocol_action(&client->protocols, protocol, action);
     if (!function) {
         return -1;
     }
 
+    message->index += GRACHT_MESSAGE_HEADER_SIZE;
     ((client_invoke_t)function->address)(client, message);
     return 0;
 }
@@ -361,34 +362,39 @@ listenForMessage:
         return status;
     }
     
-    messageFlags = *((uint8_t*)&buffer.data[10]);
+    messageFlags = GB_MSG_FLG(&buffer);
     
     // If the message is not an event, then do not invoke any actions. In any case if a context is provided
     // we expect the caller to wanting to listen for that specific message. That means any incoming event and/or
     // response we recieve should be for that, or we should keep waiting.
     GRTRACE(GRSTR("[gracht] [client] message received %u - %u:%u"),
-        messageFlags, *((uint8_t*)&buffer.data[8]), *((uint8_t*)&buffer.data[9]));
+        messageFlags, GB_MSG_SID(&buffer), GB_MSG_AID(&buffer));
     if (MESSAGE_FLAG_TYPE(messageFlags) == MESSAGE_FLAG_EVENT) {
         status = client_invoke_action(client, &buffer);
+        
+        // cleanup buffer after handling event
+        mtx_lock(&client->data_lock);
+        gracht_arena_free(client->arena, buffer.data, 0);
+        mtx_unlock(&client->data_lock);
     }
     else if (MESSAGE_FLAG_TYPE(messageFlags) == MESSAGE_FLAG_RESPONSE) {
         struct gracht_message_descriptor* descriptor = hashtable_get(&client->messages, 
-            &(struct gracht_message_descriptor) { .id = *((uint32_t*)&buffer.data[0]) });
+            &(struct gracht_message_descriptor) { .id = GB_MSG_ID(&buffer) });
         if (!descriptor) {
             // what the heck?
-            GRERROR(GRSTR("[gracht_client_wait_message] no-one was listening for message %u"), *((uint32_t*)&buffer.data[0]));
+            GRERROR(GRSTR("[gracht_client_wait_message] no-one was listening for message %u"), GB_MSG_ID(&buffer));
             status = -1;
             goto listenOrExit;
         }
+        
+        // set message id handled
+        messageId = GB_MSG_ID(&buffer);
         
         // copy data over to message, but increase index so it skips the meta-data
         descriptor->buffer.data  = buffer.data;
         descriptor->buffer.index = buffer.index + GRACHT_MESSAGE_HEADER_SIZE;
         descriptor->status = GRACHT_MESSAGE_COMPLETED;
 
-        // set message id handled
-        messageId = *((uint32_t*)&buffer.data[0]);
-        
         // iterate awaiters and mark those that contain this message
         mtx_lock(&client->data_lock);
         mark_awaiters(client, descriptor);
@@ -594,7 +600,7 @@ void gracht_control_error_invocation(gracht_client_t* client, const uint32_t mes
 
     if (!descriptor) {
         // what the heck?
-        GRERROR(GRSTR("[gracht_control_error_event] no-one was listening for message %u"), messageId);
+        GRERROR(GRSTR("gracht_control_error_invocation no-one was listening for message %u"), messageId);
         return;
     }
     
