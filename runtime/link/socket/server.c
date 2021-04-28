@@ -104,7 +104,7 @@ static int socket_link_recv_client(struct socket_link_client* client,
 
     context->client = client->socket;
     context->index  = 0;
-    context->size   = (uint32_t)bytesRead;
+    context->size   = *((uint32_t*)&context->payload[4]);
     return 0;
 }
 
@@ -212,7 +212,6 @@ static int socket_link_accept(struct socket_link_manager* linkManager, struct gr
 
     memset(client, 0, sizeof(struct socket_link_client));
 
-    // TODO handle disconnects in accept in netmanager
     client->socket = accept(linkManager->client_socket, (struct sockaddr*)&client->address, &address_length);
     if (client->socket < 0) {
         GRERROR(GRSTR("link_server: failed to accept client"));

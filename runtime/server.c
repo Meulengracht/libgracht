@@ -21,16 +21,16 @@
  */
 
 #include <errno.h>
-#include "include/aio.h"
-#include "include/arena.h"
-#include "include/debug.h"
-#include "include/gracht/server.h"
-#include "include/gracht/link/link.h"
-#include "include/thread_api.h"
-#include "include/utils.h"
-#include "include/server_private.h"
-#include "include/hashtable.h"
-#include "include/control.h"
+#include "aio.h"
+#include "arena.h"
+#include "debug.h"
+#include "gracht/server.h"
+#include "gracht/link/link.h"
+#include "thread_api.h"
+#include "utils.h"
+#include "server_private.h"
+#include "hashtable.h"
+#include "control.h"
 #include <stdlib.h>
 #include <string.h>
 

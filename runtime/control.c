@@ -20,7 +20,7 @@
  *   and functionality, refer to the individual things for descriptions
  */
 
-#include "include/control.h"
+#include "control.h"
 
 #define SERIALIZE_VALUE(name, type) static inline void serialize_##name(gracht_buffer_t* buffer, type value) { \
                                   *((type*)&buffer->data[buffer->index]) = value; buffer->index += sizeof(type); \

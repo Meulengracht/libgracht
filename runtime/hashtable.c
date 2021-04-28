@@ -18,7 +18,7 @@
  * - Open addressed hashtable implementation using round robin for balancing.
  */
 
-#include "include/hashtable.h"
+#include "hashtable.h"
 #include <assert.h>
 #include <errno.h>
 #include <string.h>

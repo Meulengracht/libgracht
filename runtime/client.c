@@ -24,15 +24,15 @@
 
 #include <assert.h>
 #include <errno.h>
-#include "include/gracht/client.h"
-#include "include/client_private.h"
-#include "include/arena.h"
-#include "include/crc.h"
-#include "include/hashtable.h"
-#include "include/debug.h"
-#include "include/thread_api.h"
-#include "include/control.h"
-#include "include/utils.h"
+#include "gracht/client.h"
+#include "client_private.h"
+#include "arena.h"
+#include "crc.h"
+#include "hashtable.h"
+#include "debug.h"
+#include "thread_api.h"
+#include "control.h"
+#include "utils.h"
 #include <string.h>
 #include <stdlib.h>
 

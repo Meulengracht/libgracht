@@ -19,8 +19,8 @@
  */
 
 #include <errno.h>
-#include "include/debug.h"
-#include "include/server_private.h"
+#include "debug.h"
+#include "server_private.h"
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>

@@ -1,0 +1,24 @@
+/**
+ * Test example of gracht protocol message version 2
+ * Includes example of a test protocol and some test structures
+ */
+
+import "test_types"
+
+struct transfer_device {
+    string device;
+}
+
+struct transfer_bit {
+    int start;
+    int length;
+}
+
+struct transfer_request {
+    transfer_device device;
+    transfer_bit[] bits;
+}
+
+struct transfer_complete_event {
+    uint32_t id;
+}

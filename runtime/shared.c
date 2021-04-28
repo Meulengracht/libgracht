@@ -20,10 +20,10 @@
  *   and functionality, refer to the individual things for descriptions
  */
 
-#include "include/gracht/types.h"
-#include "include/hashtable.h"
-#include "include/debug.h"
-#include "include/utils.h"
+#include "gracht/types.h"
+#include "hashtable.h"
+#include "debug.h"
+#include "utils.h"
 #include <errno.h>
 #include <stdlib.h>
 

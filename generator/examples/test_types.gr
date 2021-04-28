@@ -1,0 +1,12 @@
+/**
+ * Test example of gracht protocol message version 2
+ * Includes example of a test protocol and some test structures
+ */
+
+define uint32_t from "stdint.h"
+
+enum error_codes {
+    ok = 0,
+    invalid_parameters = -1,
+    invalid_result = -2
+}
