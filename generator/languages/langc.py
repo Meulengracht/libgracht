@@ -82,7 +82,7 @@ def is_param_const(param, is_output):
         return False
     if "gracht_client_t" in param.get_typename():
         return False
-    if "gracht_recv_message" in param.get_typename():
+    if "gracht_message" in param.get_typename():
         return False
     return True
 
@@ -586,7 +586,7 @@ def write_client_api(service, outfile):
 
 def write_server_api(service, outfile):
     outfile.write("extern int gracht_server_get_buffer(gracht_buffer_t*);\n")
-    outfile.write("extern int gracht_server_respond(struct gracht_recv_message*, gracht_buffer_t*);\n")
+    outfile.write("extern int gracht_server_respond(struct gracht_message*, gracht_buffer_t*);\n")
     outfile.write("extern int gracht_server_send_event(gracht_conn_t client, gracht_buffer_t*, unsigned int flags);\n")
     outfile.write("extern int gracht_server_broadcast_event(gracht_buffer_t*, unsigned int flags);\n")
     outfile.write("\n")
@@ -781,7 +781,7 @@ def write_server_deserializer(service: ServiceObject, func: FunctionObject, outf
     write_server_deserializer_body(service, func, outfile)
 
 def write_server_deserializer_prototype(service: ServiceObject, func: FunctionObject, outfile):
-    outfile.write(f"void {get_service_internal_callback_name(service, func)}(struct gracht_recv_message* __message, gracht_buffer_t* __buffer)")
+    outfile.write(f"void {get_service_internal_callback_name(service, func)}(struct gracht_message* __message, gracht_buffer_t* __buffer)")
 
 def write_server_deserializer_body(service: ServiceObject, func: FunctionObject, outfile):
     outfile.write("{\n")
@@ -806,7 +806,7 @@ def write_server_deserializer_body(service: ServiceObject, func: FunctionObject,
 class CGenerator:
     def get_server_callback_prototype(self, service, func):
         function_prototype = "void " + get_service_callback_name(service, func) + "("
-        function_message_param = get_param_typename(service, VariableObject("struct gracht_recv_message*", "message", False),
+        function_message_param = get_param_typename(service, VariableObject("struct gracht_message*", "message", False),
                                                     CONST.TYPENAME_CASE_FUNCTION_CALL, False)
         parameter_string = function_message_param
         if len(func.get_request_params()) > 0:
@@ -816,7 +816,7 @@ class CGenerator:
     
     def get_response_prototype(self, service, func, case):
         function_prototype = "int " + get_server_service_response_name(service, func) + "("
-        function_message_param = get_param_typename(service, VariableObject("struct gracht_recv_message*", "message", False),
+        function_message_param = get_param_typename(service, VariableObject("struct gracht_message*", "message", False),
                                                     case, False)
         parameter_string = function_message_param + ", "
         parameter_string = parameter_string + get_parameter_string(service, func.get_response_params(), case, True)

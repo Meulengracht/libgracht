@@ -1,7 +1,5 @@
 /**
- * MollenOS
- *
- * Copyright 2019, Philip Meulengracht
+ * Copyright 2021, Philip Meulengracht
  *
  * This program is free software : you can redistribute it and / or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,9 +15,8 @@
  * along with this program.If not, see <http://www.gnu.org/licenses/>.
  *
  *
- * WM Server test
- *  - Spawns a minimal implementation of a wm server to test libwm and the
- *    communication protocols in the os
+ * Gracht Testing Suite
+ * - Implementation of various test programs that verify behaviour of libgracht
  */
 
 #include <errno.h>
@@ -33,23 +30,59 @@
 
 extern int init_mt_server_with_socket_link(int workerCount);
 
-void test_utils_print_invocation(struct gracht_recv_message* message, const char* text)
+// reuse the private api
+#include <thread_api.h>
+
+static int wait_and_respond(void* context)
+{
+    struct gracht_message*      defer  = context;
+    struct test_transfer_status status = {
+        .test_id = 1000,
+        .code = 13
+    };
+
+    printf("transfer: responding\n");
+    test_utils_transfer_response(defer, &status);
+    free(defer);
+    return 0;
+}
+
+void test_utils_print_invocation(struct gracht_message* message, const char* text)
 {
     printf("print: %s\n", text);
     test_utils_print_response(message, strlen(text));
 }
 
-void test_utils_transfer_invocation(struct gracht_recv_message* message, const struct test_transaction* transaction)
+void test_utils_transfer_invocation(struct gracht_message* message, const struct test_transaction* transaction)
 {
     struct test_transfer_status status;
+    thrd_t                      wait;
+    struct gracht_message*      defer;
+
     printf("transfer: %u\n", transaction->test_id);
 
-    status.test_id = transaction->test_id;
-    status.code = 13;
-    test_utils_transfer_response(message, &status);
+    if (transaction->test_id < 1000) {
+        status.test_id = transaction->test_id;
+        status.code = 13;
+        test_utils_transfer_response(message, &status);
+        return;
+    }
+
+    // handle deferring of messages
+    defer = malloc(GRACHT_MESSAGE_DEFERRABLE_SIZE(message));
+    if (!defer) {
+        status.test_id = transaction->test_id;
+        status.code = -(ENOMEM);
+        test_utils_transfer_response(message, &status);
+        return;
+    }
+
+    printf("transfer: deferring\n");
+    gracht_server_defer_message(message, defer);
+    thrd_create(&wait, wait_and_respond, defer);
 }
 
-void test_utils_transfer_many_invocation(struct gracht_recv_message* message, const struct test_transaction* transactions, const uint32_t transactions_count)
+void test_utils_transfer_many_invocation(struct gracht_message* message, const struct test_transaction* transactions, const uint32_t transactions_count)
 {
     struct test_transfer_status* statuses;
     uint32_t                     i;
@@ -64,7 +97,7 @@ void test_utils_transfer_many_invocation(struct gracht_recv_message* message, co
     free(statuses);
 }
 
-void test_utils_get_event_invocation(struct gracht_recv_message* message, const int count)
+void test_utils_get_event_invocation(struct gracht_message* message, const int count)
 {
     printf("get_events: %i\n", count);
     for (int i = 0; i < count; i++) {

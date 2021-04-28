@@ -133,6 +133,14 @@ gracht_conn_t gracht_server_get_dgram_iod(void);
  */
 gracht_handle_t gracht_server_get_set_iod(void);
 
+/**
+ * Creates a deferrable copy of a received message, allowing the caller to specify both
+ * storage that must be of size GRACHT_MESSAGE_DEFERRABLE_SIZE, and also the message that
+ * should be deffered. This must be done as messages are received in temporary buffers.
+ * 
+ */
+void gracht_server_defer_message(struct gracht_message* in, struct gracht_message* out);
+
 #ifdef __cplusplus
 }
 #endif

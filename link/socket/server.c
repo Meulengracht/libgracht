@@ -73,7 +73,7 @@ static int socket_link_send_client(struct socket_link_client* client,
 }
 
 static int socket_link_recv_client(struct socket_link_client* client,
-    struct gracht_recv_message* context, unsigned int flags)
+    struct gracht_message* context, unsigned int flags)
 {
     unsigned int socketFlags = get_socket_flags(flags);
     intmax_t     bytesRead;
@@ -104,10 +104,11 @@ static int socket_link_recv_client(struct socket_link_client* client,
 
     context->client = client->socket;
     context->index  = 0;
+    context->size   = (uint32_t)bytesRead;
     return 0;
 }
 
-static int socket_link_create_client(struct socket_link_manager* linkManager, struct gracht_recv_message* message,
+static int socket_link_create_client(struct socket_link_manager* linkManager, struct gracht_message* message,
     struct socket_link_client** clientOut)
 {
     struct socket_link_client* client;
@@ -225,13 +226,13 @@ static int socket_link_accept(struct socket_link_manager* linkManager, struct gr
 }
 
 static int socket_link_recv_packet(struct socket_link_manager* linkManager, 
-    struct gracht_recv_message* context, unsigned int flags)
+    struct gracht_message* context, unsigned int flags)
 {
-    socklen_t    addrlen = linkManager->config.dgram_address_length;
+    socklen_t    addrlen     = linkManager->config.dgram_address_length;
+    char*        base        = (char*)&context->payload[addrlen];
+    size_t       len         = context->index - addrlen;
+    unsigned int socketFlags = get_socket_flags(flags);
     uint32_t     addressCrc;
-    char*        base    = (char*)&context->payload[addrlen];
-    size_t       len     = context->index - addrlen;
-    unsigned int socketFlags    = get_socket_flags(flags);
     
     // Packets are atomic, either the full packet is there, or none is. So avoid
     // the use of MSG_WAITALL here.
@@ -251,11 +252,12 @@ static int socket_link_recv_packet(struct socket_link_manager* linkManager,
 
     context->client = (int)addressCrc;
     context->index  = addrlen;
+    context->size   = (uint32_t)bytesRead + (uint32_t)addrlen;
     return 0;
 }
 
 static int socket_link_respond(struct socket_link_manager* linkManager,
-    struct gracht_recv_message* messageContext, struct gracht_buffer* message)
+    struct gracht_message* messageContext, struct gracht_buffer* message)
 {
     intmax_t bytesWritten;
     (void)messageContext;

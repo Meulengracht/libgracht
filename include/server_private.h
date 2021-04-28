@@ -31,7 +31,7 @@ struct gracht_server;
 struct gracht_worker_pool;
 
 // Callback prototype
-typedef void (*server_invoke_t)(struct gracht_recv_message*, struct gracht_buffer*);
+typedef void (*server_invoke_t)(struct gracht_message*, struct gracht_buffer*);
 
 /**
  * Defined in dispatch.c
@@ -61,7 +61,7 @@ void gracht_worker_pool_destroy(struct gracht_worker_pool* pool);
  * @param pool A pointer to the worker pool that was created earlier.
  * @param recvMessage A pointer to the recieved message.
  */
-void gracht_worker_pool_dispatch(struct gracht_worker_pool* pool, struct gracht_recv_message* recvMessage);
+void gracht_worker_pool_dispatch(struct gracht_worker_pool* pool, struct gracht_message* recvMessage);
 
 /**
  * Retrieves a buffer area that is free to be used for the calling thread. In the context of
@@ -79,7 +79,7 @@ void* gracht_worker_pool_get_worker_scratchpad(struct gracht_worker_pool* pool);
  * @param server A pointer to the server instance
  * @param recvMessage A pointer to the recv_message structure that contains message data.
  */
-void server_invoke_action(struct gracht_server* server, struct gracht_recv_message* recvMessage);
+void server_invoke_action(struct gracht_server* server, struct gracht_message* recvMessage);
 
 /**
  * Defined in server.c
@@ -88,6 +88,6 @@ void server_invoke_action(struct gracht_server* server, struct gracht_recv_messa
  * @param server A pointer to the server the messages originates on.
  * @param recvMessage A pointer to the message structure.
  */
-void server_cleanup_message(struct gracht_server* server, struct gracht_recv_message* recvMessage);
+void server_cleanup_message(struct gracht_server* server, struct gracht_message* recvMessage);
 
 #endif // !__SERVER_PRIVATE_H__

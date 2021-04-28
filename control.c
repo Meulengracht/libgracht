@@ -43,8 +43,8 @@ DESERIALIZE_VALUE(uint32_t, uint32_t)
 SERIALIZE_VALUE(int, int)
 DESERIALIZE_VALUE(int, int)
 
-void __gracht_subscribe_internal(struct gracht_recv_message* __message, gracht_buffer_t* __buffer);
-void __gracht_unsubscribe_internal(struct gracht_recv_message* __message, gracht_buffer_t* __buffer);
+void __gracht_subscribe_internal(struct gracht_message* __message, gracht_buffer_t* __buffer);
+void __gracht_unsubscribe_internal(struct gracht_message* __message, gracht_buffer_t* __buffer);
 void __gracht_error_internal(gracht_client_t* __client, gracht_buffer_t* __buffer);
 
 static gracht_protocol_function_t client_control_callbacks[1] = {
@@ -72,14 +72,14 @@ void __gracht_error_internal(gracht_client_t* __client, gracht_buffer_t* __buffe
     gracht_control_error_invocation(__client, __messageId, __errorCode);
 }
 
-void __gracht_subscribe_internal(struct gracht_recv_message* __message, gracht_buffer_t* __buffer)
+void __gracht_subscribe_internal(struct gracht_message* __message, gracht_buffer_t* __buffer)
 {
     uint8_t __protocol;
     __protocol = deserialize_uint8_t(__buffer);
     gracht_control_subscribe_invocation(__message, __protocol);
 }
 
-void __gracht_unsubscribe_internal(struct gracht_recv_message* __message, gracht_buffer_t* __buffer)
+void __gracht_unsubscribe_internal(struct gracht_message* __message, gracht_buffer_t* __buffer)
 {
     uint8_t __protocol;
     __protocol = deserialize_uint8_t(__buffer);

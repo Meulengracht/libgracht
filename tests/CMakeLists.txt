@@ -36,7 +36,7 @@ endmacro()
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
 add_custom_command(
-    OUTPUT  test_utils_service_server.c test_utils_service_client.c
+    OUTPUT  test_utils_service_server.c test_utils_service_server.h test_utils_service_client.c test_utils_service_client.h test_utils_service.h
     COMMAND python ${CMAKE_SOURCE_DIR}/generator/parser.py --service ${CMAKE_CURRENT_SOURCE_DIR}/protocols/test_service.gr --out ${CMAKE_CURRENT_BINARY_DIR} --lang-c --server --client
     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/protocols/test_service.gr
 )
@@ -53,7 +53,9 @@ endif ()
 add_client_test(gclient_0 client/test_string.c)
 add_client_test(gclient_1 client/test_structure.c)
 add_client_test(gclient_2 client/test_events.c)
-add_client_test(gclient_many client_parallel/main.c)
+add_client_test(gclient_3 client/test_variable.c)
+add_client_test(gclient_4 client/test_deferring.c)
+add_client_test(gclient_5 client/test_multiple.c)
 
 # Server test applications
 add_server_test(gserver server/main.c)

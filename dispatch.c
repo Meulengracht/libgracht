@@ -117,7 +117,7 @@ void gracht_worker_pool_destroy(struct gracht_worker_pool* pool)
     free(pool);
 }
 
-void gracht_worker_pool_dispatch(struct gracht_worker_pool* pool, struct gracht_recv_message* recvMessage)
+void gracht_worker_pool_dispatch(struct gracht_worker_pool* pool, struct gracht_message* recvMessage)
 {
     struct gracht_worker* worker;
 
@@ -212,8 +212,8 @@ static int worker_dowork(void* context)
 
         // handle the job
         GRTRACE(GRSTR("worker_dowork: handling message"));
-        server_invoke_action(workerContext->server, (struct gracht_recv_message*)job_header);
-        server_cleanup_message(workerContext->server, (struct gracht_recv_message*)job_header);
+        server_invoke_action(workerContext->server, (struct gracht_message*)job_header);
+        server_cleanup_message(workerContext->server, (struct gracht_message*)job_header);
 
         // check again at exit of iteration
         if (worker->state == WORKER_SHUTDOWN_REQUEST) {
@@ -225,7 +225,7 @@ static int worker_dowork(void* context)
 
     job_header = gracht_queue_dequeue(&worker->job_queue);
     while (job_header) {
-        server_cleanup_message(workerContext->server, (struct gracht_recv_message*)job_header);
+        server_cleanup_message(workerContext->server, (struct gracht_message*)job_header);
         job_header = gracht_queue_dequeue(&worker->job_queue);
     }
 

@@ -53,10 +53,10 @@ struct broadcast_context {
 };
 
 struct server_operations {
-    void                        (*dispatch)(struct gracht_server*, struct gracht_recv_message*);
+    void                        (*dispatch)(struct gracht_server*, struct gracht_message*);
     void*                       (*get_outgoing_buffer)(struct gracht_server*);
-    struct gracht_recv_message* (*get_incoming_buffer)(struct gracht_server*);
-    void                        (*put_message)(struct gracht_server*, struct gracht_recv_message*);
+    struct gracht_message* (*get_incoming_buffer)(struct gracht_server*);
+    void                        (*put_message)(struct gracht_server*, struct gracht_message*);
 };
 
 struct gracht_server {
@@ -96,9 +96,9 @@ struct gracht_server {
 };
 
 static void*                       get_out_buffer_st(struct gracht_server*);
-static struct gracht_recv_message* get_in_buffer_st(struct gracht_server*);
-static void                        put_message_st(struct gracht_server*, struct gracht_recv_message*);
-static void                        dispatch_st(struct gracht_server*, struct gracht_recv_message*);
+static struct gracht_message* get_in_buffer_st(struct gracht_server*);
+static void                        put_message_st(struct gracht_server*, struct gracht_message*);
+static void                        dispatch_st(struct gracht_server*, struct gracht_message*);
 
 static struct server_operations g_stOperations = {
     dispatch_st,
@@ -108,9 +108,9 @@ static struct server_operations g_stOperations = {
 };
 
 static void*                       get_out_buffer_mt(struct gracht_server*);
-static struct gracht_recv_message* get_in_buffer_mt(struct gracht_server*);
-static void                        put_message_mt(struct gracht_server*, struct gracht_recv_message*);
-static void                        dispatch_mt(struct gracht_server*, struct gracht_recv_message*);
+static struct gracht_message* get_in_buffer_mt(struct gracht_server*);
+static void                        put_message_mt(struct gracht_server*, struct gracht_message*);
+static void                        dispatch_mt(struct gracht_server*, struct gracht_message*);
 
 static struct server_operations g_mtOperations = {
     dispatch_mt,
@@ -289,23 +289,23 @@ static void* get_out_buffer_st(struct gracht_server* server)
     return server->sendBuffer;
 }
 
-static struct gracht_recv_message* get_in_buffer_st(struct gracht_server* server)
+static struct gracht_message* get_in_buffer_st(struct gracht_server* server)
 {
-    return (struct gracht_recv_message*)server->recvBuffer;
+    return (struct gracht_message*)server->recvBuffer;
 }
 
-static void put_message_st(struct gracht_server* server, struct gracht_recv_message* message)
+static void put_message_st(struct gracht_server* server, struct gracht_message* message)
 {
     (void)server;
     (void)message;
 }
 
-static void dispatch_st(struct gracht_server* server, struct gracht_recv_message* message)
+static void dispatch_st(struct gracht_server* server, struct gracht_message* message)
 {
     server_invoke_action(server, message);
 }
 
-static void dispatch_mt(struct gracht_server* server, struct gracht_recv_message* message)
+static void dispatch_mt(struct gracht_server* server, struct gracht_message* message)
 {
     uint32_t messageLength = *((uint32_t*)&message->payload[message->index + 4]);
     GRTRACE(GRSTR("dispatch_mt: message length=%u"), messageLength);
@@ -322,16 +322,16 @@ static void* get_out_buffer_mt(struct gracht_server* server)
     return gracht_worker_pool_get_worker_scratchpad(server->worker_pool);
 }
 
-static struct gracht_recv_message* get_in_buffer_mt(struct gracht_server* server)
+static struct gracht_message* get_in_buffer_mt(struct gracht_server* server)
 {
-    struct gracht_recv_message* message;
+    struct gracht_message* message;
     mtx_lock(&server->sync_object);
     message = gracht_arena_allocate(server->arena, NULL, server->allocationSize);
     mtx_unlock(&server->sync_object);
     return message;
 }
 
-static void put_message_mt(struct gracht_server* server, struct gracht_recv_message* message)
+static void put_message_mt(struct gracht_server* server, struct gracht_message* message)
 {
     mtx_lock(&server->sync_object);
     gracht_arena_free(server->arena, message, server->allocationSize);
@@ -344,7 +344,7 @@ static int handle_sync_event(struct gracht_server* server)
     GRTRACE(GRSTR("handle_sync_event"));
     
     while (1) {
-        struct gracht_recv_message* message = server->ops->get_incoming_buffer(server);
+        struct gracht_message* message = server->ops->get_incoming_buffer(server);
 
         status = server->link->recv_packet(server->link, message, 0);
         if (status) {
@@ -380,7 +380,7 @@ static int handle_async_event(struct gracht_server* server, gracht_conn_t handle
         
         entry = hashtable_get(&server->clients, &(struct client_wrapper){ .handle = handle });
         while (entry) {
-            struct gracht_recv_message* message = server->ops->get_incoming_buffer(server);
+            struct gracht_message* message = server->ops->get_incoming_buffer(server);
             
             status = server->link->recv_client(entry->client, message, 0);
             if (status) {
@@ -437,7 +437,7 @@ static int gracht_server_shutdown(void)
     return 0;
 }
 
-void server_invoke_action(struct gracht_server* server, struct gracht_recv_message* recvMessage)
+void server_invoke_action(struct gracht_server* server, struct gracht_message* recvMessage)
 {
     gracht_protocol_function_t* function;
     gracht_buffer_t             buffer = { .data = (char*)&recvMessage->payload[0], .index = recvMessage->index };
@@ -463,7 +463,7 @@ void server_invoke_action(struct gracht_server* server, struct gracht_recv_messa
     ((server_invoke_t)function->address)(recvMessage, &buffer);
 }
 
-void server_cleanup_message(struct gracht_server* server, struct gracht_recv_message* recvMessage)
+void server_cleanup_message(struct gracht_server* server, struct gracht_message* recvMessage)
 {
     if (!server || !recvMessage) {
         return;
@@ -516,7 +516,7 @@ int gracht_server_get_buffer(gracht_buffer_t* buffer)
     return 0;
 }
 
-int gracht_server_respond(struct gracht_recv_message* messageContext, gracht_buffer_t* message)
+int gracht_server_respond(struct gracht_message* messageContext, gracht_buffer_t* message)
 {
     struct client_wrapper* entry;
     int                    status;
@@ -606,6 +606,15 @@ gracht_handle_t gracht_server_get_set_iod(void)
     return g_grachtServer.set_handle;
 }
 
+void gracht_server_defer_message(struct gracht_message* in, struct gracht_message* out)
+{
+    if (!in || !out) {
+        return;
+    }
+
+    memcpy(out, in, GRACHT_MESSAGE_DEFERRABLE_SIZE(in));
+}
+
 // Client helpers
 static void client_destroy(struct gracht_server* server, gracht_conn_t client)
 {
@@ -659,14 +668,14 @@ static int client_is_subscribed(struct gracht_server_client* client, uint8_t id)
 }
 
 // Server control protocol implementation
-void gracht_control_subscribe_invocation(const struct gracht_recv_message* message, const uint8_t protocol)
+void gracht_control_subscribe_invocation(const struct gracht_message* message, const uint8_t protocol)
 {
     struct client_wrapper* entry;
     
     entry = hashtable_get(&g_grachtServer.clients, &(struct client_wrapper){ .handle = message->client });
     if (!entry) {
         struct client_wrapper newEntry;
-        if (g_grachtServer.link->create_client(g_grachtServer.link, (struct gracht_recv_message*)message, &newEntry.client)) {
+        if (g_grachtServer.link->create_client(g_grachtServer.link, (struct gracht_message*)message, &newEntry.client)) {
             GRERROR(GRSTR("gracht_control_subscribe_invocation server_object.link->create_client returned error"));
             return;
         }
@@ -682,7 +691,7 @@ void gracht_control_subscribe_invocation(const struct gracht_recv_message* messa
     client_subscribe(entry->client, protocol);
 }
 
-void gracht_control_unsubscribe_invocation(const struct gracht_recv_message* message, const uint8_t protocol)
+void gracht_control_unsubscribe_invocation(const struct gracht_message* message, const uint8_t protocol)
 {
     struct client_wrapper* entry;
     

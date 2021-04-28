@@ -29,13 +29,10 @@
 
 extern int init_client_with_socket_link(gracht_client_t** clientOut);
 
-static volatile int g_eventsReceived = 0;
-
 void test_utils_event_myevent_invocation(gracht_client_t* client, const int n)
 {
     (void)client;
-    printf("myevent: %i\n", n);
-    g_eventsReceived++;
+    (void)n;
 }
 
 void test_utils_event_transfer_status_invocation(gracht_client_t* client, const struct test_transfer_status* transfer_status)
@@ -46,8 +43,11 @@ void test_utils_event_transfer_status_invocation(gracht_client_t* client, const 
 
 int main(void)
 {
-    gracht_client_t* client;
-    int              code;
+    gracht_client_t*              client;
+    int                           code;
+    struct gracht_message_context context;
+    struct test_transaction       transaction;
+    struct test_transfer_status   status;
 
     // create client
     code = init_client_with_socket_link(&client);
@@ -59,14 +59,15 @@ int main(void)
     gracht_client_register_protocol(client, &test_utils_client_protocol);
 
     // run test
-    code = 50;
+    // the test is made so if we set any number above 1000 it'll defer it
+    // for x-1000 ms
+    transaction.test_id = 1100;
     
-    test_utils_get_event(client, NULL, code);
-    while (g_eventsReceived != code) {
-        gracht_client_wait_message(client, NULL, GRACHT_MESSAGE_BLOCK);
-    }
+    test_utils_transfer(client, &context, &transaction);
+    gracht_client_wait_message(client, &context, GRACHT_MESSAGE_BLOCK);
+    test_utils_transfer_result(client, &context, &status);
     
-    printf("gracht_client: recieved event count %i\n", g_eventsReceived);
+    printf("gracht_client: recieved status %i\n", status.code);
     gracht_client_shutdown(client);
     return 0;
 }

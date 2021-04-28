@@ -1,7 +1,5 @@
 /**
- * MollenOS
- *
- * Copyright 2019, Philip Meulengracht
+ * Copyright 2021, Philip Meulengracht
  *
  * This program is free software : you can redistribute it and / or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,9 +15,8 @@
  * along with this program.If not, see <http://www.gnu.org/licenses/>.
  *
  *
- * WM Server test
- *  - Spawns a minimal implementation of a wm server to test libwm and the
- *    communication protocols in the os
+ * Gracht Testing Suite
+ * - Implementation of various test programs that verify behaviour of libgracht
  */
 
 #include <errno.h>

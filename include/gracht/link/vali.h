@@ -38,7 +38,7 @@ struct vali_link_message {
 };
 
 struct vali_link_deferred_response {
-    struct gracht_recv_message recv_message;
+    struct gracht_message recv_message;
     struct ipmsg               recv_storage;
 };
 
@@ -67,7 +67,7 @@ int gracht_link_vali_server_create(struct server_link_ops**, struct ipmsg_addr*)
  */
 void gracht_vali_message_defer_response(
     struct vali_link_deferred_response* deferredResponse,
-    struct gracht_recv_message* message);
+    struct gracht_message* message);
 
 // Client API
 int gracht_link_vali_client_create(struct client_link_ops**);

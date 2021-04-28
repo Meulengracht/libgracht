@@ -27,15 +27,14 @@
 
 #include "test_utils_service_client.h"
 
-extern int init_client_with_socket_link(gracht_client_t** clientOut);
+#define NUM_PARALLEL_CALLS 10
 
-static volatile int g_eventsReceived = 0;
+extern int init_client_with_socket_link(gracht_client_t** clientOut);
 
 void test_utils_event_myevent_invocation(gracht_client_t* client, const int n)
 {
     (void)client;
-    printf("myevent: %i\n", n);
-    g_eventsReceived++;
+    (void)n;
 }
 
 void test_utils_event_transfer_status_invocation(gracht_client_t* client, const struct test_transfer_status* transfer_status)
@@ -44,10 +43,19 @@ void test_utils_event_transfer_status_invocation(gracht_client_t* client, const 
     (void)transfer_status;
 }
 
-int main(void)
+static char* testMsg = "hello from wm_client!";
+
+int main(int argc, char **argv)
 {
-    gracht_client_t* client;
-    int              code;
+    gracht_client_t*              client;
+    char*                         msg = testMsg;
+    int                           i, code, status = -1337;
+    struct gracht_message_context  context[NUM_PARALLEL_CALLS];
+    struct gracht_message_context* contexts[NUM_PARALLEL_CALLS];
+
+    if (argc > 1) {
+        msg = argv[1];
+    }
 
     // create client
     code = init_client_with_socket_link(&client);
@@ -59,14 +67,20 @@ int main(void)
     gracht_client_register_protocol(client, &test_utils_client_protocol);
 
     // run test
-    code = 50;
-    
-    test_utils_get_event(client, NULL, code);
-    while (g_eventsReceived != code) {
-        gracht_client_wait_message(client, NULL, GRACHT_MESSAGE_BLOCK);
+    for (i = 0; i < NUM_PARALLEL_CALLS; i++) {
+        contexts[i] = &context[i];
+        code = test_utils_print(client, &context[i], msg);
+        if (code) {
+            printf("gracht_client: call %i failed with code %i\n", i, code);
+        }
     }
-    
-    printf("gracht_client: recieved event count %i\n", g_eventsReceived);
+
+    gracht_client_await_multiple(client, contexts, NUM_PARALLEL_CALLS, GRACHT_AWAIT_ALL);
+    for (i = 0; i < NUM_PARALLEL_CALLS; i++) {
+        test_utils_print_result(client, &context[i], &status);
+        printf("gracht_client: call %i returned %i\n", i, status);
+    }
+
     gracht_client_shutdown(client);
     return 0;
 }

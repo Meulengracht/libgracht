@@ -54,13 +54,13 @@ static int vali_link_send_client(struct vali_link_client* client,
 }
 
 static int vali_link_recv_client(struct gracht_server_client* client,
-    struct gracht_recv_message* context, unsigned int flags)
+    struct gracht_message* context, unsigned int flags)
 {
     errno = (ENOTSUP);
     return -1;
 }
 
-static int vali_link_create_client(struct vali_link_manager* linkManager, struct gracht_recv_message* message,
+static int vali_link_create_client(struct vali_link_manager* linkManager, struct gracht_message* message,
     struct vali_link_client** clientOut)
 {
     struct vali_link_client* client;
@@ -119,7 +119,7 @@ static int vali_link_accept(struct vali_link_manager* linkManager, struct gracht
     return -1;
 }
 
-static int vali_link_recv_packet(struct vali_link_manager* linkManager, struct gracht_recv_message* context)
+static int vali_link_recv_packet(struct vali_link_manager* linkManager, struct gracht_message* context)
 {
     struct ipmsg* message = (struct ipmsg*)&context->payload[0];
     int           status;
@@ -141,7 +141,7 @@ static int vali_link_recv_packet(struct vali_link_manager* linkManager, struct g
 }
 
 static int vali_link_respond(struct vali_link_manager* linkManager,
-    struct gracht_recv_message* messageContext, struct gracht_message* message)
+    struct gracht_message* messageContext, struct gracht_message* message)
 {
     struct ipmsg* recvmsg = (struct ipmsg*)&messageContext->payload[0];
     struct ipmsg_addr ipaddr = {
