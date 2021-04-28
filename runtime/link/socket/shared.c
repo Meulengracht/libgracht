@@ -20,8 +20,8 @@
  *   and functionality, refer to the individual things for descriptions
  */
 
-#include "../include/gracht/link/socket.h"
-#include "../include/debug.h"
+#include "gracht/link/socket.h"
+#include "debug.h"
 
 #ifdef _WIN32
 

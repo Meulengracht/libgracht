@@ -24,7 +24,7 @@
 #define __GRACHT_SOCKET_OS_H__
 
 #if defined(_WIN32)
-#include "../../include/utils.h"
+#include "utils.h"
 #include <io.h>
 #define close closesocket
 
