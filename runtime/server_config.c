@@ -28,11 +28,6 @@ void gracht_server_configuration_init(gracht_server_configuration_t* config)
     config->max_message_size = GRACHT_DEFAULT_MESSAGE_SIZE;
 }
 
-void gracht_server_configuration_set_link(gracht_server_configuration_t* config, struct server_link_ops* link)
-{
-    config->link = link;
-}
-
 void gracht_server_configuration_set_aio_descriptor(gracht_server_configuration_t* config, gracht_handle_t descriptor)
 {
     config->set_descriptor = descriptor;

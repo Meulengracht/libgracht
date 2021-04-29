@@ -86,7 +86,8 @@ typedef struct gracht_object_header {
 
 // Represents a received message on the server.
 struct gracht_message {
-    struct gracht_object_header header;    
+    struct gracht_object_header header;
+    gracht_conn_t               link;
     gracht_conn_t               client;
     uint32_t                    size;
     uint32_t                    index;

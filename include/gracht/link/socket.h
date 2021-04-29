@@ -37,39 +37,18 @@ typedef int socklen_t;
 #endif
 
 #include "link.h"
-#include "../client.h"
-
-// When configuring the socket link for the server two addresses
-// can be provided during setup. You can use one of them, or both.
-// The server address represents the address for which the server listens for clients.
-// The dgram address represents the address for which the server listens for connectionless packets.
-struct socket_server_configuration {
-    struct sockaddr_storage server_address;
-    socklen_t               server_address_length;
-    
-    struct sockaddr_storage dgram_address;
-    socklen_t               dgram_address_length;
-};
-
-// When configuring the socket link for the client, we want to provide a server address where
-// we send or connect to. The type of connection is determined by the gracht_link_type. A client
-// can work in both connection-mode and connectionless-mode.
-struct socket_client_configuration {
-    enum gracht_link_type   type;
-    struct sockaddr_storage address;
-    socklen_t               address_length;
-};
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+#ifdef _WIN32
 /**
  * Only used on windows so far, and is used to initialize the WSA socket library.
  * 
  * @return int 
  */
-int gracht_link_socket_initialize(void);
+int gracht_link_socket_setup(void);
 
 /**
  * Only used on windows so far, and is used to cleanup the WSA socket library.
@@ -77,26 +56,26 @@ int gracht_link_socket_initialize(void);
  * @return int 
  */
 int gracht_link_socket_cleanup(void);
+#endif
 
 /**
- * Creates a new server socket link instance based on the given configuration.
- * 
- * @param linkOut A pointer to storage for the new link instance
- * @param configuration The configuration for the socket server link
- * @return int Returns 0 if the link was created.
+ * Represents the socket link datastructure, and can be configured to work
+ * however wanted. The default configuration is non-listen, connection-less mode
+ * and the socket domain is AF_INET.
  */
-int gracht_link_socket_server_create(struct server_link_ops** linkOut, 
-    struct socket_server_configuration* configuration);
+struct gracht_link_socket {
+    struct gracht_link      base;
+    int                     listen;
+    int                     domain;
+    struct sockaddr_storage address;
+    socklen_t               address_length;
+};
 
-/**
- * Creates a new client socket link instance based on the given configuration.
- * 
- * @param linkOut A pointer to storage for the new link instance
- * @param configuration The configuration for the socket client link
- * @return int Returns 0 if the link was created.
- */
-int gracht_link_socket_client_create(struct client_link_ops** linkOut, 
-    struct socket_client_configuration* configuration);
+int  gracht_link_socket_create(struct gracht_link_socket** linkOut);
+void gracht_link_socket_set_type(struct gracht_link_socket* link, enum gracht_link_type type);
+void gracht_link_socket_set_listen(struct gracht_link_socket* link, int listen);
+void gracht_link_socket_set_domain(struct gracht_link_socket* link, int socketDomain);
+void gracht_link_socket_set_address(struct gracht_link_socket* link, const struct sockaddr_storage* address, socklen_t length);
 
 #ifdef __cplusplus
 }

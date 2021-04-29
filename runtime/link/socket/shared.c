@@ -22,6 +22,9 @@
 
 #include "gracht/link/socket.h"
 #include "debug.h"
+#include <errno.h>
+#include <stdlib.h>
+#include <string.h>
 
 #ifdef _WIN32
 
@@ -31,7 +34,7 @@
 
 static int g_wsaInititalized = 0;
 
-int gracht_link_socket_initialize(void)
+int gracht_link_socket_setup(void)
 {
     WSADATA wsd = {0};
     int status = WSAStartup(WS_VER, &wsd);
@@ -54,3 +57,53 @@ int gracht_link_socket_cleanup(void)
 }
 
 #endif // _WIN32
+
+// extern functions, this is the interfaces described in client.c/server.c
+extern void gracht_link_client_socket_api(struct gracht_link_socket* link);
+extern void gracht_link_server_socket_api(struct gracht_link_socket* link);
+
+int gracht_link_socket_create(struct gracht_link_socket** linkOut)
+{
+    struct gracht_link_socket* link;
+    
+    link = (struct gracht_link_socket*)malloc(sizeof(struct gracht_link_socket));
+    if (!link) {
+        errno = ENOMEM;
+        return -1;
+    }
+
+    memset(link, 0, sizeof(struct gracht_link_socket));
+    gracht_link_client_socket_api(link);
+    link->domain = AF_INET;
+    link->base.connection = GRACHT_CONN_INVALID;
+
+    *linkOut = link;
+    return 0;
+}
+
+void gracht_link_socket_set_type(struct gracht_link_socket* link, enum gracht_link_type type)
+{
+    link->base.type = type;
+}
+
+void gracht_link_socket_set_listen(struct gracht_link_socket* link, int listen)
+{
+    link->listen = listen;
+    if (listen) {
+        gracht_link_server_socket_api(link);
+    }
+    else {
+        gracht_link_client_socket_api(link);
+    }
+}
+
+void gracht_link_socket_set_domain(struct gracht_link_socket* link, int socketDomain)
+{
+    link->domain = socketDomain;
+}
+
+void gracht_link_socket_set_address(struct gracht_link_socket* link, const struct sockaddr_storage* address, socklen_t length)
+{
+    memcpy(&link->address, address, length);
+    link->address_length = length;
+}

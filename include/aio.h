@@ -72,7 +72,7 @@ static int gracht_aio_add(int aio, int iod) {
     return epoll_ctl(aio, EPOLL_CTL_ADD, iod, &event);
 }
 
-#define gracht_aio_event_handle(event)    (event)->data.fd
+#define gracht_aio_event_handle(event) (event)->data.fd
 #define gracht_aio_event_events(event) (event)->events
 
 #elif defined(_WIN32)

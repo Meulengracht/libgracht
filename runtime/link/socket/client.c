@@ -29,18 +29,12 @@
 
 #include "socket_os.h"
 
-struct socket_link_manager {
-    struct client_link_ops             ops;
-    struct socket_client_configuration config;
-    gracht_conn_t                      iod;
-};
-
-static int socket_link_send_stream(struct socket_link_manager* linkManager,
+static int socket_link_send_stream(struct gracht_link_socket* link,
     struct gracht_buffer* message)
 {
     intmax_t byteCount;
     
-    byteCount = send(linkManager->iod, &message->data[0], message->index, 0);
+    byteCount = send(link->base.connection, &message->data[0], message->index, 0);
     if (byteCount != message->index) {
         GRERROR(GRSTR("link_client: failed to send message, bytes sent: %li, expected: %u (%i)"),
               byteCount, message->index, errno);
@@ -50,14 +44,14 @@ static int socket_link_send_stream(struct socket_link_manager* linkManager,
     return GRACHT_MESSAGE_INPROGRESS;
 }
 
-static int socket_link_recv_stream(struct socket_link_manager* linkManager,
+static int socket_link_recv_stream(struct gracht_link_socket* link,
     struct gracht_buffer* message, unsigned int flags)
 {
     size_t   bytesRead;
     uint32_t missingData;
     
     GRTRACE(GRSTR("[gracht_connection_recv_stream] reading message header"));
-    bytesRead = recv(linkManager->iod, &message->data[0], GRACHT_MESSAGE_HEADER_SIZE, flags);
+    bytesRead = recv(link->base.connection, &message->data[0], GRACHT_MESSAGE_HEADER_SIZE, flags);
     if (bytesRead != GRACHT_MESSAGE_HEADER_SIZE) {
         if (bytesRead == 0) {
             errno = (ENODATA);
@@ -71,7 +65,7 @@ static int socket_link_recv_stream(struct socket_link_manager* linkManager,
     missingData = *((uint32_t*)&message->data[4]) - GRACHT_MESSAGE_HEADER_SIZE;
     if (missingData) {
         GRTRACE(GRSTR("[gracht_connection_recv_stream] reading message payload"));
-        bytesRead = recv(linkManager->iod, &message->data[GRACHT_MESSAGE_HEADER_SIZE], missingData, MSG_WAITALL);
+        bytesRead = recv(link->base.connection, &message->data[GRACHT_MESSAGE_HEADER_SIZE], missingData, MSG_WAITALL);
         if (bytesRead != missingData) {
             // do not process incomplete requests
             GRERROR(GRSTR("[gracht_connection_recv_message] did not read full amount of bytes (%u, expected %u)"),
@@ -85,13 +79,13 @@ static int socket_link_recv_stream(struct socket_link_manager* linkManager,
     return 0;
 }
 
-static int socket_link_send_packet(struct socket_link_manager* linkManager, struct gracht_buffer* message)
+static int socket_link_send_packet(struct gracht_link_socket* link, struct gracht_buffer* message)
 {
     intmax_t byteCount;
 
     GRTRACE(GRSTR("link_client: send message (%u)"), message->index);
 
-    byteCount = send(linkManager->iod, &message->data[0], message->index, 0);
+    byteCount = send(link->base.connection, &message->data[0], message->index, 0);
     if (byteCount != message->index) {
         GRERROR(GRSTR("link_client: failed to send message, bytes sent: %u, expected: %u"),
               (uint32_t)byteCount, message->index);
@@ -101,9 +95,9 @@ static int socket_link_send_packet(struct socket_link_manager* linkManager, stru
     return GRACHT_MESSAGE_INPROGRESS;
 }
 
-static int socket_link_recv_packet(struct socket_link_manager* linkManager, struct gracht_buffer* message, unsigned int flags)
+static int socket_link_recv_packet(struct gracht_link_socket* link, struct gracht_buffer* message, unsigned int flags)
 {
-    socklen_t addrlen = linkManager->config.address_length;
+    socklen_t addrlen = link->address_length;
     char*     base    = &message->data[addrlen];
     size_t    len     = message->index - addrlen;
     
@@ -112,7 +106,7 @@ static int socket_link_recv_packet(struct socket_link_manager* linkManager, stru
     // Packets are atomic, either the full packet is there, or none is. So avoid
     // the use of MSG_WAITALL here.
     GRTRACE(GRSTR("[gracht_connection_recv_stream] reading full message"));
-    intmax_t bytes_read = (intmax_t)recvfrom(linkManager->iod, base, len, flags, 
+    intmax_t bytes_read = (intmax_t)recvfrom(link->base.connection, base, len, flags, 
         (struct sockaddr*)&message->data[0], &addrlen);
     if (bytes_read < GRACHT_MESSAGE_HEADER_SIZE) {
         if (bytes_read == 0) {
@@ -126,28 +120,29 @@ static int socket_link_recv_packet(struct socket_link_manager* linkManager, stru
     return 0;
 }
 
-static gracht_conn_t socket_link_connect(struct socket_link_manager* linkManager)
+static gracht_conn_t socket_link_connect(struct gracht_link_socket* link)
 {
-    int type = linkManager->config.type == gracht_link_stream_based ? SOCK_STREAM : SOCK_DGRAM;
+    int type = link->base.type == gracht_link_stream_based ? SOCK_STREAM : SOCK_DGRAM;
     
-    linkManager->iod = socket(AF_LOCAL, type, 0);
-    if (linkManager->iod < 0) {
+    link->base.connection = socket(link->domain, type, 0);
+    if (link->base.connection < 0) {
         GRERROR(GRSTR("client_link: failed to create socket"));
         return -1;
     }
     
-    int status = connect(linkManager->iod, 
-        (const struct sockaddr*)&linkManager->config.address,
-        linkManager->config.address_length);
+    int status = connect(link->base.connection, 
+        (const struct sockaddr*)&link->address,
+        link->address_length);
     if (status) {
         GRERROR(GRSTR("client_link: failed to connect to socket"));
-        close(linkManager->iod);
+        close(link->base.connection);
+        link->base.connection = GRACHT_CONN_INVALID;
         return status;
     }
-    return linkManager->iod;
+    return link->base.connection;
 }
 
-static int socket_link_recv(struct socket_link_manager* linkManager,
+static int socket_link_recv(struct gracht_link_socket* link,
     struct gracht_buffer* message, unsigned int flags)
 {
     unsigned int convertedFlags = MSG_WAITALL;
@@ -156,28 +151,28 @@ static int socket_link_recv(struct socket_link_manager* linkManager,
         convertedFlags |= MSG_DONTWAIT;
     }
     
-    if (linkManager->config.type == gracht_link_stream_based) {
-        return socket_link_recv_stream(linkManager, message, convertedFlags);
+    if (link->base.type == gracht_link_stream_based) {
+        return socket_link_recv_stream(link, message, convertedFlags);
     }
-    else if (linkManager->config.type == gracht_link_packet_based) {
-        return socket_link_recv_packet(linkManager, message, convertedFlags);
+    else if (link->base.type == gracht_link_packet_based) {
+        return socket_link_recv_packet(link, message, convertedFlags);
     }
     
     errno = (ENOTSUP);
     return -1;
 }
 
-static int socket_link_send(struct socket_link_manager* linkManager,
+static int socket_link_send(struct gracht_link_socket* link,
     struct gracht_buffer* message, void* messageContext)
 {
     // not used for socket
     (void)messageContext;
 
-    if (linkManager->config.type == gracht_link_stream_based) {
-        return socket_link_send_stream(linkManager, message);
+    if (link->base.type == gracht_link_stream_based) {
+        return socket_link_send_stream(link, message);
     }
-    else if (linkManager->config.type == gracht_link_packet_based) {
-        return socket_link_send_packet(linkManager, message);
+    else if (link->base.type == gracht_link_packet_based) {
+        return socket_link_send_packet(link, message);
     }
     else
     {
@@ -186,38 +181,22 @@ static int socket_link_send(struct socket_link_manager* linkManager,
     }
 }
 
-static void socket_link_destroy(struct socket_link_manager* linkManager)
+static void socket_link_destroy(struct gracht_link_socket* link)
 {
-    if (!linkManager) {
+    if (!link) {
         return;
     }
     
-    if (linkManager->iod > 0) {
-        close(linkManager->iod);
+    if (link->base.connection != GRACHT_CONN_INVALID) {
+        close(link->base.connection);
     }
-    
-    free(linkManager);
+    free(link);
 }
 
-int gracht_link_socket_client_create(struct client_link_ops** linkOut, 
-    struct socket_client_configuration* configuration)
+void gracht_link_client_socket_api(struct gracht_link_socket* link)
 {
-    struct socket_link_manager* linkManager;
-    
-    linkManager = (struct socket_link_manager*)malloc(sizeof(struct socket_link_manager));
-    if (!linkManager) {
-        errno = (ENOMEM);
-        return -1;
-    }
-    
-    memset(linkManager, 0, sizeof(struct socket_link_manager));
-    memcpy(&linkManager->config, configuration, sizeof(struct socket_client_configuration));
-
-    linkManager->ops.connect     = (client_link_connect_fn)socket_link_connect;
-    linkManager->ops.recv        = (client_link_recv_fn)socket_link_recv;
-    linkManager->ops.send        = (client_link_send_fn)socket_link_send;
-    linkManager->ops.destroy     = (client_link_destroy_fn)socket_link_destroy;
-    
-    *linkOut = &linkManager->ops;
-    return 0;
+    link->base.ops.client.connect = (client_link_connect_fn)socket_link_connect;
+    link->base.ops.client.recv    = (client_link_recv_fn)socket_link_recv;
+    link->base.ops.client.send    = (client_link_send_fn)socket_link_send;
+    link->base.ops.client.destroy = (client_link_destroy_fn)socket_link_destroy;
 }

@@ -59,19 +59,19 @@ struct gracht_message_descriptor {
 };
 
 typedef struct gracht_client {
-    gracht_conn_t           iod;
-    uint32_t                current_message_id;
-    uint32_t                current_awaiter_id;
-    struct client_link_ops* ops;
-    struct gracht_arena*    arena;
-    int                     max_message_size;
-    void*                   send_buffer;
-    int                     free_send_buffer;
-    hashtable_t             protocols;
-    hashtable_t             messages;
-    hashtable_t             awaiters;
-    mtx_t                   data_lock;
-    mtx_t                   wait_lock;
+    gracht_conn_t        iod;
+    uint32_t             current_message_id;
+    uint32_t             current_awaiter_id;
+    struct gracht_link*  link;
+    struct gracht_arena* arena;
+    int                  max_message_size;
+    void*                send_buffer;
+    int                  free_send_buffer;
+    hashtable_t          protocols;
+    hashtable_t          messages;
+    hashtable_t          awaiters;
+    mtx_t                data_lock;
+    mtx_t                wait_lock;
 } gracht_client_t;
 
 #define MESSAGE_STATUS_EXECUTED(status) (status == GRACHT_MESSAGE_ERROR || status == GRACHT_MESSAGE_COMPLETED)
@@ -119,7 +119,7 @@ int gracht_client_invoke(gracht_client_t* client, struct gracht_message_context*
         mtx_unlock(&client->data_lock);
     }
     
-    status = client->ops->send(client->ops, message, context);
+    status = client->link->ops.client.send(client->link, message, context);
     if (descriptor) {
         descriptor->status = status;
     }
@@ -355,7 +355,7 @@ listenForMessage:
         return -1;
     }
 
-    status = client->ops->recv(client->ops, &buffer, flags);
+    status = client->link->ops.client.recv(client->link, &buffer, flags);
     mtx_unlock(&client->wait_lock);
     if (status) {
         // In case of any recieving errors we must exit immediately
@@ -439,7 +439,7 @@ int gracht_client_create(gracht_client_configuration_t* config, gracht_client_t*
     hashtable_construct(&client->messages, 0, sizeof(struct gracht_message_descriptor), message_hash, message_cmp);
     hashtable_construct(&client->awaiters, 0, sizeof(struct gracht_message_awaiter), awaiter_hash, awaiter_cmp);
 
-    client->ops = config->link;
+    client->link = config->link;
     client->iod = GRACHT_CONN_INVALID;
     client->current_awaiter_id = 1;
     client->current_message_id = 1;
@@ -499,7 +499,7 @@ int gracht_client_connect(gracht_client_t* client)
         return -1;
     }
 
-    client->iod = client->ops->connect(client->ops);
+    client->iod = client->link->ops.client.connect(client->link);
     if (client->iod == GRACHT_CONN_INVALID) {
         GRERROR(GRSTR("gracht_client: failed to connect client"));
         return -1;
@@ -515,7 +515,7 @@ void gracht_client_shutdown(gracht_client_t* client)
     }
     
     if (client->iod != GRACHT_CONN_INVALID) {
-        client->ops->destroy(client->ops);
+        client->link->ops.client.destroy(client->link);
     }
 
     if (client->free_send_buffer) {

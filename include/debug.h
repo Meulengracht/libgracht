@@ -23,7 +23,7 @@
 #ifndef __GRACHT_DEBUG_H__
 #define __GRACHT_DEBUG_H__
 
-//#define GRACHT_TRACE
+#define GRACHT_TRACE
 
 #if defined(MOLLENOS)
 //#define __TRACE
@@ -33,14 +33,12 @@
 #define GRTRACE    TRACE
 #define GRWARNING  WARNING
 #define GRERROR    ERROR
-#elif defined(__linux__) || defined(_WIN32)
+#else
 #include <stdio.h>
 #define GRSTR(str)     str "\n"
 #define GRTRACE(...)   printf(__VA_ARGS__)
 #define GRWARNING(...) printf(__VA_ARGS__)
 #define GRERROR(...)   printf(__VA_ARGS__)
-#else
-#error "Undefined platform for debug"
 #endif
 
 #ifndef GRACHT_TRACE

@@ -28,7 +28,7 @@ void gracht_client_configuration_init(gracht_client_configuration_t* config)
     config->recv_buffer_size = 16 * GRACHT_DEFAULT_MESSAGE_SIZE;
 }
 
-void gracht_client_configuration_set_link(gracht_client_configuration_t* config, struct client_link_ops* link)
+void gracht_client_configuration_set_link(gracht_client_configuration_t* config, struct gracht_link* link)
 {
     config->link = link;
 }

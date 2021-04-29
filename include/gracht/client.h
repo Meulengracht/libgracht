@@ -29,7 +29,7 @@
 typedef struct gracht_client_configuration {
     // Link operations, which can be filled by any link-implementation under <link/*>
     // these provide the underlying link implementation like a socket interface or a serial interface.
-    struct client_link_ops* link;
+    struct gracht_link* link;
 
     // <send_buffer>      if set, provides a buffer that the client should use for sending messages. The size of this
     //                    buffer must be provided in max_message_size. This buffer is not freed upon calling gracht_client_shutdown
@@ -37,10 +37,10 @@ typedef struct gracht_client_configuration {
     //                    buffer must be atleast twice of max_message_size. 
     // <max_message_size> specifies the maximum message size that can be handled at once. If not set it defaults
     //                    to GRACHT_DEFAULT_MESSAGE_SIZE as the default value.
-    void*                   send_buffer;
-    void*                   recv_buffer;
-    int                     recv_buffer_size;
-    int                     max_message_size;
+    void*               send_buffer;
+    void*               recv_buffer;
+    int                 recv_buffer_size;
+    int                 max_message_size;
 } gracht_client_configuration_t;
 
 // Prototype declaration to hide implementation details.
@@ -54,7 +54,7 @@ extern "C" {
  * Configuration interface, use these as helpers instead of accessing the raw structure.
  */
 void gracht_client_configuration_init(gracht_client_configuration_t* config);
-void gracht_client_configuration_set_link(gracht_client_configuration_t* config, struct client_link_ops* link);
+void gracht_client_configuration_set_link(gracht_client_configuration_t* config, struct gracht_link* link);
 void gracht_client_configuration_set_send_buffer(gracht_client_configuration_t* config, void* buffer);
 void gracht_client_configuration_set_recv_buffer(gracht_client_configuration_t* config, void* buffer, int size);
 void gracht_client_configuration_set_max_msg_size(gracht_client_configuration_t* config, int maxMessageSize);

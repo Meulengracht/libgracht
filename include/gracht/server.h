@@ -24,6 +24,7 @@
 #define __GRACHT_SERVER_H__
 
 #include "types.h"
+#include "link/link.h"
 
 struct gracht_server_callbacks {
     void (*clientConnected)(gracht_conn_t client);    // invoked only when a new stream-based client has connected
@@ -33,10 +34,6 @@ struct gracht_server_callbacks {
 };
 
 typedef struct gracht_server_configuration {
-    // Link operations, which can be filled by any link-implementation under <link/*>
-    // these provide the underlying link implementation like a socket interface or a serial interface.
-    struct server_link_ops*        link;
-
     // Callbacks are certain status updates the server can provide to the user of this library.
     // For instance when clients connect/disconnect. They are only invoked when set to non-null.
     struct gracht_server_callbacks callbacks;
@@ -65,7 +62,6 @@ extern "C" {
  * Configuration interface, use these as helpers instead of accessing the raw structure.
  */
 void gracht_server_configuration_init(gracht_server_configuration_t* config);
-void gracht_server_configuration_set_link(gracht_server_configuration_t* config, struct server_link_ops* link);
 void gracht_server_configuration_set_aio_descriptor(gracht_server_configuration_t* config, gracht_handle_t descriptor);
 void gracht_server_configuration_set_num_workers(gracht_server_configuration_t* config, int workerCount);
 void gracht_server_configuration_set_max_msg_size(gracht_server_configuration_t* config, int maxMessageSize);
@@ -79,6 +75,16 @@ void gracht_server_configuration_set_max_msg_size(gracht_server_configuration_t*
  * @return int   Result of the initialize, returns 0 for success.
  */
 int gracht_server_initialize(gracht_server_configuration_t* config);
+
+/**
+ * Registers a link with the server. The server can operate on multiple links, but it needs
+ * atleast a single link to function. Any functions called without registering a link will
+ * return errors. Gracht will automatically cleanup the link once the server shuts down.
+ * 
+ * @param link The link that should be registered
+ * @return int Returns 0 if the protocol was link, or -1 if max count of links has been registered.
+ */
+int gracht_server_add_link(struct gracht_link* link);
 
 /**
  * Registers a new protocol with the server. A max of 255 protocols can be registered, and if

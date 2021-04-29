@@ -34,54 +34,54 @@
 //static const char* dgramPath = "/tmp/g_dgram";
 static const char* clientsPath = "/tmp/g_clients";
 
-static void init_socket_config(struct socket_client_configuration* socketConfig)
+static void init_socket_config(struct gracht_link_socket* link)
 {
-    struct sockaddr_un* addr = (struct sockaddr_un*)&socketConfig->address;
-    socketConfig->address_length = sizeof(struct sockaddr_un);
-
-    //socketConfig->type = gracht_link_packet_based;
-    socketConfig->type = gracht_link_stream_based;
-
-    addr->sun_family = AF_LOCAL;
+    struct sockaddr_un addr = { 0 };
+    
+    addr.sun_family = AF_LOCAL;
     //strncpy (addr->sun_path, dgramPath, sizeof(addr->sun_path));
-    strncpy (addr->sun_path, clientsPath, sizeof(addr->sun_path));
-    addr->sun_path[sizeof(addr->sun_path) - 1] = '\0';
+    strncpy (addr.sun_path, clientsPath, sizeof(addr.sun_path));
+    addr.sun_path[sizeof(addr.sun_path) - 1] = '\0';
+
+    gracht_link_socket_set_type(link, gracht_link_stream_based);
+    gracht_link_socket_set_address(link, (const struct sockaddr_storage*)&addr, sizeof(struct sockaddr_un));
+    gracht_link_socket_set_domain(link, AF_LOCAL);
 }
 
 #elif defined(_WIN32)
 #include <windows.h>
 
-static void init_socket_config(struct socket_client_configuration* socketConfig)
+static void init_socket_config(struct gracht_link_socket* link)
 {
-    struct sockaddr_in* addr;
+    struct sockaddr_in addr = { 0 };
     
     // initialize the WSA library
     gracht_link_socket_initialize();
 
-    addr = (struct sockaddr_in*)&socketConfig->address;
-    socketConfig->address_length = sizeof(struct sockaddr_in);
-    
-    //socketConfig->type = gracht_link_packet_based;
-    socketConfig->type = gracht_link_stream_based;
-
     // AF_INET is the Internet address family.
-    addr->sin_family = AF_INET;
-    addr->sin_addr.s_addr = inet_addr("127.0.0.1");
-    addr->sin_port = htons(55555);
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+    addr.sin_port = htons(55555);
+
+    gracht_link_socket_set_type(link, gracht_link_stream_based);
+    gracht_link_socket_set_address(link, (const struct sockaddr_storage*)&addr, sizeof(struct sockaddr_in));
 }
 #endif
 
 int init_client_with_socket_link(gracht_client_t** clientOut)
 {
-    struct socket_client_configuration linkConfiguration = { 0 };
+    struct gracht_link_socket*         link;
     struct gracht_client_configuration clientConfiguration;
     gracht_client_t*                   client = NULL;
     int                                code;
 
     gracht_client_configuration_init(&clientConfiguration);
-    init_socket_config(&linkConfiguration);
+    
+    gracht_link_socket_create(&link);
+    init_socket_config(link);
 
-    gracht_link_socket_client_create(&clientConfiguration.link, &linkConfiguration);
+    gracht_client_configuration_set_link(&clientConfiguration, &link->base);
+
     code = gracht_client_create(&clientConfiguration, &client);
     if (code) {
         printf("init_client_with_socket_link: error initializing client library %i, %i\n", errno, code);
