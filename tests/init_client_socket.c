@@ -56,7 +56,7 @@ static void init_socket_config(struct gracht_link_socket* link)
     struct sockaddr_in addr = { 0 };
     
     // initialize the WSA library
-    gracht_link_socket_initialize();
+    gracht_link_socket_setup();
 
     // AF_INET is the Internet address family.
     addr.sin_family = AF_INET;

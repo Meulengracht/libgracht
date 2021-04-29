@@ -120,7 +120,7 @@ int init_server_with_socket_link(void)
     
 #ifdef _WIN32
     // initialize the WSA library
-    gracht_link_socket_initialize();
+    gracht_link_socket_setup();
 #endif
 
     gracht_server_configuration_init(&serverConfiguration);
@@ -142,7 +142,7 @@ int init_mt_server_with_socket_link(int workerCount)
     
 #ifdef _WIN32
     // initialize the WSA library
-    gracht_link_socket_initialize();
+    gracht_link_socket_setup();
 #endif
 
     gracht_server_configuration_init(&serverConfiguration);
