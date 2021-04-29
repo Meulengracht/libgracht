@@ -310,10 +310,9 @@ static void dispatch_mt(struct gracht_server* server, struct gracht_message* mes
     uint32_t messageLength = *((uint32_t*)&message->payload[message->index + 4]);
     GRTRACE(GRSTR("dispatch_mt: message length=%u"), messageLength);
 
-    // @todo debug why this ends up overwriting the memory
-    //mtx_lock(&server->sync_object);
-    //gracht_arena_free(server->arena, message, server->allocationSize - messageLength);
-    //mtx_unlock(&server->sync_object);
+    mtx_lock(&server->sync_object);
+    gracht_arena_free(server->arena, message, server->allocationSize - messageLength);
+    mtx_unlock(&server->sync_object);
     gracht_worker_pool_dispatch(server->worker_pool, message);
 }
 

@@ -91,11 +91,11 @@ void gracht_arena_destroy(struct gracht_arena* arena)
     free(arena);
 }
 
-static inline void create_header(void* memory, size_t size)
+static inline void create_header(void* memory, uint32_t size)
 {
-    GRTRACE(GRSTR("create_header(memory=0x%p, size=%lu)"), memory, size);
+    GRTRACE(GRSTR("create_header(memory=0x%p, size=%u)"), memory, size);
     struct gracht_header* header = memory;
-    header->length = (uint32_t)(size & 0x00FFFFFF) - HEADER_SIZE;
+    header->length = size - HEADER_SIZE;
     header->allocated = 0;
     header->flags = 0;
 }
@@ -133,7 +133,7 @@ static inline struct gracht_header* find_free_header(struct gracht_arena* arena,
 void* gracht_arena_allocate(struct gracht_arena* arena, void* allocation, size_t size)
 {
     struct gracht_header* allocHeader;
-    size_t                correctedSize = size;
+    uint32_t              correctedSize = (uint32_t)(size & 0x00FFFFFF);
     GRTRACE(GRSTR("gracht_arena_allocate(arena=0x%p, allocation=0x%p, size=%lu)"), arena, allocation, size);
 
     if (!arena || !size) {
@@ -156,16 +156,18 @@ void* gracht_arena_allocate(struct gracht_arena* arena, void* allocation, size_t
         }
         else {
             // we are able to safely extend the current allocation
-            uint32_t allocLength = (uint32_t)(size & 0x00FFFFFF);
-
-            header->length += allocLength;
-            nextHeader->length -= allocLength;
-            move_header(nextHeader, (long)allocLength);
+            header->length += correctedSize;
+            nextHeader->length -= correctedSize;
+            move_header(nextHeader, (long)correctedSize);
             return &header->payload[0];
         }
     }
     else {
         allocHeader = find_free_header(arena, size);
+    }
+    
+    if (!allocHeader) {
+        return NULL;
     }
 
     // if the bytes left in the header is less than a threshold, then we consolidate
@@ -209,21 +211,23 @@ void gracht_arena_free(struct gracht_arena* arena, void* memory, size_t size)
         }
 
         // reduce the size of this allocation by the number of bytes we free
+        GRTRACE(GRSTR("reducing allocation from %u by %u"), header->length, allocLength);
         header->length -= allocLength;
 
         // either we must adjust the header link or create a new
         // based on whether its free or not
         if (!nextHeader->allocated) {
             long negated = 0 - (long)allocLength;
-            GRTRACE(GRSTR("moving the following header by %li bytes"), negated);
+            GRTRACE(GRSTR("%p=moving by %li bytes"), nextHeader, negated);
 
             // header is not allocated, we add the size to it and move it
+            GRTRACE(GRSTR("%p=increasing length by %u bytes to %u bytes"), nextHeader, allocLength, nextHeader->length);
             nextHeader->length += allocLength;
             move_header(nextHeader, negated);
         }
         else {
             // it was allocated, we must create a new header with the size that was freed
-            create_header(((char*)header + header->length), size);
+            create_header(GET_NEXT_HEADER(header), size);
         }
     }
     else {
@@ -240,7 +244,7 @@ void gracht_arena_free(struct gracht_arena* arena, void* memory, size_t size)
 int main()
 {
     struct gracht_arena* arena;
-    void* alloc0, *alloc1, *alloc2;
+    void* alloc0, *alloc1, *alloc2, *alloc3;
 
     GRTRACE(GRSTR("gracht_arena_create(10000, &arena) = %i"), gracht_arena_create(10000, &arena));
 
@@ -258,10 +262,15 @@ int main()
 
     gracht_arena_free(arena, alloc2, 128);
     gracht_arena_free(arena, alloc2, 128);
+
+    alloc3 = gracht_arena_allocate(arena, NULL, 512);
+    GRTRACE(GRSTR("gracht_arena_allocate(arena, NULL, 512) = 0x%p"), alloc3);
+    
     gracht_arena_free(arena, alloc2, 128);
     gracht_arena_free(arena, alloc2, 128);
     gracht_arena_free(arena, alloc0, 1024);
     gracht_arena_free(arena, alloc1, 512);
+    gracht_arena_free(arena, alloc3, 0);
 
     gracht_arena_destroy(arena);
 }
