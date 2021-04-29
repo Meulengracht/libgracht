@@ -211,7 +211,7 @@ void gracht_arena_free(struct gracht_arena* arena, void* memory, size_t size)
         }
 
         // reduce the size of this allocation by the number of bytes we free
-        GRTRACE(GRSTR("reducing allocation from %u by %u"), header->length, allocLength);
+        GRTRACE(GRSTR("%p=reducing allocation from %u by %u"), header, header->length, allocLength);
         header->length -= allocLength;
 
         // either we must adjust the header link or create a new

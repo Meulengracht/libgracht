@@ -307,12 +307,13 @@ static void dispatch_st(struct gracht_server* server, struct gracht_message* mes
 
 static void dispatch_mt(struct gracht_server* server, struct gracht_message* message)
 {
-    uint32_t messageLength = *((uint32_t*)&message->payload[message->index + 4]);
-    GRTRACE(GRSTR("dispatch_mt: message length=%u"), messageLength);
+    uint32_t messageLength  = *((uint32_t*)&message->payload[message->index + 4]);
+    uint32_t metaDatalength = sizeof(struct gracht_message) + message->index;
 
     mtx_lock(&server->sync_object);
-    gracht_arena_free(server->arena, message, server->allocationSize - messageLength);
+    gracht_arena_free(server->arena, message, server->allocationSize - messageLength - metaDatalength);
     mtx_unlock(&server->sync_object);
+
     gracht_worker_pool_dispatch(server->worker_pool, message);
 }
 
@@ -460,12 +461,13 @@ void server_invoke_action(struct gracht_server* server, struct gracht_message* r
     messageId = GB_MSG_ID(&buffer);
     protocol  = GB_MSG_SID(&buffer);
     action    = GB_MSG_AID(&buffer);
+    GRTRACE(GRSTR("server_invoke_action %u: %u/%u"), messageId, protocol, action);
 
     mtx_lock(&server->sync_object);
     function = get_protocol_action(&server->protocols, protocol, action);
     mtx_unlock(&server->sync_object);
     if (!function) {
-        GRWARNING(GRSTR("[dispatch_st] failed to invoke server action"));
+        GRWARNING(GRSTR("server_invoke_action failed to invoke server action"));
         gracht_control_event_error_single(recvMessage->client, messageId, ENOENT);
         return;
     }
@@ -543,8 +545,8 @@ int gracht_server_respond(struct gracht_message* messageContext, gracht_buffer_t
     }
 
     // update message header
-    ((uint32_t*)message->data)[0] = ((uint32_t*)messageContext->payload)[0];
-    ((uint32_t*)message->data)[1] = message->index;
+    GB_MSG_ID_0(message)  = *((uint32_t*)&messageContext->payload[messageContext->index]);
+    GB_MSG_LEN_0(message) = message->index;
 
     entry = hashtable_get(&g_grachtServer.clients, &(struct client_wrapper){ .handle = messageContext->client });
     if (!entry) {
@@ -566,8 +568,7 @@ int gracht_server_send_event(gracht_conn_t client, gracht_buffer_t* message, uns
     struct client_wrapper* clientEntry;
 
     // update message header
-    //((uint32_t*)message->data)[0] = 0;
-    ((uint32_t*)message->data)[1] = message->index;
+    GB_MSG_LEN_0(message) = message->index;
 
     clientEntry = hashtable_get(&g_grachtServer.clients, &(struct client_wrapper){ .handle = client });
     if (!clientEntry) {
@@ -587,8 +588,7 @@ int gracht_server_broadcast_event(gracht_buffer_t* message, unsigned int flags)
     };
 
     // update message header
-    //((uint32_t*)message->data)[0] = 0;
-    ((uint32_t*)message->data)[1] = message->index;
+    GB_MSG_LEN_0(message) = message->index;
 
     hashtable_enumerate(&g_grachtServer.clients, client_enum_broadcast, &context);
     return 0;

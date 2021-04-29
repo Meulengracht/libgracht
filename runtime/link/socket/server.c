@@ -72,7 +72,7 @@ static int socket_link_recv_client(struct socket_link_client* client,
     intmax_t     bytesRead;
     uint32_t     missingData;
     
-    GRTRACE(GRSTR("[gracht_connection_recv_stream] reading message header"));
+    GRTRACE(GRSTR("socket_link_recv_client reading message header"));
     bytesRead = recv(client->base.handle, &context->payload[0], GRACHT_MESSAGE_HEADER_SIZE, socketFlags);
     if (bytesRead != GRACHT_MESSAGE_HEADER_SIZE) {
         if (bytesRead == 0) {
@@ -81,14 +81,16 @@ static int socket_link_recv_client(struct socket_link_client* client,
         return -1;
     }
     
+    GRTRACE(GRSTR("socket_link_recv_client message id %u, length of message %u"), 
+        *((uint32_t*)&context->payload[0]), *((uint32_t*)&context->payload[4]));
     missingData = *((uint32_t*)&context->payload[4]) - GRACHT_MESSAGE_HEADER_SIZE;
     if (missingData) {
-        GRTRACE(GRSTR("[gracht_connection_recv_stream] reading message payload"));
+        GRTRACE(GRSTR("socket_link_recv_client reading message payload"));
         bytesRead = recv(client->base.handle, &context->payload[GRACHT_MESSAGE_HEADER_SIZE], 
             (size_t)missingData, MSG_WAITALL);
         if (bytesRead != missingData) {
             // do not process incomplete requests
-            GRERROR(GRSTR("[gracht_connection_recv_message] did not read full amount of bytes (%u, expected %u)"),
+            GRERROR(GRSTR("socket_link_recv_client did not read full amount of bytes (%u, expected %u)"),
                   (uint32_t)bytesRead, missingData);
             errno = (EPIPE);
             return -1;
