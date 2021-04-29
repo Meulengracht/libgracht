@@ -173,6 +173,9 @@ static void cleanup_worker(struct gracht_worker* worker)
 void* gracht_worker_pool_get_worker_scratchpad(struct gracht_worker_pool* pool)
 {
     (void)pool;
+    if (!t_worker) {
+        return NULL;
+    }
     return t_worker->scratch_pad;
 }
 

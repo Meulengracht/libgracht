@@ -319,7 +319,12 @@ static void dispatch_mt(struct gracht_server* server, struct gracht_message* mes
 
 static void* get_out_buffer_mt(struct gracht_server* server)
 {
-    return gracht_worker_pool_get_worker_scratchpad(server->worker_pool);
+    void* dispatchBuffer = gracht_worker_pool_get_worker_scratchpad(server->worker_pool);
+    if (!dispatchBuffer) {
+        // called from outside thread @TODO THIS WILL CRASH as well
+        return server->sendBuffer;
+    }
+    return dispatchBuffer;
 }
 
 static struct gracht_message* get_in_buffer_mt(struct gracht_server* server)
