@@ -43,7 +43,7 @@ typedef void (*server_invoke_t)(struct gracht_message*, struct gracht_buffer*);
  * @param poolOut A pointer to storage for the worker pool.
  * @return int Returns 0 if creation was succesfull, otherwise errno is set.
  */
-int gracht_worker_pool_create(struct gracht_server* server, int numberOfWorkers, int maxMessageSize, struct gracht_worker_pool** poolOut);
+int gracht_worker_pool_create(struct gracht_server* server, int numberOfWorkers, struct gracht_worker_pool** poolOut);
 
 /**
  * Defined in dispatch.c
@@ -62,15 +62,6 @@ void gracht_worker_pool_destroy(struct gracht_worker_pool* pool);
  * @param recvMessage A pointer to the recieved message.
  */
 void gracht_worker_pool_dispatch(struct gracht_worker_pool* pool, struct gracht_message* recvMessage);
-
-/**
- * Retrieves a buffer area that is free to be used for the calling thread. In the context of
- * the gracht server this scratch area is used to build an outoing message.
- * 
- * @param pool A pointer to the worker pool that was created earlier.
- * @return void* A pointer to the scratchpad area
- */
-void* gracht_worker_pool_get_worker_scratchpad(struct gracht_worker_pool* pool);
 
 /**
  * Defined in server.c

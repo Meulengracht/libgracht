@@ -44,7 +44,7 @@ if (UNIX)
 endif ()
 
 add_sources(link/socket/client.c link/socket/server.c link/socket/shared.c)
-add_sources(client.c client_config.c crc.c server.c server_config.c shared.c arena.c dispatch.c hashtable.c control.c)
+add_sources(client.c client_config.c crc.c server.c server_config.c shared.c stack.c arena.c dispatch.c hashtable.c control.c)
 
 add_library(gracht ${SRCS})
 
