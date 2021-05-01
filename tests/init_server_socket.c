@@ -125,7 +125,7 @@ int init_server_with_socket_link(void)
 
     gracht_server_configuration_init(&serverConfiguration);
     
-    code = gracht_server_initialize(&serverConfiguration);
+    code = gracht_server_start(&serverConfiguration);
     if (code) {
         printf("init_server_with_socket_link: error initializing server library %i\n", errno);
     }
@@ -149,7 +149,7 @@ int init_mt_server_with_socket_link(int workerCount)
 
     // setup the number of workers
     gracht_server_configuration_set_num_workers(&serverConfiguration, workerCount);
-    code = gracht_server_initialize(&serverConfiguration);
+    code = gracht_server_start(&serverConfiguration);
     if (code) {
         printf("init_server_with_socket_link: error initializing server library %i\n", errno);
     }

@@ -63,14 +63,20 @@ struct link_table {
     struct gracht_link* links[GRACHT_SERVER_MAX_LINKS];
 };
 
+enum server_state {
+    SHUTDOWN,
+    RUNNING,
+    SHUTDOWN_REQUESTED
+};
+
 struct gracht_server {
+    enum server_state              state;
     struct server_operations*      ops;
     struct gracht_server_callbacks callbacks;
     struct gracht_worker_pool*     worker_pool;
     struct stack                   bufferStack;
     size_t                         allocationSize;
     void*                          recvBuffer;
-    int                            initialized;
     gracht_handle_t                set_handle;
     int                            set_handle_provided;
     struct gracht_arena*           arena;
@@ -81,13 +87,13 @@ struct gracht_server {
     struct rwlock                  clients_lock;
     struct link_table              link_table;
 } g_grachtServer = {
+        SHUTDOWN,
         NULL,
         { NULL, NULL },
         NULL,
         { 0 },
         0,
         NULL,
-        0,
         GRACHT_HANDLE_INVALID,
         0,
         NULL,
@@ -132,22 +138,23 @@ static void     client_enum_broadcast(int index, const void* element, void* user
 
 static int configure_server(struct gracht_server*, gracht_server_configuration_t*);
 
-int gracht_server_initialize(gracht_server_configuration_t* configuration)
+int gracht_server_start(gracht_server_configuration_t* configuration)
 {
     int status;
-    if (g_grachtServer.initialized) {
-        errno = EALREADY;
-        return -1;
-    }
 
     if (!configuration) {
         errno = EINVAL;
         return -1;
     }
 
+    if (g_grachtServer.state != SHUTDOWN) {
+        errno = EALREADY;
+        return -1;
+    }
+
     status = configure_server(&g_grachtServer, configuration);
     if (status) {
-        GRERROR(GRSTR("gracht_server_initialize: invalid configuration provided"));
+        GRERROR(GRSTR("gracht_server_start: invalid configuration provided"));
         return -1;
     }
 
@@ -160,7 +167,9 @@ int gracht_server_initialize(gracht_server_configuration_t* configuration)
     stack_construct(&g_grachtServer.bufferStack, 8);
 
     gracht_server_register_protocol(&gracht_control_server_protocol);
-    g_grachtServer.initialized = 1;
+
+    // everything is setup - update state
+    g_grachtServer.state = RUNNING;
     return 0;
 }
 
@@ -230,6 +239,11 @@ int gracht_server_add_link(struct gracht_link* link)
 
     if (!link) {
         errno = EINVAL;
+        return -1;
+    }
+
+    if (g_grachtServer.state != RUNNING) {
+        errno = ESHUTDOWN;
         return -1;
     }
 
@@ -427,11 +441,11 @@ static int gracht_server_shutdown(void)
     void* buffer;
     int   i;
 
-    if (!g_grachtServer.initialized) {
-        errno = EINVAL;
+    if (g_grachtServer.state == SHUTDOWN) {
+        errno = EALREADY;
         return -1;
     }
-    g_grachtServer.initialized = 0;
+    g_grachtServer.state = SHUTDOWN;
     
     // destroy all our workers
     if (g_grachtServer.worker_pool) {
@@ -481,6 +495,16 @@ static int gracht_server_shutdown(void)
     return 0;
 }
 
+void gracht_server_request_shutdown(void)
+{
+    if (g_grachtServer.state != RUNNING) {
+        errno = ESHUTDOWN;
+        return;
+    }
+    
+    g_grachtServer.state = SHUTDOWN_REQUESTED;
+}
+
 void server_invoke_action(struct gracht_server* server, struct gracht_message* recvMessage)
 {
     gracht_protocol_function_t* function;
@@ -521,7 +545,18 @@ void server_cleanup_message(struct gracht_server* server, struct gracht_message*
 
 int gracht_server_handle_event(gracht_conn_t handle, unsigned int events)
 {
-    struct gracht_link* link = get_link_by_conn(&g_grachtServer, handle);
+    struct gracht_link* link;
+
+    // assert current state, and cleanup if state is request shutdown
+    if (g_grachtServer.state != RUNNING) {
+        if (g_grachtServer.state == SHUTDOWN_REQUESTED) {
+            gracht_server_shutdown();
+        }
+        errno = ESHUTDOWN;
+        return -1;
+    }
+
+    link = get_link_by_conn(&g_grachtServer, handle);
     if (!link) {
         return handle_client_event(&g_grachtServer, handle, events);
     }
@@ -540,8 +575,13 @@ int gracht_server_main_loop(void)
     gracht_aio_event_t events[32];
     int                i;
 
+    if (g_grachtServer.state != RUNNING) {
+        errno = ESHUTDOWN;
+        return -1;
+    }
+
     GRTRACE(GRSTR("gracht_server: started..."));
-    while (g_grachtServer.initialized) {
+    while (g_grachtServer.state == RUNNING) {
         int num_events = gracht_io_wait(g_grachtServer.set_handle, &events[0], 32);
         GRTRACE(GRSTR("gracht_server: %i events received!"), num_events);
         for (i = 0; i < num_events; i++) {
@@ -549,7 +589,10 @@ int gracht_server_main_loop(void)
             uint32_t      flags  = gracht_aio_event_events(&events[i]);
 
             GRTRACE(GRSTR("gracht_server: event %u from %i"), flags, handle);
-            gracht_server_handle_event(handle, flags);
+            if (gracht_server_handle_event(handle, flags) == -1 && errno == ESHUTDOWN) {
+                // server has been shutdown by the handle_event
+                return 0;
+            }
         }
     }
 
@@ -662,6 +705,11 @@ int gracht_server_register_protocol(gracht_protocol_t* protocol)
         return -1;
     }
     
+    if (g_grachtServer.state != RUNNING) {
+        errno = ESHUTDOWN;
+        return -1;
+    }
+
     rwlock_w_lock(&g_grachtServer.protocols_lock);
     if (hashtable_get(&g_grachtServer.protocols, protocol)) {
         rwlock_w_unlock(&g_grachtServer.protocols_lock);
@@ -676,6 +724,12 @@ int gracht_server_register_protocol(gracht_protocol_t* protocol)
 void gracht_server_unregister_protocol(gracht_protocol_t* protocol)
 {
     if (!protocol) {
+        errno = EINVAL;
+        return;
+    }
+
+    if (g_grachtServer.state != RUNNING) {
+        errno = ESHUTDOWN;
         return;
     }
     
@@ -686,17 +740,29 @@ void gracht_server_unregister_protocol(gracht_protocol_t* protocol)
 
 gracht_conn_t gracht_server_get_dgram_iod(void)
 {
+    if (g_grachtServer.state != RUNNING) {
+        errno = ESHUTDOWN;
+        return GRACHT_CONN_INVALID;
+    }
+
     for (int i = 0; i < GRACHT_SERVER_MAX_LINKS; i++) {
         if (g_grachtServer.link_table.links[i] &&
             g_grachtServer.link_table.links[i]->type == gracht_link_packet_based) {
                 return g_grachtServer.link_table.handles[i];
         }
     }
+
+    errno = ENOENT;
     return GRACHT_CONN_INVALID;
 }
 
 gracht_handle_t gracht_server_get_set_iod(void)
 {
+    if (g_grachtServer.state != RUNNING) {
+        errno = ESHUTDOWN;
+        return GRACHT_CONN_INVALID;
+    }
+
     return g_grachtServer.set_handle;
 }
 

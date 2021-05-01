@@ -74,7 +74,15 @@ void gracht_server_configuration_set_max_msg_size(gracht_server_configuration_t*
  * @param config The configuration structure that determines operation of the server.
  * @return int   Result of the initialize, returns 0 for success.
  */
-int gracht_server_initialize(gracht_server_configuration_t* config);
+int gracht_server_start(gracht_server_configuration_t* config);
+
+/**
+ * Requests shutdown of the server. The shutdown is not guaranteed to happen immediately, but rather
+ * at the next request/event. This is highly dependant on how the server is used. If the server is
+ * used as an asynchronous fashion (i.e through external epoll), then the cleanup will be performed
+ * the next time gracht_server_handle_event is called.
+ */
+void gracht_server_request_shutdown(void);
 
 /**
  * Registers a link with the server. The server can operate on multiple links, but it needs
