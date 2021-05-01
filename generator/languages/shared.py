@@ -32,12 +32,13 @@ class EnumObject:
         return self.values
 
 class VariableObject:
-    def __init__(self, typename, name, is_variable, count=1, default_value=None):
+    def __init__(self, typename, name, is_variable, count=1, default_value=None, fixed=False):
         self.name = name
         self.typename = typename
         self.is_variable = is_variable
         self.count = count
         self.default_value = default_value
+        self.fixed = fixed
 
     def get_name(self):
         return self.name
@@ -53,6 +54,9 @@ class VariableObject:
 
     def get_is_variable(self):
         return self.is_variable
+
+    def get_fixed(self):
+        return self.fixed
 
 class StructureObject:
     def __init__(self, name, members):

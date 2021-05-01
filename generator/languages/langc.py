@@ -17,17 +17,17 @@ def is_variable_value_type(service, param):
         return False
     return True
 
-def should_define_parameter(param, case, is_output):
-    is_hidden = False
+def should_define_parameter(param: VariableObject, case, is_output):
+    is_hidden = param.get_fixed() and param.get_default_value() != None
 
     if case == CONST.TYPENAME_CASE_SIZEOF or case == CONST.TYPENAME_CASE_MEMBER:
         return not is_output
     elif case == CONST.TYPENAME_CASE_FUNCTION_CALL:
         return not is_output and not is_hidden
     elif case == CONST.TYPENAME_CASE_FUNCTION_STATUS:
-        return is_output and not is_hidden
+        return is_output
     elif case == CONST.TYPENAME_CASE_FUNCTION_RESPONSE:
-        return is_output and not is_hidden
+        return is_output
     return False
 
 
@@ -273,7 +273,10 @@ def write_function_body_prologue(service: ServiceObject, actionId, flags, params
         elif service.typename_is_struct(param.get_typename()):
             outfile.write(f"    serialize_{get_struct_name(service, param.get_typename())}(&__buffer, {param.get_name()});\n")
         else:
-            outfile.write(f"    serialize_{param.get_typename()}(&__buffer, {param.get_name()});\n")
+            value = param.get_name()
+            if param.get_fixed():
+                value = param.get_default_value()
+            outfile.write(f"    serialize_{param.get_typename()}(&__buffer, {value});\n")
 
 def write_function_body_epilogue(service: ServiceObject, func: FunctionObject, outfile):
     # dunno yet
@@ -874,7 +877,7 @@ class CGenerator:
         outfile.write(f"    extern gracht_protocol_t {service.get_namespace()}_{service.get_name()}_server_protocol;\n\n")
 
     def define_client_subscribe_prototype(self, service, outfile):
-        subscribe_arg = VariableObject("uint8_t", "service", False, "1", str(service.get_id()))
+        subscribe_arg = VariableObject("uint8_t", "service", False, "1", str(service.get_id()), True)
         subscribe_fn = FunctionObject("subscribe", 0, [subscribe_arg], [])
         control_service = ServiceObject(service.get_namespace(), 0, service.get_name(), [], [], [], [], [])
         outfile.write("    " +
@@ -883,7 +886,7 @@ class CGenerator:
         return
 
     def define_client_subscribe(self, service, outfile):
-        subscribe_arg = VariableObject("uint8_t", "service", False, "1", str(service.get_id()))
+        subscribe_arg = VariableObject("uint8_t", "service", False, "1", str(service.get_id()), True)
         subscribe_fn = FunctionObject("subscribe", 0, [subscribe_arg], [])
         control_service = ServiceObject(service.get_namespace(), 0, service.get_name(), [], [], [], [], [])
         outfile.write(
@@ -894,7 +897,7 @@ class CGenerator:
         return
 
     def define_client_unsubscribe_prototype(self, service, outfile):
-        unsubscribe_arg = VariableObject("uint8_t", "service", False, "1", str(service.get_id()))
+        unsubscribe_arg = VariableObject("uint8_t", "service", False, "1", str(service.get_id()), True)
         unsubscribe_fn = FunctionObject("unsubscribe", 1, [unsubscribe_arg], [])
         control_service = ServiceObject(service.get_namespace(), 0, service.get_name(), [], [], [], [], [])
         outfile.write("    " +
@@ -903,7 +906,7 @@ class CGenerator:
         return
 
     def define_client_unsubscribe(self, service, outfile):
-        unsubscribe_arg = VariableObject("uint8_t", "service", False, "1", str(service.get_id()))
+        unsubscribe_arg = VariableObject("uint8_t", "service", False, "1", str(service.get_id()), True)
         unsubscribe_fn = FunctionObject("unsubscribe", 1, [unsubscribe_arg], [])
         control_service = ServiceObject(service.get_namespace(), 0, service.get_name(), [], [], [], [], [])
         outfile.write(
