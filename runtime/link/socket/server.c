@@ -194,7 +194,7 @@ static gracht_conn_t socket_link_setup(struct gracht_link_socket* link)
 static int socket_link_accept(struct gracht_link_socket* link, struct gracht_server_client** clientOut)
 {
     struct socket_link_client* client;
-    socklen_t                  address_length;
+    socklen_t                  address_length = link->address_length;
     GRTRACE(GRSTR("[socket_link_accept]"));
 
     if (link->base.type == gracht_link_packet_based) {
@@ -213,7 +213,7 @@ static int socket_link_accept(struct gracht_link_socket* link, struct gracht_ser
 
     client->socket = accept(link->base.connection, (struct sockaddr*)&client->address, &address_length);
     if (client->socket < 0) {
-        GRERROR(GRSTR("link_server: failed to accept client"));
+        GRERROR(GRSTR("link_server: failed to accept client: %i - %i"), client->socket, errno);
         free(client);
         return -1;
     }

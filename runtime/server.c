@@ -27,6 +27,7 @@
 #include "gracht/server.h"
 #include "gracht/link/link.h"
 #include "thread_api.h"
+#include "rwlock.h"
 #include "utils.h"
 #include "server_private.h"
 #include "hashtable.h"
@@ -37,13 +38,8 @@
 
 #define GRACHT_SERVER_MAX_LINKS 4
 
-// Memory requirements of the server
-// Single-threaded
-// 1 buffer for incoming messages
-// 1 buffer for outgoing events/responses
-// Multi-threaded (M threads)
-// N buffers for incoming messages
-// M buffers for outgoing events/responses
+#define GRACHT_CLIENT_FLAG_STREAM  0x1
+#define GRACHT_CLIENT_FLAG_CLEANUP 0x2
 
 struct client_wrapper {
     gracht_conn_t                handle;
@@ -70,34 +66,36 @@ struct link_table {
 struct gracht_server {
     struct server_operations*      ops;
     struct gracht_server_callbacks callbacks;
-    struct gracht_arena*           arena;
     struct gracht_worker_pool*     worker_pool;
     struct stack                   bufferStack;
     size_t                         allocationSize;
-    void*                          sendBuffer;
     void*                          recvBuffer;
     int                            initialized;
     gracht_handle_t                set_handle;
     int                            set_handle_provided;
-    mtx_t                          sync_object;
+    struct gracht_arena*           arena;
+    mtx_t                          arena_lock;
     hashtable_t                    protocols;
+    struct rwlock                  protocols_lock;
     hashtable_t                    clients;
+    struct rwlock                  clients_lock;
     struct link_table              link_table;
 } g_grachtServer = {
         NULL,
         { NULL, NULL },
         NULL,
-        NULL,
         { 0 },
         0,
-        NULL,
         NULL,
         0,
         GRACHT_HANDLE_INVALID,
         0,
+        NULL,
         { { 0 } },
         { 0 },
+        { { { 0 } }, 0, { { 0 } } },
         { 0 },
+        { { { 0 } }, 0, { { 0 } } },
         { { 0 }, { 0 }}
 };
 
@@ -147,13 +145,16 @@ int gracht_server_initialize(gracht_server_configuration_t* configuration)
         return -1;
     }
 
-    mtx_init(&g_grachtServer.sync_object, mtx_plain);
     status = configure_server(&g_grachtServer, configuration);
     if (status) {
         GRERROR(GRSTR("gracht_server_initialize: invalid configuration provided"));
         return -1;
     }
 
+    // initialize static members of the instance
+    mtx_init(&g_grachtServer.arena_lock, mtx_plain);
+    rwlock_init(&g_grachtServer.protocols_lock);
+    rwlock_init(&g_grachtServer.clients_lock);
     hashtable_construct(&g_grachtServer.protocols, 0, sizeof(struct gracht_protocol), protocol_hash, protocol_cmp);
     hashtable_construct(&g_grachtServer.clients, 0, sizeof(struct client_wrapper), client_hash, client_cmp);
     stack_construct(&g_grachtServer.bufferStack, 8);
@@ -212,12 +213,6 @@ static int configure_server(struct gracht_server* server, gracht_server_configur
         }
     }
     else {
-        server->sendBuffer = malloc(server->allocationSize);
-        if (!server->sendBuffer) {
-            GRERROR(GRSTR("configure_server: failed to allocate memory for outoing messages"));
-            return -1;
-        }
-        
         server->recvBuffer = malloc(server->allocationSize);
         if (!server->recvBuffer) {
             GRERROR(GRSTR("configure_server: failed to allocate memory for incoming messages"));
@@ -272,8 +267,21 @@ static int handle_connection(struct gracht_server* server, struct gracht_link* l
         GRERROR(GRSTR("gracht_server: failed to accept client"));
         return status;
     }
+
+    // this is a streaming client, which means we handle them differently if they should
+    // unsubscribe to certain protocols
+    client->flags |= GRACHT_CLIENT_FLAG_STREAM;
     
-    hashtable_set(&server->clients, &(struct client_wrapper){ .handle = client->handle, .link = link, .client = client });
+    rwlock_w_lock(&server->clients_lock);
+    hashtable_set(&server->clients, &(struct client_wrapper) { 
+        .handle = client->handle,
+        .link = link,
+        .client = client
+    });
+    rwlock_w_unlock(&server->clients_lock);
+
+    // this is no protected as it should be called only from the same thread. The thread
+    // that runs the orchestrator
     gracht_aio_add(server->set_handle, client->handle);
 
     // invoke the new client callback at last
@@ -281,11 +289,6 @@ static int handle_connection(struct gracht_server* server, struct gracht_link* l
         server->callbacks.clientConnected(client->handle);
     }
     return 0;
-}
-
-static void* get_out_buffer_st(struct gracht_server* server)
-{
-    return server->sendBuffer;
 }
 
 static struct gracht_message* get_in_buffer_st(struct gracht_server* server)
@@ -297,6 +300,7 @@ static void put_message_st(struct gracht_server* server, struct gracht_message* 
 {
     (void)server;
     (void)message;
+    // no op
 }
 
 static void dispatch_st(struct gracht_server* server, struct gracht_message* message)
@@ -306,30 +310,39 @@ static void dispatch_st(struct gracht_server* server, struct gracht_message* mes
 
 static void dispatch_mt(struct gracht_server* server, struct gracht_message* message)
 {
-    uint32_t messageLength  = *((uint32_t*)&message->payload[message->index + 4]);
-    uint32_t metaDatalength = sizeof(struct gracht_message) + message->index;
+    uint8_t protocol = *((uint8_t*)&message->payload[message->index + MSG_INDEX_SID]);
 
-    mtx_lock(&server->sync_object);
-    gracht_arena_free(server->arena, message, server->allocationSize - messageLength - metaDatalength);
-    mtx_unlock(&server->sync_object);
-
-    gracht_worker_pool_dispatch(server->worker_pool, message);
+    // due to the fact that the control protocol modifies state on the server, especially
+    // client state - we want to ensure that these methods are run on orchestrator thread.
+    if (protocol == 0) {
+        server_invoke_action(server, message);
+        server_cleanup_message(server, message);
+    }
+    else {
+        uint32_t messageLength  = *((uint32_t*)&message->payload[message->index + MSG_INDEX_LEN]);
+        uint32_t metaDatalength = sizeof(struct gracht_message) + message->index;
+        
+        mtx_lock(&server->arena_lock);
+        gracht_arena_free(server->arena, message, server->allocationSize - messageLength - metaDatalength);
+        mtx_unlock(&server->arena_lock);
+        gracht_worker_pool_dispatch(server->worker_pool, message);
+    }
 }
 
 static struct gracht_message* get_in_buffer_mt(struct gracht_server* server)
 {
     struct gracht_message* message;
-    mtx_lock(&server->sync_object);
+    mtx_lock(&server->arena_lock);
     message = gracht_arena_allocate(server->arena, NULL, server->allocationSize);
-    mtx_unlock(&server->sync_object);
+    mtx_unlock(&server->arena_lock);
     return message;
 }
 
 static void put_message_mt(struct gracht_server* server, struct gracht_message* message)
 {
-    mtx_lock(&server->sync_object);
+    mtx_lock(&server->arena_lock);
     gracht_arena_free(server->arena, message, server->allocationSize);
-    mtx_unlock(&server->sync_object);
+    mtx_unlock(&server->arena_lock);
 }
 
 static int handle_packet(struct gracht_server* server, struct gracht_link* link)
@@ -382,9 +395,15 @@ static int handle_client_event(struct gracht_server* server, gracht_conn_t handl
     else if ((events & GRACHT_AIO_EVENT_IN) || !events) {
         struct client_wrapper* entry;
         
+        rwlock_r_lock(&server->clients_lock);
         entry = hashtable_get(&server->clients, &(struct client_wrapper){ .handle = handle });
         while (entry) {
             struct gracht_message* message = server->ops->get_incoming_buffer(server);
+            if (!message) {
+                GRERROR(GRSTR("handle_client_event ran out of receiving buffers"));
+                errno = ENOMEM;
+                return -1;
+            }
             
             status = entry->link->ops.server.recv_client(entry->client, message, 0);
             if (status) {
@@ -397,50 +416,67 @@ static int handle_client_event(struct gracht_server* server, gracht_conn_t handl
 
             server->ops->dispatch(server, message);
         }
+        rwlock_r_unlock(&server->clients_lock);
     }
     return 0;
 }
 
 static int gracht_server_shutdown(void)
 {
-    int i;
+    void* buffer;
+    int   i;
 
     if (!g_grachtServer.initialized) {
-        errno = ENOTSUP;
+        errno = EINVAL;
         return -1;
     }
     g_grachtServer.initialized = 0;
     
-    hashtable_enumerate(&g_grachtServer.clients, client_enum_destroy, NULL);
+    // destroy all our workers
+    if (g_grachtServer.worker_pool) {
+        gracht_worker_pool_destroy(g_grachtServer.worker_pool);
+    }
 
+    // start out by destroying all our clients
+    rwlock_w_lock(&g_grachtServer.clients_lock);
+    hashtable_enumerate(&g_grachtServer.clients, client_enum_destroy, NULL);
+    rwlock_w_unlock(&g_grachtServer.clients_lock);
+
+    // destroy all our links
     for (i = 0; i < GRACHT_SERVER_MAX_LINKS; i++) {
         if (g_grachtServer.link_table.links[i]) {
             g_grachtServer.link_table.links[i]->ops.server.destroy(g_grachtServer.link_table.links[i]);
+            g_grachtServer.link_table.links[i] = NULL;
         }
     }
     
+    // destroy the event descriptor
     if (g_grachtServer.set_handle != GRACHT_HANDLE_INVALID && !g_grachtServer.set_handle_provided) {
         gracht_aio_destroy(g_grachtServer.set_handle);
     }
 
-    if (g_grachtServer.worker_pool) {
-        gracht_worker_pool_destroy(g_grachtServer.worker_pool);
+    // iterate all our serializer buffers and destroy them
+    buffer = stack_pop(&g_grachtServer.bufferStack);
+    while (buffer) {
+        free(buffer);
+        buffer = stack_pop(&g_grachtServer.bufferStack);
     }
-    
-    hashtable_destroy(&g_grachtServer.protocols);
-    hashtable_destroy(&g_grachtServer.clients);
 
+    // destroy all our allocated resources
     if (g_grachtServer.arena) {
         gracht_arena_destroy(g_grachtServer.arena);
-    }
-
-    if (g_grachtServer.sendBuffer) {
-        free(g_grachtServer.sendBuffer);
     }
     
     if (g_grachtServer.recvBuffer) {
         free(g_grachtServer.recvBuffer);
     }
+
+    stack_destroy(&g_grachtServer.bufferStack);
+    hashtable_destroy(&g_grachtServer.protocols);
+    hashtable_destroy(&g_grachtServer.clients);
+    mtx_destroy(&g_grachtServer.arena_lock);
+    rwlock_destroy(&g_grachtServer.protocols_lock);
+    rwlock_destroy(&g_grachtServer.clients_lock);
     return 0;
 }
 
@@ -457,9 +493,9 @@ void server_invoke_action(struct gracht_server* server, struct gracht_message* r
     action    = GB_MSG_AID(&buffer);
     GRTRACE(GRSTR("server_invoke_action %u: %u/%u"), messageId, protocol, action);
 
-    mtx_lock(&server->sync_object);
+    rwlock_r_lock(&server->protocols_lock);
     function = get_protocol_action(&server->protocols, protocol, action);
-    mtx_unlock(&server->sync_object);
+    rwlock_r_unlock(&server->protocols_lock);
     if (!function) {
         GRWARNING(GRSTR("server_invoke_action failed to invoke server action"));
         gracht_control_event_error_single(recvMessage->client, messageId, ENOENT);
@@ -477,9 +513,9 @@ void server_cleanup_message(struct gracht_server* server, struct gracht_message*
         return;
     }
 
-    mtx_lock(&server->sync_object);
+    mtx_lock(&server->arena_lock);
     gracht_arena_free(server->arena, recvMessage, 0);
-    mtx_unlock(&server->sync_object);
+    mtx_unlock(&server->arena_lock);
 }
 
 int gracht_server_handle_event(gracht_conn_t handle, unsigned int events)
@@ -551,9 +587,13 @@ int gracht_server_respond(struct gracht_message* messageContext, gracht_buffer_t
     GB_MSG_ID_0(message)  = *((uint32_t*)&messageContext->payload[messageContext->index]);
     GB_MSG_LEN_0(message) = message->index;
 
+    rwlock_r_lock(&g_grachtServer.clients_lock);
     entry = hashtable_get(&g_grachtServer.clients, &(struct client_wrapper){ .handle = messageContext->client });
     if (!entry) {
-        struct gracht_link* link = get_link_by_conn(&g_grachtServer, messageContext->link);
+        struct gracht_link* link;
+        
+        rwlock_r_unlock(&g_grachtServer.clients_lock);
+        link = get_link_by_conn(&g_grachtServer, messageContext->link);
         if (!link) {
             errno = ENODEV;
             return -1;
@@ -563,6 +603,7 @@ int gracht_server_respond(struct gracht_message* messageContext, gracht_buffer_t
     else {
         status = entry->link->ops.server.send_client(entry->client, message, GRACHT_MESSAGE_BLOCK);
     }
+    rwlock_r_unlock(&g_grachtServer.clients_lock);
 
     // return the borrowed buffer to the stack
     stack_push(&g_grachtServer.bufferStack, message->data);
@@ -577,14 +618,17 @@ int gracht_server_send_event(gracht_conn_t client, gracht_buffer_t* message, uns
     // update message header
     GB_MSG_LEN_0(message) = message->index;
 
+    rwlock_r_lock(&g_grachtServer.clients_lock);
     clientEntry = hashtable_get(&g_grachtServer.clients, &(struct client_wrapper){ .handle = client });
     if (!clientEntry) {
+        rwlock_r_unlock(&g_grachtServer.clients_lock);
         errno = ENOENT;
         return -1;
     }
    
     // When sending target specific events - we do not care about subscriptions
     status = clientEntry->link->ops.server.send_client(clientEntry->client, message, flags);
+    rwlock_r_unlock(&g_grachtServer.clients_lock);
 
     // return the borrowed buffer to the stack
     stack_push(&g_grachtServer.bufferStack, message->data);
@@ -601,7 +645,9 @@ int gracht_server_broadcast_event(gracht_buffer_t* message, unsigned int flags)
     // update message header
     GB_MSG_LEN_0(message) = message->index;
 
+    rwlock_r_lock(&g_grachtServer.clients_lock);
     hashtable_enumerate(&g_grachtServer.clients, client_enum_broadcast, &context);
+    rwlock_r_unlock(&g_grachtServer.clients_lock);
 
     // return the borrowed buffer to the stack
     stack_push(&g_grachtServer.bufferStack, message->data);
@@ -611,11 +657,18 @@ int gracht_server_broadcast_event(gracht_buffer_t* message, unsigned int flags)
 int gracht_server_register_protocol(gracht_protocol_t* protocol)
 {
     if (!protocol) {
-        errno = (EINVAL);
+        errno = EINVAL;
         return -1;
     }
     
+    rwlock_w_lock(&g_grachtServer.protocols_lock);
+    if (hashtable_get(&g_grachtServer.protocols, protocol)) {
+        rwlock_w_unlock(&g_grachtServer.protocols_lock);
+        errno = EEXIST;
+        return -1;
+    }
     hashtable_set(&g_grachtServer.protocols, protocol);
+    rwlock_w_unlock(&g_grachtServer.protocols_lock);
     return 0;
 }
 
@@ -625,7 +678,9 @@ void gracht_server_unregister_protocol(gracht_protocol_t* protocol)
         return;
     }
     
+    rwlock_w_lock(&g_grachtServer.protocols_lock);
     hashtable_remove(&g_grachtServer.protocols, protocol);
+    rwlock_w_unlock(&g_grachtServer.protocols_lock);
 }
 
 gracht_conn_t gracht_server_get_dgram_iod(void)
@@ -662,12 +717,12 @@ static void client_destroy(struct gracht_server* server, gracht_conn_t client)
         server->callbacks.clientDisconnected(client);
     }
 
+    rwlock_w_lock(&server->clients_lock);
     entry = hashtable_remove(&server->clients, &(struct client_wrapper){ .handle = client });
-    if (!entry) {
-        return;
+    if (entry) {
+        entry->link->ops.server.destroy_client(entry->client);
     }
-
-    entry->link->ops.server.destroy_client(entry->client);
+    rwlock_w_unlock(&server->clients_lock);
 }
 
 // Client subscription helpers
@@ -711,10 +766,22 @@ void gracht_control_subscribe_invocation(const struct gracht_message* message, c
 {
     struct client_wrapper* entry;
     
+    // When dealing with connectionless clients, they aren't really created in the client register. To deal
+    // with this, we actually create a record for them, so we can support connection-less events. This means
+    // that connection-less clients aren't considered connected unless they subscribe to some protocol - even
+    // if they actually use the functions provided by the protocol. It is also possible to receive targetted
+    // events that come in response to a function call even without subscribing.
+    rwlock_r_lock(&g_grachtServer.clients_lock);
     entry = hashtable_get(&g_grachtServer.clients, &(struct client_wrapper){ .handle = message->client });
     if (!entry) {
         struct client_wrapper newEntry;
-    
+
+        // So, client did not have a record, at this point we then know this message was received on a 
+        // connection-less stream, meaning we do not currently hold another _read_lock on this thread, thus we can
+        // release our reader lock and acqurie the write
+        rwlock_r_unlock(&g_grachtServer.clients_lock);
+
+        // lookup the connection as the client wasn't recorded on a specific link
         newEntry.link = get_link_by_conn(&g_grachtServer, message->link);
         if (newEntry.link->ops.server.create_client(newEntry.link, (struct gracht_message*)message, &newEntry.client)) {
             GRERROR(GRSTR("gracht_control_subscribe_invocation server_object.link->create_client returned error"));
@@ -722,31 +789,49 @@ void gracht_control_subscribe_invocation(const struct gracht_message* message, c
         }
 
         newEntry.handle = message->client;
+
+        // this does not have to be serialized with the above read lock due to the fact that all
+        // write-locks are only acquired by this thread. So any changes made are only the ones we make
+        // right now
+        rwlock_w_lock(&g_grachtServer.clients_lock);
         hashtable_set(&g_grachtServer.clients, &newEntry);
+        rwlock_w_unlock(&g_grachtServer.clients_lock);
 
         if (g_grachtServer.callbacks.clientConnected) {
             g_grachtServer.callbacks.clientConnected(message->client);
         }
+
+        // not really neccessary but for correctness
+        rwlock_r_lock(&g_grachtServer.clients_lock);
+    }
+    else {
+        // make sure if they were marked cleanup that we remove that
+        entry->client->flags &= ~(GRACHT_CLIENT_FLAG_CLEANUP);
     }
 
     client_subscribe(entry->client, protocol);
+    rwlock_r_unlock(&g_grachtServer.clients_lock);
 }
 
 void gracht_control_unsubscribe_invocation(const struct gracht_message* message, const uint8_t protocol)
 {
     struct client_wrapper* entry;
     
+    rwlock_r_lock(&g_grachtServer.clients_lock);
     entry = hashtable_get(&g_grachtServer.clients, &(struct client_wrapper){ .handle = message->client });
     if (!entry) {
+        rwlock_r_unlock(&g_grachtServer.clients_lock);
         return;
     }
 
     client_unsubscribe(entry->client, protocol);
     
-    // cleanup the client if we unsubscripe
+    // cleanup the client if we unsubscribe, but do not do it from here as the client
+    // structure will be reffered later on
     if (protocol == 0xFF) {
-        client_destroy(&g_grachtServer, message->client);
+        entry->client->flags |= GRACHT_CLIENT_FLAG_CLEANUP;
     }
+    rwlock_r_unlock(&g_grachtServer.clients_lock);
 }
 
 static uint64_t client_hash(const void* element)

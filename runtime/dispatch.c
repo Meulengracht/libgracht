@@ -35,7 +35,7 @@ enum gracht_worker_state {
 struct gracht_worker {
     thrd_t         id;
     mtx_t          sync_object;
-    gracht_queue_t job_queue;
+    struct queue   job_queue;
     cnd_t          signal;
     int            state;
 };
@@ -123,7 +123,7 @@ void gracht_worker_pool_dispatch(struct gracht_worker_pool* pool, struct gracht_
 
     worker = &pool->workers[pool->rr_index];
     mtx_lock(&worker->sync_object);
-    gracht_queue_queue(&worker->job_queue, &recvMessage->header);
+    queue_enqueue(&worker->job_queue, recvMessage);
     mtx_unlock(&worker->sync_object);
     cnd_signal(&worker->signal);
 
@@ -147,8 +147,7 @@ static void initialize_worker(struct gracht_server* server, struct gracht_worker
     context->worker = worker;
     context->server = server;
 
-    worker->job_queue.head = NULL;
-    worker->job_queue.tail = NULL;
+    queue_construct(&worker->job_queue, SERVER_WORKER_DEFAULT_QUEUE_SIZE);
     mtx_init(&worker->sync_object, mtx_plain);
     cnd_init(&worker->signal);
     worker->state = WORKER_STARTUP;
@@ -162,13 +161,13 @@ static void cleanup_worker(struct gracht_worker* worker)
 {
     mtx_destroy(&worker->sync_object);
     cnd_destroy(&worker->signal);
+    queue_destroy(&worker->job_queue);
 }
-
 
 static int worker_dowork(void* context)
 {
     struct gracht_worker_context* workerContext = context;
-    struct gracht_object_header*  job_header;
+    struct gracht_message*        job;
     struct gracht_worker*         worker;
     GRTRACE(GRSTR("worker_dowork: running"));
 
@@ -176,8 +175,8 @@ static int worker_dowork(void* context)
     worker->state = WORKER_ALIVE;
     while (1) {
         mtx_lock(&worker->sync_object);
-        job_header = gracht_queue_dequeue(&worker->job_queue);
-        if (!job_header) {
+        job = queue_dequeue(&worker->job_queue);
+        if (!job) {
             cnd_wait(&worker->signal, &worker->sync_object);
             if (worker->state == WORKER_SHUTDOWN_REQUEST) {
                 worker->state = WORKER_SHUTDOWN;
@@ -185,15 +184,15 @@ static int worker_dowork(void* context)
                 break;
             }
 
-            job_header = gracht_queue_dequeue(&worker->job_queue);
+            job = queue_dequeue(&worker->job_queue);
             // assert(job_header != NULL);
         }
         mtx_unlock(&worker->sync_object);
 
         // handle the job
         GRTRACE(GRSTR("worker_dowork: handling message"));
-        server_invoke_action(workerContext->server, (struct gracht_message*)job_header);
-        server_cleanup_message(workerContext->server, (struct gracht_message*)job_header);
+        server_invoke_action(workerContext->server, job);
+        server_cleanup_message(workerContext->server, job);
 
         // check again at exit of iteration
         if (worker->state == WORKER_SHUTDOWN_REQUEST) {
@@ -203,10 +202,10 @@ static int worker_dowork(void* context)
     }
     GRTRACE(GRSTR("worker_dowork: shutting down"));
 
-    job_header = gracht_queue_dequeue(&worker->job_queue);
-    while (job_header) {
-        server_cleanup_message(workerContext->server, (struct gracht_message*)job_header);
-        job_header = gracht_queue_dequeue(&worker->job_queue);
+    job = queue_dequeue(&worker->job_queue);
+    while (job) {
+        server_cleanup_message(workerContext->server, job);
+        job = queue_dequeue(&worker->job_queue);
     }
 
     free(workerContext);

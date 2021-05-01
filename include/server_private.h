@@ -26,6 +26,8 @@
 #include "gracht/types.h"
 #include "queue.h"
 
+#define SERVER_WORKER_DEFAULT_QUEUE_SIZE 32
+
 // forward declarations
 struct gracht_server;
 struct gracht_worker_pool;

@@ -1,5 +1,5 @@
 /**
- * Copyright 2019, Philip Meulengracht
+ * Copyright 2021, Philip Meulengracht
  *
  * This program is free software : you can redistribute it and / or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,41 +23,18 @@
 #ifndef __GRACHT_QUEUE_H__
 #define __GRACHT_QUEUE_H__
 
-#include "gracht/types.h"
+#include <stdint.h>
 
-typedef struct gracht_queue {
-    struct gracht_object_header* head;
-    struct gracht_object_header* tail;
-} gracht_queue_t;
+struct queue {
+    unsigned int dequeue_index;
+    unsigned int queue_index;
+    unsigned int capacity;
+    uintptr_t*   elements;
+};
 
-static void
-gracht_queue_queue(struct gracht_queue* queue, struct gracht_object_header* item)
-{
-    if (!queue->tail) {
-        queue->head = item;
-        queue->tail = item;
-    }
-    else {
-        queue->tail->link = item;
-        queue->tail = item;
-    }
-}
-
-static struct gracht_object_header*
-gracht_queue_dequeue(struct gracht_queue* queue)
-{
-    struct gracht_object_header* item;
-
-    if (!queue || !queue->head) {
-        return NULL;
-    }
-
-    item = queue->head;
-    queue->head = item->link;
-    if (!queue->head) {
-        queue->tail = NULL;
-    }
-    return item;
-}
+int   queue_construct(struct queue* queue, unsigned int capacity);
+void  queue_destroy(struct queue* queue);
+int   queue_enqueue(struct queue* queue, void* pointer);
+void* queue_dequeue(struct queue* queue);
 
 #endif // !__GRACHT_QUEUE_H__

@@ -79,19 +79,13 @@ typedef int gracht_conn_t;
 
 #define GRACHT_MESSAGE_DEFERRABLE_SIZE(message) (sizeof(struct gracht_message) + message->size)
 
-typedef struct gracht_object_header {
-    int                          id;
-    struct gracht_object_header* link;
-} gracht_object_header_t;
-
 // Represents a received message on the server.
 struct gracht_message {
-    struct gracht_object_header header;
-    gracht_conn_t               link;
-    gracht_conn_t               client;
-    uint32_t                    size;
-    uint32_t                    index;
-    uint8_t                     payload[];
+    gracht_conn_t link;
+    gracht_conn_t client;
+    uint32_t      size;
+    uint32_t      index;
+    uint8_t       payload[];
 };
 
 /**

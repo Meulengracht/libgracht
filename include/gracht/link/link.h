@@ -37,6 +37,7 @@ enum gracht_link_type {
 // to communicate with the client. The link functions will have this information available.
 struct gracht_server_client {
     gracht_conn_t handle;
+    uint32_t      flags;
     uint32_t      subscriptions[8]; // 32 bytes to cover 255 bits
 };
 
