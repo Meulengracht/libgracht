@@ -361,6 +361,7 @@ static int handle_packet(struct gracht_server* server, struct gracht_link* link)
             server->ops->put_message(server, message);
             break;
         }
+
         server->ops->dispatch(server, message);
     }
     
@@ -816,6 +817,7 @@ void gracht_control_subscribe_invocation(const struct gracht_message* message, c
 void gracht_control_unsubscribe_invocation(const struct gracht_message* message, const uint8_t protocol)
 {
     struct client_wrapper* entry;
+    int                    cleanup;
     
     rwlock_r_lock(&g_grachtServer.clients_lock);
     entry = hashtable_get(&g_grachtServer.clients, &(struct client_wrapper){ .handle = message->client });
@@ -829,9 +831,19 @@ void gracht_control_unsubscribe_invocation(const struct gracht_message* message,
     // cleanup the client if we unsubscribe, but do not do it from here as the client
     // structure will be reffered later on
     if (protocol == 0xFF) {
-        entry->client->flags |= GRACHT_CLIENT_FLAG_CLEANUP;
+        if (!(entry->client->flags & GRACHT_CLIENT_FLAG_STREAM)) {
+            entry->client->flags |= GRACHT_CLIENT_FLAG_CLEANUP; // this flag is not needed
+            cleanup = 1;
+        }
     }
     rwlock_r_unlock(&g_grachtServer.clients_lock);
+
+    // when receiving unsubscribe events on connection-less links we must check
+    // after handling messages whether or not a client has been marked for cleanup
+    // in this case we do not hold the lock and can therefore actually take the write lock
+    if (cleanup) {
+        client_destroy(&g_grachtServer, message->client);
+    }
 }
 
 static uint64_t client_hash(const void* element)
