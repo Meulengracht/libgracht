@@ -7,7 +7,6 @@ import sys
 from languages.langc import CGenerator
 from languages.shared import *
 
-global_id = 0
 trace_enabled = 0
 
 class TOKENS(object):
@@ -183,16 +182,18 @@ def get_global_scope_syntax():
 
 def get_service_scope_syntax():
     syntax = {
-        # func <identifier>(EXPRESSION) : (EXPRESSION);
+        # func <identifier>(EXPRESSION) : (EXPRESSION) = <DIGIT>;
         ("func", handle_func): [TOKENS.FUNC, TOKENS.IDENTIFIER, TOKENS.LPARENTHESIS, -1, TOKENS.RPARENTHESIS, 
-                                TOKENS.COLON, TOKENS.LPARENTHESIS, -1, TOKENS.RPARENTHESIS, TOKENS.SEMICOLON],
+                                TOKENS.COLON, TOKENS.LPARENTHESIS, -1, TOKENS.RPARENTHESIS,
+                                TOKENS.EQUAL, TOKENS.DIGIT, TOKENS.SEMICOLON],
 
-        # event <identifier> : (EXPRESSION);
+        # event <identifier> : (EXPRESSION) = <DIGIT>;
         ("vevent", handle_event): [TOKENS.EVENT, TOKENS.IDENTIFIER, TOKENS.COLON, TOKENS.LPARENTHESIS, -1, 
-                                   TOKENS.RPARENTHESIS, TOKENS.SEMICOLON],
+                                   TOKENS.RPARENTHESIS, TOKENS.EQUAL, TOKENS.DIGIT, TOKENS.SEMICOLON],
         
-        # event <identifier> : <identifier>;
-        ("event", handle_event): [TOKENS.EVENT, TOKENS.IDENTIFIER, TOKENS.COLON, TOKENS.IDENTIFIER, TOKENS.SEMICOLON],
+        # event <identifier> : <identifier> = <DIGIT>;
+        ("event", handle_event): [TOKENS.EVENT, TOKENS.IDENTIFIER, TOKENS.COLON, TOKENS.IDENTIFIER,
+                                  TOKENS.EQUAL, TOKENS.DIGIT, TOKENS.SEMICOLON],
     }
     return syntax
 
@@ -277,18 +278,6 @@ def get_dir_or_default(path):
         return os.getcwd()
     return path
 
-def get_id():
-    global global_id
-
-    p_id = global_id
-    global_id += 1
-    return p_id
-
-def reset_id():
-    global global_id
-    global_id = 0
-    return
-
 def next_n_char(data, index):
     if len(data) > index:
         return data[index]
@@ -355,8 +344,6 @@ def handle_define(context, tokens):
     tokens.pop(0) # consume QUOTE
 
 def handle_service(context, tokens):
-    reset_id()
-    
     name = tokens[1].value()
     service_id = tokens[3].value()
     trace(f"parsing service {name} ({service_id})")
@@ -435,10 +422,13 @@ def handle_func(context, tokens):
     else:
         tokens.pop(0) # consume RPARENTHESIS
     
+    tokens.pop(0) # consume EQUAL
+    actionId = tokens[0].value()
+    tokens.pop(0) # consume DIGIT
     tokens.pop(0) # consume SEMICOLON
     responseMembers = context.finish_members()
 
-    context.create_function(get_id(), name, requestMembers, responseMembers)
+    context.create_function(actionId, name, requestMembers, responseMembers)
 
 def handle_event(context, tokens):
     members = []
@@ -463,9 +453,12 @@ def handle_event(context, tokens):
         parse_scope(context, tokens[:endOfParams], get_param_scope_syntax())
         del tokens[:endOfParams]
 
+    tokens.pop(0) # consume EQUAL
+    actionId = tokens[0].value()
+    tokens.pop(0) # consume DIGIT
     tokens.pop(0) # consume SEMICOLON
     members = context.finish_members()
-    context.create_event(get_id(), name, members)
+    context.create_event(actionId, name, members)
 
 def handle_enum_member_with_value(context, tokens):
     trace(f"enum member {tokens[0].value()}: {tokens[2].value()}")
@@ -712,7 +705,7 @@ def parse_file(context, file_path):
         with open(file_path, 'r') as file:
             data = file.read()
     except Exception as e:
-        error("could not load file: " + file_path)
+        error(f"could not load {file_path}: {str(e)}")
 
     tokens = create_tokens_from_text(data)
     parse_scope(context, tokens, get_global_scope_syntax())
@@ -732,6 +725,9 @@ def main(args):
     services = context.get_services()
     include_services = []
     generator = None
+
+    for service in services:
+        service.validate()
 
     if args.include:
         include_services = args.include.split(',')

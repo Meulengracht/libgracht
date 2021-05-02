@@ -15,11 +15,11 @@ struct transfer_status {
 }
 
 service utils (0x1) {
-    func print(string text) : (int result);
-    func transfer(transaction transaction) : (transfer_status result);
-    func transfer_many(transaction[] transactions) : (transfer_status[] results);
-    func get_event(int count) : ();
+    func print(string text) : (int result) = 1;
+    func transfer(transaction transaction) : (transfer_status result) = 2;
+    func transfer_many(transaction[] transactions) : (transfer_status[] results) = 3;
+    func get_event(int count) : () = 4;
 
-    event myevent : (int n);
-    event transfer_status : transfer_status;
+    event myevent : (int n) = 5;
+    event transfer_status : transfer_status = 6;
 }

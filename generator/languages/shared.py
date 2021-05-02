@@ -117,6 +117,29 @@ class ServiceObject:
         self.events = events
         self.structs = structs
         self.imports = []
+
+    def validate(self):
+        # validet the id of the protocol itself
+        if self.id < 1 or self.id > 255:
+            raise ValueError(f"The id of service {self.name} must be in range of 1..255")
+
+        # we want to validate the ids of our functions and events that
+        # they are in range of 1-255 and that there are no conflicts
+        ids_parsed = []
+        for func in self.functions:
+            if func.get_id() in ids_parsed:
+                raise ValueError(f"The id of function {func.get_name()} ({func.get_id()}) is already in use")
+            if func.get_id() < 1 or func.get_id() > 255:
+                raise ValueError(f"The id of function {func.get_name()} must be in range of 1..255")
+            ids_parsed.append(func.get_id())
+        for evt in self.events:
+            if evt.get_id() in ids_parsed:
+                raise ValueError(f"The id of event {evt.get_name()} ({evt.get_id()}) is already in use")
+            if evt.get_id() < 1 or evt.get_id() > 255:
+                raise ValueError(f"The id of event {evt.get_name()} must be in range of 1..255")
+            ids_parsed.append(evt.get_id())
+
+        # also resolve all external types to gather a list of imports or usings
         self.resolve_all_types()
 
     def typename_is_enum(self, typename):

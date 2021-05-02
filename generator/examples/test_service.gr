@@ -8,23 +8,23 @@ namespace gracht
 
 // define calculator service with id of 1
 service calculator (0x1) {
-    func add(int a, int b) : (int result);
-    func add_many(int[] inputs) : (int result);
-    func print(string text) : (int result);
+    func add(int a, int b) : (int result) = 1;
+    func add_many(int[] inputs) : (int result) = 2;
+    func print(string text) : (int result) = 3;
 
-    func getHistory() : (string history);
-    func getHistories() : (string[] histories);
+    func getHistory() : (string history) = 4;
+    func getHistories() : (string[] histories) = 5;
 
-    func transfer(transfer_request request) : (int status);
-    func transfer_many(transfer_request[] request) : (int[] statuses);
+    func transfer(transfer_request request) : (int status) = 6;
+    func transfer_many(transfer_request[] request) : (int[] statuses) = 7;
 
-    event error : (int code, string description);
-    event transfer_complete : transfer_complete_event;
+    event error : (int code, string description) = 8;
+    event transfer_complete : transfer_complete_event = 9;
 }
 
 service control (2) {
-    func subscribe(uint8_t protocol) : ();
-    func unsubscribe(uint8_t protocol) : ();
+    func subscribe(uint8_t protocol) : () = 1;
+    func unsubscribe(uint8_t protocol) : () = 2;
 
-    event error : (uint32_t messageId, int errorCode);
+    event error : (uint32_t messageId, int errorCode) = 3;
 }
