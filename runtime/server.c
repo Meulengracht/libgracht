@@ -243,7 +243,7 @@ int gracht_server_add_link(struct gracht_link* link)
     }
 
     if (g_grachtServer.state != RUNNING) {
-        errno = ESHUTDOWN;
+        errno = EPERM;
         return -1;
     }
 
@@ -498,7 +498,7 @@ static int gracht_server_shutdown(void)
 void gracht_server_request_shutdown(void)
 {
     if (g_grachtServer.state != RUNNING) {
-        errno = ESHUTDOWN;
+        errno = EPERM;
         return;
     }
     
@@ -552,7 +552,7 @@ int gracht_server_handle_event(gracht_conn_t handle, unsigned int events)
         if (g_grachtServer.state == SHUTDOWN_REQUESTED) {
             gracht_server_shutdown();
         }
-        errno = ESHUTDOWN;
+        errno = EPERM;
         return -1;
     }
 
@@ -576,7 +576,7 @@ int gracht_server_main_loop(void)
     int                i;
 
     if (g_grachtServer.state != RUNNING) {
-        errno = ESHUTDOWN;
+        errno = EPERM;
         return -1;
     }
 
@@ -589,7 +589,7 @@ int gracht_server_main_loop(void)
             uint32_t      flags  = gracht_aio_event_events(&events[i]);
 
             GRTRACE(GRSTR("gracht_server: event %u from %i"), flags, handle);
-            if (gracht_server_handle_event(handle, flags) == -1 && errno == ESHUTDOWN) {
+            if (gracht_server_handle_event(handle, flags) == -1 && errno == EPERM) {
                 // server has been shutdown by the handle_event
                 return 0;
             }
@@ -706,7 +706,7 @@ int gracht_server_register_protocol(gracht_protocol_t* protocol)
     }
     
     if (g_grachtServer.state != RUNNING) {
-        errno = ESHUTDOWN;
+        errno = EPERM;
         return -1;
     }
 
@@ -729,7 +729,7 @@ void gracht_server_unregister_protocol(gracht_protocol_t* protocol)
     }
 
     if (g_grachtServer.state != RUNNING) {
-        errno = ESHUTDOWN;
+        errno = EPERM;
         return;
     }
     
@@ -741,7 +741,7 @@ void gracht_server_unregister_protocol(gracht_protocol_t* protocol)
 gracht_conn_t gracht_server_get_dgram_iod(void)
 {
     if (g_grachtServer.state != RUNNING) {
-        errno = ESHUTDOWN;
+        errno = EPERM;
         return GRACHT_CONN_INVALID;
     }
 
@@ -759,7 +759,7 @@ gracht_conn_t gracht_server_get_dgram_iod(void)
 gracht_handle_t gracht_server_get_set_iod(void)
 {
     if (g_grachtServer.state != RUNNING) {
-        errno = ESHUTDOWN;
+        errno = EPERM;
         return GRACHT_CONN_INVALID;
     }
 
