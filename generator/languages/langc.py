@@ -196,21 +196,21 @@ def write_header_guard_start(file_name, outfile):
 
 
 def write_header_guard_end(file_name, outfile):
-    outfile.write("#endif //!__" + str.replace(file_name, ".", "_").upper() + "__\n")
+    outfile.write("#endif //! __" + str.replace(file_name, ".", "_").upper() + "__\n")
     return
 
 
 def write_c_guard_start(outfile):
     outfile.write("#ifdef __cplusplus\n")
     outfile.write("extern \"C\" {\n")
-    outfile.write("#endif\n")
+    outfile.write("#endif //! __cplusplus\n")
     return
 
 
 def write_c_guard_end(outfile):
     outfile.write("#ifdef __cplusplus\n")
     outfile.write("}\n")
-    outfile.write("#endif\n\n")
+    outfile.write("#endif //! __cplusplus\n\n")
     return
 
 def define_shared_ids(service, outfile):
@@ -362,6 +362,19 @@ def define_response_body(service: ServiceObject, func, flags, outfile):
     write_function_body_epilogue(service, func, outfile)
     return
 
+def define_shared_guard_begin(service, outfile):
+    outfile.write("/**\n")
+    outfile.write(" * Protect all the shared serializers, structs and enums against all the\n")
+    outfile.write(" * possibly dublicate definitions that will occur since these will be defined\n")
+    outfile.write(" * once per service in the same namespace. Also shared serializers are defined\n")
+    outfile.write(" * once per namespace. They are doubly guarded\n")
+    outfile.write(" */\n")
+    outfile.write(f"#ifndef __{service.get_namespace().upper()}_SHARED_DEFINITIONS\n")
+    outfile.write(f"#define __{service.get_namespace().upper()}_SHARED_DEFINITIONS\n\n")
+
+def define_shared_guard_end(service, outfile):
+    outfile.write(f"#endif //! __{service.get_namespace().upper()}_SHARED_DEFINITIONS\n")
+
 def define_shared_serializers(service, outfile):
     system_types = [
         ["uint8_t", "uint8_t"],
@@ -380,8 +393,10 @@ def define_shared_serializers(service, outfile):
     
     outfile.write("#ifndef GRMIN\n")
     outfile.write("#define GRMIN(a, b) (((a)<(b))?(a):(b))\n")
-    outfile.write("#endif\n\n")
+    outfile.write("#endif //! GRMIN\n\n")
 
+    outfile.write("#ifndef __GRACHT_SERVICE_SHARED_SERIALIZERS\n")
+    outfile.write("#define __GRACHT_SERVICE_SHARED_SERIALIZERS\n")
     outfile.write("#define SERIALIZE_VALUE(name, type) static inline void serialize_##name(gracht_buffer_t* buffer, type value) { \\\n")
     outfile.write("                                  *((type*)&buffer->data[buffer->index]) = value; buffer->index += sizeof(type); \\\n")
     outfile.write("                              }\n\n")
@@ -414,6 +429,7 @@ def define_shared_serializers(service, outfile):
     outfile.write("    buffer->index += length;\n")
     outfile.write("    return string;\n")
     outfile.write("}\n\n")
+    outfile.write("#endif //! __GRACHT_SERVICE_SHARED_SERIALIZERS\n\n")
 
     for struct in service.get_structs():
         struct_name = get_struct_name(service, struct.get_name())
@@ -500,7 +516,7 @@ def define_enums(service, outfile):
                 outfile.write("#ifndef __" + enum_name.upper() + "_DEFINED__\n")
                 outfile.write("#define __" + enum_name.upper() + "_DEFINED__\n")
                 write_enum(enum_name, enum.get_values(), outfile)
-                outfile.write("#endif //!__" + enum_name.upper() + "_DEFINED__\n\n")
+                outfile.write("#endif //! __" + enum_name.upper() + "_DEFINED__\n\n")
         outfile.write("\n")
 
 def write_structure(service, struct, case, outfile):
@@ -1028,10 +1044,12 @@ class CGenerator:
             define_headers(["<gracht/types.h>", "<string.h>", "<stdint.h>"], f)
             define_service_headers(service, f)
             define_shared_ids(service, f)
+            define_shared_guard_begin(service, f)
             define_shared_serializers(service, f)
             define_enums(service, f)
             define_structures(service, f)
             define_struct_serializers(service, f)
+            define_shared_guard_end(service, f)
             write_header_guard_end(file_name, f)
         return
 
