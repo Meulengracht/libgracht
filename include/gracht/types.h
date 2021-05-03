@@ -92,12 +92,14 @@ typedef int gracht_conn_t;
 // Represents a received message on the server. What is relevant here and why
 // the structure is exposed is when servers would like to respond to invocations
 // in the form of events, they will access to the client member of this structure.
+typedef struct gracht_server gracht_server_t;
 struct gracht_message {
-    gracht_conn_t link;    // link message is received on
-    gracht_conn_t client;  // client context on the link
-    uint32_t      size;    // size of the payload
-    uint32_t      index;   // used internally for payload storage
-    uint8_t       payload[]; // payload follows this message header
+    gracht_server_t* server;  // server instance message is received on
+    gracht_conn_t    link;    // link message is received on
+    gracht_conn_t    client;  // client context on the link
+    uint32_t         size;    // size of the payload
+    uint32_t         index;   // used internally for payload storage
+    uint8_t          payload[]; // payload follows this message header
 };
 
 /**

@@ -96,10 +96,11 @@ static void init_client_link_config(struct gracht_link_socket* link)
 }
 #endif
 
-void register_server_links(void)
+void register_server_links(gracht_server_t* server)
 {
     struct gracht_link_socket* clientLink;
     struct gracht_link_socket* packetLink;
+    int                        code;
 
     gracht_link_socket_create(&clientLink);
     gracht_link_socket_create(&packetLink);
@@ -107,11 +108,18 @@ void register_server_links(void)
     init_client_link_config(clientLink);
     init_packet_link_config(packetLink);
 
-    gracht_server_add_link(&clientLink->base);
-    gracht_server_add_link(&packetLink->base);
+    code = gracht_server_add_link(server, &clientLink->base);
+    if (code) {
+        printf("register_server_links failed to add link: %i (%i)\n", code, errno);
+    }
+
+    code = gracht_server_add_link(server, &packetLink->base);
+    if (code) {
+        printf("register_server_links failed to add link: %i (%i)\n", code, errno);
+    }
 }
 
-int init_server_with_socket_link(void)
+int init_server_with_socket_link(gracht_server_t** serverOut)
 {
     struct gracht_server_configuration serverConfiguration;
     int                                code;
@@ -123,17 +131,18 @@ int init_server_with_socket_link(void)
 
     gracht_server_configuration_init(&serverConfiguration);
     
-    code = gracht_server_start(&serverConfiguration);
+    code = gracht_server_create(&serverConfiguration, serverOut);
     if (code) {
         printf("init_server_with_socket_link: error initializing server library %i\n", errno);
+        return code;
     }
 
     // register links
-    register_server_links();
-    return code;
+    register_server_links(*serverOut);
+    return 0;
 }
 
-int init_mt_server_with_socket_link(int workerCount)
+int init_mt_server_with_socket_link(int workerCount, gracht_server_t** serverOut)
 {
     struct gracht_server_configuration serverConfiguration;
     int                                code;
@@ -147,12 +156,13 @@ int init_mt_server_with_socket_link(int workerCount)
 
     // setup the number of workers
     gracht_server_configuration_set_num_workers(&serverConfiguration, workerCount);
-    code = gracht_server_start(&serverConfiguration);
+    code = gracht_server_create(&serverConfiguration, serverOut);
     if (code) {
         printf("init_server_with_socket_link: error initializing server library %i\n", errno);
+        return code;
     }
 
     // register links
-    register_server_links();
-    return code;
+    register_server_links(*serverOut);
+    return 0;
 }

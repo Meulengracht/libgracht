@@ -59,9 +59,9 @@ static gracht_protocol_function_t server_control_callbacks[2] = {
 gracht_protocol_t gracht_control_client_protocol = GRACHT_PROTOCOL_INIT(0, "gracht_control", 1, client_control_callbacks);
 gracht_protocol_t gracht_control_server_protocol = GRACHT_PROTOCOL_INIT(0, "gracht_control", 2, server_control_callbacks);
 
-extern int gracht_server_get_buffer(gracht_buffer_t*);
-extern int gracht_server_send_event(gracht_conn_t client, gracht_buffer_t*, unsigned int flags);
-extern int gracht_server_broadcast_event(gracht_buffer_t*, unsigned int flags);
+extern int gracht_server_get_buffer(gracht_server_t*, gracht_buffer_t*);
+extern int gracht_server_send_event(gracht_server_t*, gracht_conn_t client, gracht_buffer_t*, unsigned int flags);
+extern int gracht_server_broadcast_event(gracht_server_t*, gracht_buffer_t*, unsigned int flags);
 
 void __gracht_error_internal(gracht_client_t* __client, gracht_buffer_t* __buffer)
 {
@@ -86,12 +86,12 @@ void __gracht_unsubscribe_internal(struct gracht_message* __message, gracht_buff
     gracht_control_unsubscribe_invocation(__message, __protocol);
 }
 
-int gracht_control_event_error_single(const gracht_conn_t client, const uint32_t messageId, const int errorCode)
+int gracht_control_event_error_single(gracht_server_t* server, const gracht_conn_t client, const uint32_t messageId, const int errorCode)
 {
     gracht_buffer_t __buffer;
     int             __status;
 
-    __status = gracht_server_get_buffer(&__buffer);
+    __status = gracht_server_get_buffer(server, &__buffer);
     if (__status) {
         return __status;
     }
@@ -103,16 +103,16 @@ int gracht_control_event_error_single(const gracht_conn_t client, const uint32_t
     serialize_uint8_t(&__buffer, MESSAGE_FLAG_EVENT);
     serialize_uint32_t(&__buffer, messageId);
     serialize_int(&__buffer, errorCode);
-    __status = gracht_server_send_event(client, &__buffer, 0);
+    __status = gracht_server_send_event(server, client, &__buffer, 0);
     return __status;
 }
 
-int gracht_control_event_error_all(const uint32_t messageId, const int errorCode)
+int gracht_control_event_error_all(gracht_server_t* server, const uint32_t messageId, const int errorCode)
 {
     gracht_buffer_t __buffer;
     int             __status;
 
-    __status = gracht_server_get_buffer(&__buffer);
+    __status = gracht_server_get_buffer(server, &__buffer);
     if (__status) {
         return __status;
     }
@@ -124,6 +124,6 @@ int gracht_control_event_error_all(const uint32_t messageId, const int errorCode
     serialize_uint8_t(&__buffer, MESSAGE_FLAG_EVENT);
     serialize_uint32_t(&__buffer, messageId);
     serialize_int(&__buffer, errorCode);
-    __status = gracht_server_broadcast_event(&__buffer, 0);
+    __status = gracht_server_broadcast_event(server, &__buffer, 0);
     return __status;
 }

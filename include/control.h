@@ -43,8 +43,8 @@ struct gracht_transfer_complete_event {
 void gracht_control_subscribe_invocation(const struct gracht_message* message, const uint8_t protocol);
 void gracht_control_unsubscribe_invocation(const struct gracht_message* message, const uint8_t protocol);
 
-int gracht_control_event_error_single(const gracht_conn_t client, const uint32_t messageId, const int errorCode);
-int gracht_control_event_error_all(const uint32_t messageId, const int errorCode);
+int gracht_control_event_error_single(gracht_server_t* server, const gracht_conn_t client, const uint32_t messageId, const int errorCode);
+int gracht_control_event_error_all(gracht_server_t* server, const uint32_t messageId, const int errorCode);
 
 // Client part of the internal control protocol
 void gracht_control_error_invocation(gracht_client_t* client, const uint32_t messageId, const int errorCode);

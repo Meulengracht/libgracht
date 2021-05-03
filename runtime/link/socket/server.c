@@ -96,6 +96,7 @@ static int socket_link_recv_client(struct socket_link_client* client,
         }
     }
 
+    // ->server is set by server
     context->link   = client->link;
     context->client = client->socket;
     context->index  = 0;
@@ -252,6 +253,7 @@ static int socket_link_recv_packet(struct gracht_link_socket* link,
             addrlen, link->address_length, &context->payload[0]);
     GRTRACE(GRSTR("[gracht_connection_recv_stream] read %lu bytes"), bytesRead);
 
+    // ->server is set by server
     context->link   = link->base.connection;
     context->client = (int)addressCrc;
     context->index  = addrlen;

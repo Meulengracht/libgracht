@@ -19,7 +19,8 @@ service utils (0x1) {
     func transfer(transaction transaction) : (transfer_status result) = 2;
     func transfer_many(transaction[] transactions) : (transfer_status[] results) = 3;
     func get_event(int count) : () = 4;
+    func shutdown() : () = 5;
 
-    event myevent : (int n) = 5;
-    event transfer_status : transfer_status = 6;
+    event myevent : (int n) = 6;
+    event transfer_status : transfer_status = 7;
 }

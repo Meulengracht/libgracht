@@ -67,14 +67,15 @@ void gracht_server_configuration_set_num_workers(gracht_server_configuration_t* 
 void gracht_server_configuration_set_max_msg_size(gracht_server_configuration_t* config, int maxMessageSize);
 
 /**
- * Initializes the global gracht server instance based on the config provided. The configuratipn
+ * Creates a new instance of the gracht server instance based on the config provided. The configuratipn
  * must provide the link operations (see link.h) and can optionally provide a poll/select handle (set_descriptor)
  * or server callbacks.
  * 
- * @param config The configuration structure that determines operation of the server.
- * @return int   Result of the initialize, returns 0 for success.
+ * @param config    The configuration structure that determines operation of the server.
+ * @param serverOut A pointer to a gracht_server_t for storing the resulting server instance.
+ * @return int      Result of the initialize, returns 0 for success.
  */
-int gracht_server_start(gracht_server_configuration_t* config);
+int gracht_server_create(gracht_server_configuration_t* config, gracht_server_t** serverOut);
 
 /**
  * Requests shutdown of the server. The shutdown is not guaranteed to happen immediately, but rather
@@ -82,7 +83,7 @@ int gracht_server_start(gracht_server_configuration_t* config);
  * used as an asynchronous fashion (i.e through external epoll), then the cleanup will be performed
  * the next time gracht_server_handle_event is called.
  */
-void gracht_server_request_shutdown(void);
+void gracht_server_request_shutdown(gracht_server_t* server);
 
 /**
  * Registers a link with the server. The server can operate on multiple links, but it needs
@@ -92,7 +93,7 @@ void gracht_server_request_shutdown(void);
  * @param link The link that should be registered
  * @return int Returns 0 if the protocol was link, or -1 if max count of links has been registered.
  */
-int gracht_server_add_link(struct gracht_link* link);
+int gracht_server_add_link(gracht_server_t* server, struct gracht_link* link);
 
 /**
  * Registers a new protocol with the server. A max of 255 protocols can be registered, and if
@@ -102,7 +103,7 @@ int gracht_server_add_link(struct gracht_link* link);
  * @param protocol The protocol instance to register.
  * @return int Returns 0 if the protocol was registered, or -1 if max count of protocols has been registered.
  */
-int gracht_server_register_protocol(gracht_protocol_t* protocol);
+int gracht_server_register_protocol(gracht_server_t* server, gracht_protocol_t* protocol);
 
 /**
  * Unregisters a previously registered protocol. Any messages targetted for that protocol will be ignored after
@@ -110,7 +111,7 @@ int gracht_server_register_protocol(gracht_protocol_t* protocol);
  * 
  * @param protocol The protocol that should be unregistered. 
  */
-void gracht_server_unregister_protocol(gracht_protocol_t* protocol);
+void gracht_server_unregister_protocol(gracht_server_t* server, gracht_protocol_t* protocol);
 
 /**
  * Should only be used when main_loop is not used. This should be called every time a file-descriptor event
@@ -121,7 +122,7 @@ void gracht_server_unregister_protocol(gracht_protocol_t* protocol);
  * @param events The type of events that have occured on the descriptor.
  * @return int Returns 0 if the event was handled by libgracht.
  */
-int gracht_server_handle_event(int iod, unsigned int events);
+int gracht_server_handle_event(gracht_server_t* server, int iod, unsigned int events);
 
 /**
  * The server main loop function. This can be invoked if no additional handling is required by
@@ -131,21 +132,21 @@ int gracht_server_handle_event(int iod, unsigned int events);
  * 
  * @return int exit code of the application.
  */
-int gracht_server_main_loop(void);
+int gracht_server_main_loop(gracht_server_t* server);
 
 /**
  * Returns the datagram (connectionless) file descriptor that is used by the server.
  * 
  * @return int The datagram (connectionless) file descriptor.
  */
-gracht_conn_t gracht_server_get_dgram_iod(void);
+gracht_conn_t gracht_server_get_dgram_iod(gracht_server_t* server);
 
 /**
  * Returns the epoll/select/completion port handle/descriptor that is used by the server.
  * 
  * @return aio_handle_t The handle/descriptor.
  */
-gracht_handle_t gracht_server_get_set_iod(void);
+gracht_handle_t gracht_server_get_set_iod(gracht_server_t* server);
 
 /**
  * Creates a deferrable copy of a received message, allowing the caller to specify both

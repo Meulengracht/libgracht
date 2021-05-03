@@ -82,6 +82,8 @@ def is_param_const(param, is_output):
         return False
     if "gracht_client_t" in param.get_typename():
         return False
+    if "gracht_server_t" in param.get_typename():
+        return False
     if "gracht_message" in param.get_typename():
         return False
     return True
@@ -163,21 +165,23 @@ def get_service_internal_callback_name(service, act):
     return f"__{service.get_namespace()}_{act.get_name()}_internal"
 
 def get_event_prototype_name_single(service, evt, case):
+    evt_server_param = get_param_typename(service, VariableObject("gracht_server_t*", "server", False), case, False)
     evt_client_param = get_param_typename(service, VariableObject("gracht_conn_t", "client", False), case, False)
-    evt_name = "int " + service.get_namespace() + "_" + service.get_name() + "_event_" + evt.get_name() + "_single(" + evt_client_param
+    evt_name = "int " + service.get_namespace() + "_" + service.get_name() + "_event_" + evt.get_name() + "_single("
+    evt_name += evt_server_param + ", " + evt_client_param
 
     if len(evt.get_params()) > 0:
-        evt_name = evt_name + ", " + get_parameter_string(service, evt.get_params(), case, False)
+        evt_name += ", " + get_parameter_string(service, evt.get_params(), case, False)
     return evt_name + ")"
 
 
 def get_event_prototype_name_all(service, evt, case):
+    evt_server_param = get_param_typename(service, VariableObject("gracht_server_t*", "server", False), case, False)
     evt_name = "int " + service.get_namespace() + "_" + service.get_name() + "_event_" + evt.get_name() + "_all("
+    evt_name += evt_server_param
 
     if len(evt.get_params()) > 0:
-        evt_name = evt_name + get_parameter_string(service, evt.get_params(), case, False)
-    else:
-        evt_name = evt_name + "void"
+        evt_name += ", " + get_parameter_string(service, evt.get_params(), case, False)
     return evt_name + ")"
 
 
@@ -245,7 +249,10 @@ def write_function_body_prologue(service: ServiceObject, actionId, flags, params
     outfile.write("\n")
 
     if isServer:
-        outfile.write("    __status = gracht_server_get_buffer(&__buffer);\n")
+        if "MESSAGE_FLAG_RESPONSE" in flags:
+            outfile.write("    __status = gracht_server_get_buffer(message->server, &__buffer);\n")
+        else:
+            outfile.write("    __status = gracht_server_get_buffer(server, &__buffer);\n")
     else:
         outfile.write("    __status = gracht_client_get_buffer(client, &__buffer);\n")
     outfile.write("    if (__status) {\n")
@@ -344,14 +351,14 @@ def define_status_body(service: ServiceObject, func: FunctionObject, outfile):
 def define_event_body_single(service: ServiceObject, evt, outfile):
     flags = "MESSAGE_FLAG_EVENT"
     write_function_body_prologue(service, evt.get_id(), flags, evt.get_params(), True, outfile)
-    outfile.write("    __status = gracht_server_send_event(client, &__buffer, 0);\n")
+    outfile.write("    __status = gracht_server_send_event(server, client, &__buffer, 0);\n")
     write_function_body_epilogue(service, evt, outfile)
     return
 
 def define_event_body_all(service: ServiceObject, evt, outfile):
     flags = "MESSAGE_FLAG_EVENT"
     write_function_body_prologue(service, evt.get_id(), flags, evt.get_params(), True, outfile)
-    outfile.write("    __status = gracht_server_broadcast_event(&__buffer, 0);\n")
+    outfile.write("    __status = gracht_server_broadcast_event(server, &__buffer, 0);\n")
     write_function_body_epilogue(service, evt, outfile)
     return
 
@@ -604,10 +611,10 @@ def write_client_api(service, outfile):
     outfile.write("\n")
 
 def write_server_api(service, outfile):
-    outfile.write("extern int gracht_server_get_buffer(gracht_buffer_t*);\n")
+    outfile.write("extern int gracht_server_get_buffer(gracht_server_t*, gracht_buffer_t*);\n")
     outfile.write("extern int gracht_server_respond(struct gracht_message*, gracht_buffer_t*);\n")
-    outfile.write("extern int gracht_server_send_event(gracht_conn_t client, gracht_buffer_t*, unsigned int flags);\n")
-    outfile.write("extern int gracht_server_broadcast_event(gracht_buffer_t*, unsigned int flags);\n")
+    outfile.write("extern int gracht_server_send_event(gracht_server_t*, gracht_conn_t client, gracht_buffer_t*, unsigned int flags);\n")
+    outfile.write("extern int gracht_server_broadcast_event(gracht_server_t*, gracht_buffer_t*, unsigned int flags);\n")
     outfile.write("\n")
 
 # Define the client callback array - this is the one that will be registered with the client

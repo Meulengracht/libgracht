@@ -56,6 +56,7 @@ add_client_test(gclient_2 client/test_events.c)
 add_client_test(gclient_3 client/test_variable.c)
 add_client_test(gclient_4 client/test_deferring.c)
 add_client_test(gclient_5 client/test_multiple.c)
+add_client_test(gclient_6 client/test_shutdown.c)
 
 # Server test applications
 add_server_test(gserver server/main.c)

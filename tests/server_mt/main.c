@@ -28,7 +28,7 @@
 
 #include <test_utils_service_server.h>
 
-extern int init_mt_server_with_socket_link(int workerCount);
+extern int init_mt_server_with_socket_link(int workerCount, gracht_server_t** serverOut);
 
 // reuse the private api
 #include <thread_api.h>
@@ -101,23 +101,31 @@ void test_utils_get_event_invocation(struct gracht_message* message, const int c
 {
     printf("get_events: %i\n", count);
     for (int i = 0; i < count; i++) {
-        test_utils_event_myevent_single(message->client, i);
+        test_utils_event_myevent_single(message->server, message->client, i);
     }
 }
 
+void test_utils_shutdown_invocation(struct gracht_message* message)
+{
+    printf("shutdown\n");
+    gracht_server_request_shutdown(message->server);
+}
+
+
 int main(void)
 {
-    int code;
+    gracht_server_t* server;
+    int              code;
     
     // initialize server
-    code = init_mt_server_with_socket_link(4);
+    code = init_mt_server_with_socket_link(4, &server);
     if (code) {
         return code;
     }
     
     // register protocols
-    gracht_server_register_protocol(&test_utils_server_protocol);
+    gracht_server_register_protocol(server, &test_utils_server_protocol);
 
     // run server
-    return gracht_server_main_loop();
+    return gracht_server_main_loop(server);
 }
