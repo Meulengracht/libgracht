@@ -122,7 +122,7 @@ void gracht_server_unregister_protocol(gracht_server_t* server, gracht_protocol_
  * @param events The type of events that have occured on the descriptor.
  * @return int Returns 0 if the event was handled by libgracht.
  */
-int gracht_server_handle_event(gracht_server_t* server, int iod, unsigned int events);
+int gracht_server_handle_event(gracht_server_t* server, gracht_conn_t handle, unsigned int events);
 
 /**
  * The server main loop function. This can be invoked if no additional handling is required by

@@ -904,6 +904,9 @@ void gracht_control_subscribe_invocation(const struct gracht_message* message, c
 
         // not really neccessary but for correctness
         rwlock_r_lock(&message->server->clients_lock);
+        
+        // set the entry pointer
+        entry = &newEntry;
     }
     else {
         // make sure if they were marked cleanup that we remove that
@@ -917,7 +920,7 @@ void gracht_control_subscribe_invocation(const struct gracht_message* message, c
 void gracht_control_unsubscribe_invocation(const struct gracht_message* message, const uint8_t protocol)
 {
     struct client_wrapper* entry;
-    int                    cleanup;
+    int                    cleanup = 0;
     
     rwlock_r_lock(&message->server->clients_lock);
     entry = hashtable_get(&message->server->clients, &(struct client_wrapper){ .handle = message->client });

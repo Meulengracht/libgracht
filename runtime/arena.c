@@ -232,7 +232,7 @@ void gracht_arena_free(struct gracht_arena* arena, void* memory, size_t size)
         }
         else {
             // it was allocated, we must create a new header with the size that was freed
-            create_header(GET_NEXT_HEADER(header), size);
+            create_header(GET_NEXT_HEADER(header), allocLength);
         }
     }
     else {

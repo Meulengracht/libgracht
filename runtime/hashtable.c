@@ -242,7 +242,7 @@ void hashtable_enumerate(hashtable_t* hashtable, hashtable_enumfn enumFunction, 
     for (i = 0; i < hashtable->capacity; i++) {
         struct hashtable_element* current = GET_ELEMENT(hashtable, i);
         if (current->probeCount) {
-            enumFunction(i, &current->payload[0], context);
+            enumFunction((int)i, &current->payload[0], context);
         }
     }
 }
