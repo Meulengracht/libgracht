@@ -15,7 +15,12 @@
  * along with this program.If not, see <http://www.gnu.org/licenses/>.
  *
  *
- * Gracht Server Memory Arena
+ * Memory Arenas implementation
+ *  - It is a rather crude implementation, and is in severe needs of a bit of
+ *    optimizations. Essentially what we are trying to provide is quick allocation
+ *    of resizable buffers. It keeps allocations as "linked" lists by providing the
+ *    ability to calculate the position of the next allocation header based on the
+ *    current location of the initial header
  */
 
 #include <errno.h>

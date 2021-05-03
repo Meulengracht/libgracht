@@ -26,18 +26,6 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#if (defined (__clang__))
-#define GRACHT_STRUCT(name, body) struct __attribute__((packed)) name body 
-#elif (defined (__GNUC__))
-#define GRACHT_STRUCT(name, body) struct name body __attribute__((packed))
-#elif (defined (__arm__))
-#define GRACHT_STRUCT(name, body) __packed struct name body
-#elif (defined (_MSC_VER))
-#define GRACHT_STRUCT(name, body) __pragma(pack(push, 1)) struct name body __pragma(pack(pop))
-#else
-#error "Please define packed struct for the used compiler"
-#endif
-
 #if defined(_WIN32)
 typedef void*        gracht_handle_t;
 typedef unsigned int gracht_conn_t;
@@ -55,37 +43,61 @@ typedef int gracht_conn_t;
 #define GRACHT_CONN_INVALID   (int)-1
 #endif
 
+#define GRACHT_MESSAGE_HEADER_SIZE 11
+#define GRACHT_MESSAGE_DEFERRABLE_SIZE(message) (sizeof(struct gracht_message) + message->size)
+
+/**
+ * Internally used in the message serializers to note which type of
+ * message is being sent. Not all types cause any different behaviour.
+ */
 #define MESSAGE_FLAG_TYPE(flags) ((flags) & 0x3)
 #define MESSAGE_FLAG_SYNC     0x00000000
 #define MESSAGE_FLAG_ASYNC    0x00000001
 #define MESSAGE_FLAG_EVENT    0x00000002
 #define MESSAGE_FLAG_RESPONSE 0x00000003
 
-#define GRACHT_DEFAULT_MESSAGE_SIZE 512
-
-#define GRACHT_AWAIT_ANY   0x0
-#define GRACHT_AWAIT_ALL   0x1
-#define GRACHT_AWAIT_ASYNC 0x2
-
+/**
+ * The message status, this is returned by any function that directly
+ * refers to a specific message. Error indiciates a transmission error
+ * or a protocol error.
+ */
 #define GRACHT_MESSAGE_ERROR      -1
 #define GRACHT_MESSAGE_CREATED    0
 #define GRACHT_MESSAGE_INPROGRESS 1
 #define GRACHT_MESSAGE_COMPLETED  2
 
+/**
+ * Await flags used to configure the waiting mode when calling the clients
+ * gracht_client_await(_multiple). Async mode should always be specificed
+ * if the client has a dedicated thread running on the side waiting for messages.
+ */
+#define GRACHT_AWAIT_ANY   0x0
+#define GRACHT_AWAIT_ALL   0x1
+#define GRACHT_AWAIT_ASYNC 0x2
+
+/**
+ * Message flags used for waiting for incoming messages. The block flag can be
+ * specified for gracht_client_wait_message to indicate the call should block
+ * untill a message has been recieved.
+ */
 #define GRACHT_MESSAGE_BLOCK   0x1
 #define GRACHT_MESSAGE_WAITALL 0x2
 
-#define GRACHT_MESSAGE_HEADER_SIZE 11
+/**
+ * The library is configured to use a default message of 2048 bytes. This
+ * value is rather small to some, but it fits most needs.
+ */
+#define GRACHT_DEFAULT_MESSAGE_SIZE 2048
 
-#define GRACHT_MESSAGE_DEFERRABLE_SIZE(message) (sizeof(struct gracht_message) + message->size)
-
-// Represents a received message on the server.
+// Represents a received message on the server. What is relevant here and why
+// the structure is exposed is when servers would like to respond to invocations
+// in the form of events, they will access to the client member of this structure.
 struct gracht_message {
-    gracht_conn_t link;
-    gracht_conn_t client;
-    uint32_t      size;
-    uint32_t      index;
-    uint8_t       payload[];
+    gracht_conn_t link;    // link message is received on
+    gracht_conn_t client;  // client context on the link
+    uint32_t      size;    // size of the payload
+    uint32_t      index;   // used internally for payload storage
+    uint8_t       payload[]; // payload follows this message header
 };
 
 /**

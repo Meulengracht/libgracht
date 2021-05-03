@@ -36,21 +36,16 @@
 
 #define GRACHT_MESSAGE_THRESHOLD 128
 
-struct vali_link_manager {
-    struct client_link_ops ops;
-    int                    iod;
-};
-
-static int vali_link_connect(struct vali_link_manager* linkManager)
+static int vali_link_connect(struct gracht_link_vali* link)
 {
-    if (!linkManager) {
+    if (!link) {
         errno = EINVAL;
         return -1;
     }
-    return linkManager->iod;
+    return link->iod;
 }
 
-static int vali_link_send_message(struct vali_link_manager* linkManager,
+static int vali_link_send_message(struct gracht_link_vali* link,
                                   struct gracht_message* messageBase, struct vali_link_message* messageContext)
 {
     struct ipmsg_header  message;
@@ -60,7 +55,7 @@ static int vali_link_send_message(struct vali_link_manager* linkManager,
 
     message.address  = &messageContext->address;
     message.base     = messageBase;
-    message.sender   = GetNativeHandle(linkManager->iod);
+    message.sender   = GetNativeHandle(link->iod);
 
     if (messageBase->header.length > GRACHT_DEFAULT_MESSAGE_SIZE) {
         for (i = 0; messageBase->header.length > GRACHT_DEFAULT_MESSAGE_SIZE && i < messageBase->header.param_in; i++) {
@@ -79,7 +74,7 @@ static int vali_link_send_message(struct vali_link_manager* linkManager,
     return GRACHT_MESSAGE_INPROGRESS;
 }
 
-static int vali_link_recv(struct vali_link_manager* linkManager, void* messageBuffer,
+static int vali_link_recv(struct gracht_link_vali* link, void* messageBuffer,
                           unsigned int flags, struct gracht_message** messageOut)
 {
     struct ipmsg* message = (struct ipmsg*)messageBuffer;
@@ -90,7 +85,7 @@ static int vali_link_recv(struct vali_link_manager* linkManager, void* messageBu
         convertedFlags |= IPMSG_DONTWAIT;
     }
 
-    status = getmsg(linkManager->iod, message, GRACHT_DEFAULT_MESSAGE_SIZE, convertedFlags);
+    status = getmsg(link->iod, message, GRACHT_DEFAULT_MESSAGE_SIZE, convertedFlags);
     if (status) {
         return status;
     }
@@ -99,40 +94,40 @@ static int vali_link_recv(struct vali_link_manager* linkManager, void* messageBu
     return 0;
 }
 
-static void vali_link_destroy(struct vali_link_manager* linkManager)
+static void vali_link_destroy(struct gracht_link_vali* link)
 {
-    if (!linkManager) {
+    if (!link) {
         return;
     }
 
-    if (linkManager->iod > 0) {
-        close(linkManager->iod);
+    if (link->iod > 0) {
+        close(link->iod);
     }
-    free(linkManager);
+    free(link);
 }
 
-int gracht_link_vali_client_create(struct client_link_ops** linkOut)
+int gracht_link_vali_client_create(struct gracht_link_vali** linkOut)
 {
-    struct vali_link_manager* linkManager;
+    struct gracht_link_vali* link;
 
-    linkManager = (struct vali_link_manager*)malloc(sizeof(struct vali_link_manager));
-    if (!linkManager) {
+    link = (struct gracht_link_vali*)malloc(sizeof(struct gracht_link_vali));
+    if (!link) {
         ERROR("[gracht] [client-link] [vali] failed to allocate memory"));
         errno = (ENOMEM);
         return -1;
     }
 
     // create an ipc context, 4kb should be more than enough
-    linkManager->iod = ipcontext(0x1000, NULL);
-    if (linkManager->iod < 0) {
+    link->iod = ipcontext(0x1000, NULL);
+    if (link->iod < 0) {
         return -1;
     }
 
-    linkManager->ops.connect     = (client_link_connect_fn)vali_link_connect;
-    linkManager->ops.recv        = (client_link_recv_fn)vali_link_recv;
-    linkManager->ops.send        = (client_link_send_fn)vali_link_send_message;
-    linkManager->ops.destroy     = (client_link_destroy_fn)vali_link_destroy;
+    link->ops.connect     = (client_link_connect_fn)vali_link_connect;
+    link->ops.recv        = (client_link_recv_fn)vali_link_recv;
+    link->ops.send        = (client_link_send_fn)vali_link_send_message;
+    link->ops.destroy     = (client_link_destroy_fn)vali_link_destroy;
 
-    *linkOut = &linkManager->ops;
+    *linkOut = &link->ops;
     return 0;
 }

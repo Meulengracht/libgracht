@@ -37,13 +37,13 @@ struct vali_link_message {
     struct ipmsg_addr             address;
 };
 
-struct vali_link_deferred_response {
-    struct gracht_message recv_message;
-    struct ipmsg               recv_storage;
+struct gracht_link_vali {
+    struct gracht_link base;
+    int                iod;
 };
 
+
 #define VALI_MSG_INIT_HANDLE(handle) { { 0 }, IPMSG_ADDR_INIT_HANDLE(handle) }
-#define VALI_MSG_DEFER_SIZE(message) (message->param_count * sizeof(struct gracht_param))
 
 #ifdef __cplusplus
 extern "C" {
@@ -55,25 +55,10 @@ int gracht_os_get_server_packet_address(struct sockaddr_storage*, int*);
 int gracht_os_thread_set_name(const char*);
 
 // Server API
-int gracht_link_vali_server_create(struct server_link_ops**, struct ipmsg_addr*);
-
-/**
- * Used to store all neccessary data to delay a response to a message that was received.
- * The space allocated for the vali_link_deferred_response must be 
- * sizeof(vali_link_deferred_response) + VALI_MSG_DEFER_SIZE.
- * 
- * @param deferredResponse Storage that can fit all message details.
- * @param message          Message that was received.
- */
-void gracht_vali_message_defer_response(
-    struct vali_link_deferred_response* deferredResponse,
-    struct gracht_message* message);
+int gracht_link_vali_server_create(struct gracht_link_vali**, struct ipmsg_addr*);
 
 // Client API
-int gracht_link_vali_client_create(struct client_link_ops**);
-
-
-
+int gracht_link_vali_client_create(struct gracht_link_vali**);
 
 int gracht_vali_message_create(gracht_client_t*, int message_size, struct vali_link_message**);
 

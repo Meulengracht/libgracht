@@ -114,7 +114,7 @@ void gracht_client_shutdown(gracht_client_t* client);
 gracht_conn_t gracht_client_iod(gracht_client_t* client);
 
 /**
- * Wait for any incomming message. This function can be used to block untill a message is recieved. 
+ * Wait for any incoming message. This function can be used to block untill a message is recieved. 
  * This should not be invoked to wait for a specific message, but rather be used to poll for new events. 
  * It is not mandatory to use this call if the client is not used for events.
  * 

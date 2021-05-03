@@ -61,9 +61,9 @@ struct transfer_complete_event {
 }
 
 service disk (1) {
-    func transfer(transfer_request request) : (int status);
-    func transfer_many(transfer_request[] request) : (int[] statuses)
-    event transfer_complete : transfer_complete_event;
+    func transfer(transfer_request request) : (int status) = 1;
+    func transfer_many(transfer_request[] request) : (int[] statuses) = 2;
+    event transfer_complete : transfer_complete_event = 3;
 }
 ```
 
