@@ -23,7 +23,7 @@
 #ifndef __GRACHT_DEBUG_H__
 #define __GRACHT_DEBUG_H__
 
-//#define GRACHT_TRACE
+#define GRACHT_TRACE
 
 #if defined(MOLLENOS)
 //#define __TRACE

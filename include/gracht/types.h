@@ -30,7 +30,7 @@
 typedef void*      gracht_handle_t;
 typedef uintptr_t  gracht_conn_t;
 #define GRACHT_HANDLE_INVALID NULL
-#define GRACHT_CONN_INVALID   (unsigned int)0
+#define GRACHT_CONN_INVALID   (uintptr_t)(~0)
 #elif defined(MOLLENOS)
 typedef int gracht_handle_t;
 typedef int gracht_conn_t;

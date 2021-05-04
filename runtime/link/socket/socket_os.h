@@ -55,17 +55,18 @@ static int socket_aio_add(int aio, int iod) {
 
 #elif defined(_WIN32)
 #include <windows.h>
+#include <mswsock.h>
 #include "aio.h"
 #include "utils.h"
 #include <io.h>
 #include <stdlib.h>
+    
 #define close closesocket
 
 #define MSG_DONTWAIT 0x10000
 
 struct iocp_socket {
     SOCKET              socket;
-    WSAEVENT            events;
     struct iocp_socket* link;
 };
 
@@ -80,25 +81,12 @@ static int socket_aio_add(gracht_handle_t aio, gracht_conn_t iod) {
 
     iocpEntry->link   = NULL;
     iocpEntry->socket = (SOCKET)iod;
-    iocpEntry->events = WSACreateEvent();
-    if (iocpEntry->events == WSA_INVALID_EVENT) {
-        free(iocpEntry);
-        return -2;
-    }
-
-    // enable events for the socket
-    if (WSAEventSelect(iocpEntry->socket, iocpEntry->events, FD_ACCEPT | FD_READ | FD_CLOSE) == SOCKET_ERROR) {
-        WSACloseEvent(iocpEntry->events);
-        free(iocpEntry);
-        return -3;
-    }
 
     HANDLE handle = CreateIoCompletionPort((HANDLE)iocpEntry->socket, 
         iocp->iocp, (DWORD)iod, 0);
     if (!handle) {
-        WSACloseEvent(iocpEntry->events);
         free(iocpEntry);
-        return -4;
+        return -1;
     }
 
     // add it to the iocp list
@@ -139,7 +127,6 @@ static int socket_aio_remove(gracht_handle_t aio, gracht_conn_t iod)
     }
 
     if (itr) {
-        WSACloseEvent(itr->events);
         free(itr);
         return 0;
     }
@@ -147,5 +134,21 @@ static int socket_aio_remove(gracht_handle_t aio, gracht_conn_t iod)
 }
 
 #endif
+
+struct gracht_link_socket {
+    struct gracht_link      base;
+    int                     listen;
+    int                     domain;
+    struct sockaddr_storage address;
+    socklen_t               address_length;
+#ifdef _WIN32
+    WSABUF                  waitbuf;
+    DWORD                   recvFlags;
+    uint8_t                 buffer[512];
+    int                     recvLength;
+    void*                   pending;
+    WSAOVERLAPPED           overlapped;
+#endif
+};
 
 #endif // !__GRACHT_SOCKET_OS_H__

@@ -60,6 +60,7 @@ typedef struct epoll_event gracht_aio_event_t;
 #elif defined(_WIN32)
 #include <windows.h>
 #include <stdlib.h>
+#include "debug.h"
 
 struct iocp_socket;
 struct iocp_handle {
@@ -103,20 +104,25 @@ static int gracht_aio_destroy(gracht_handle_t aio) {
 
 static int gracht_io_wait(gracht_handle_t aio, gracht_aio_event_t* events, int count)
 {
+    struct iocp_handle* iocp    = aio;
     OVERLAPPED* overlapped      = NULL;
     DWORD       bytesTransfered = 0;
     void*       context         = NULL;
-    BOOL        status          = GetQueuedCompletionStatus(aio,
+    BOOL        status          = GetQueuedCompletionStatus(iocp->iocp,
         &bytesTransfered, (PULONG_PTR)&context, &overlapped, INFINITE);
-    if (context == NULL) {
+    if (overlapped == NULL) {
+        // something horrible failed
         return -1;
     }
 
     events[0].iod = (gracht_conn_t)(uintptr_t)context;
-    if (status == FALSE || (status == TRUE && bytesTransfered == 0)) {
+    if (status == FALSE) {
+        // failure on one of the handles, use the overlapped pointer to detect
+        // the type of error. If a read or write failed it was a disconnect.
         events[0].events = GRACHT_AIO_EVENT_DISCONNECT;
     }
     else {
+        // Otherwise an operation completed. New data/connection on the socket
         events[0].events = GRACHT_AIO_EVENT_IN;
     }
     return 1;

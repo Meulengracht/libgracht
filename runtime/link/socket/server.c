@@ -37,7 +37,56 @@ struct socket_link_client {
     gracht_conn_t               socket;
     gracht_conn_t               link;
     int                         streaming;
+#ifdef _WIN32
+    WSABUF                      waitbuf;
+    uint8_t                     headerbuf[GRACHT_MESSAGE_HEADER_SIZE];
+    DWORD                       flags;
+    WSAOVERLAPPED               overlapped;
+#endif
 };
+
+#ifdef _WIN32
+static int queue_accept(struct gracht_link_socket* link, gracht_handle_t iocp_handle)
+{
+    struct socket_link_client* client;
+    BOOL                       status;
+    GRTRACE(GRSTR("queue_accept"));
+
+    client = malloc(sizeof(struct socket_link_client));
+    if (!client) {
+        errno = ENOMEM;
+        return -1;
+    }
+    memset(client, 0, sizeof(struct socket_link_client));
+
+    client->socket = WSASocket(link->domain, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
+    if (client->socket == INVALID_SOCKET) {
+        free(client);
+        errno = ENODEV;
+        return -1;
+    }
+
+    client->base.handle = client->socket;
+    client->streaming   = 1;
+    client->waitbuf.buf = &client->headerbuf[0];
+    client->waitbuf.len = GRACHT_MESSAGE_HEADER_SIZE;
+
+    status = AcceptEx(link->base.connection, client->socket, &link->buffer[0], 0, 
+        link->address_length + 16, link->address_length + 16,
+        NULL, &client->overlapped);
+    if (!status) {
+        DWORD reason = WSAGetLastError();
+        if (reason != WSA_IO_PENDING) {
+            closesocket(client->socket);
+            free(client);
+            return -1;
+        }
+    }
+    link->pending = client;
+    return 0;
+}
+
+#endif
 
 static unsigned int get_socket_flags(unsigned int flags)
 {
@@ -73,13 +122,42 @@ static int socket_link_recv_client(struct socket_link_client* client,
     uint32_t     missingData;
     
     GRTRACE(GRSTR("socket_link_recv_client reading message header"));
+#ifdef _WIN32
+    DWORD overlappedFlags;
+    DWORD overlappedLength;
+    BOOL  status;
+
+    // extract the number of bytes received
+    status = WSAGetOverlappedResult(client->socket, &client->overlapped, &overlappedLength, FALSE, &overlappedFlags);
+    if (status == FALSE) {
+        errno = ENODATA;
+        return -1;
+    }
+    
+    // detect disconnections
+    if (!overlappedLength) {
+        errno = EFAULT;
+        return -1;
+    }
+
+    memcpy(&context->payload[0], &client->headerbuf[0], overlappedLength);
+    if (overlappedLength != GRACHT_MESSAGE_HEADER_SIZE) {
+        GRTRACE(GRSTR("socket_link_recv_client reading rest of message header %li/%i"), overlappedLength, GRACHT_MESSAGE_HEADER_SIZE);
+        missingData = GRACHT_MESSAGE_HEADER_SIZE - overlappedLength;
+        bytesRead   = recv(client->base.handle, &context->payload[bytesRead], missingData, MSG_WAITALL);
+        if (bytesRead != missingData) {
+            return -1;
+        }
+    }
+#else
     bytesRead = recv(client->base.handle, &context->payload[0], GRACHT_MESSAGE_HEADER_SIZE, socketFlags);
     if (bytesRead != GRACHT_MESSAGE_HEADER_SIZE) {
         if (bytesRead == 0) {
-            errno = (ENODATA);
+            errno = ENODATA;
         }
         return -1;
     }
+#endif
     
     GRTRACE(GRSTR("socket_link_recv_client message id %u, length of message %u"), 
         *((uint32_t*)&context->payload[0]), *((uint32_t*)&context->payload[4]));
@@ -102,6 +180,17 @@ static int socket_link_recv_client(struct socket_link_client* client,
     context->client = client->socket;
     context->index  = 0;
     context->size   = *((uint32_t*)&context->payload[4]);
+
+#ifdef _WIN32
+    // queue up another read
+    status = WSARecv(client->socket, &client->waitbuf, 1, NULL, &client->flags, &client->overlapped, NULL);
+    if (status == SOCKET_ERROR) {
+        DWORD reason = WSAGetLastError();
+        if (reason != WSA_IO_PENDING) {
+            GRERROR(GRSTR("socket_link_recv_client failed to queue up a read on the client socket: %u"), reason);
+        }
+    }
+#endif
     return 0;
 }
 
@@ -162,11 +251,15 @@ static gracht_conn_t socket_link_setup(struct gracht_link_socket* link, gracht_h
     if (link->base.type == gracht_link_packet_based) {
         // Create a new socket for listening to events. They are all
         // delivered to fixed sockets on the local system.
+#ifdef _WIN32
+        link->base.connection = WSASocket(link->domain, SOCK_DGRAM, IPPROTO_UDP, NULL, 0, WSA_FLAG_OVERLAPPED);
+#else
         link->base.connection = socket(link->domain, SOCK_DGRAM, 0);
-        if (link->base.connection < 0) {
+#endif
+        if (link->base.connection == GRACHT_CONN_INVALID) {
             return GRACHT_CONN_INVALID;
         }
-        
+
         status = bind(link->base.connection,
             (const struct sockaddr*)&link->address, link->address_length);
         if (status) {
@@ -177,11 +270,32 @@ static gracht_conn_t socket_link_setup(struct gracht_link_socket* link, gracht_h
         if (status) {
             GRWARNING(GRSTR("socket_link_setup failed to add socket to set_handle"));
         }
+
+#ifdef _WIN32
+        // initialize the waitbuf
+        link->waitbuf.buf = &link->buffer[0];
+        link->waitbuf.len = GRACHT_MESSAGE_HEADER_SIZE;
+        link->recvLength  = (int)link->address_length;
+
+        // queue up the first read
+        status = WSARecvFrom(link->base.connection, &link->waitbuf, 1, NULL, &link->recvFlags,
+            &link->buffer[GRACHT_MESSAGE_HEADER_SIZE], &link->recvLength, &link->overlapped, NULL);
+        if (status == SOCKET_ERROR) {
+            DWORD reason = WSAGetLastError();
+            if (reason != WSA_IO_PENDING) {
+                GRERROR(GRSTR("socket_link_setup failed to queue up a read on the client socket: %u"), reason);
+            }
+        }
+#endif
         return link->base.connection;
     }
     else {
+#ifdef _WIN32
+        link->base.connection = WSASocket(link->domain, SOCK_STREAM, 0, NULL, 0, WSA_FLAG_OVERLAPPED);
+#else
         link->base.connection = socket(link->domain, SOCK_STREAM, 0);
-        if (link->base.connection < 0) {
+#endif
+        if (link->base.connection == GRACHT_CONN_INVALID) {
             return GRACHT_CONN_INVALID;
         }
         
@@ -201,6 +315,13 @@ static gracht_conn_t socket_link_setup(struct gracht_link_socket* link, gracht_h
         if (status) {
             GRWARNING(GRSTR("socket_link_setup failed to add socket to set_handle"));
         }
+
+#ifdef _WIN32
+        status = queue_accept(link, set_handle);
+        if (status) {
+            GRERROR(GRSTR("socket_link_setup failed to queue up an accept on the listen socket"));
+        }
+#endif
         return link->base.connection;
     }
     
@@ -208,6 +329,56 @@ static gracht_conn_t socket_link_setup(struct gracht_link_socket* link, gracht_h
     return GRACHT_CONN_INVALID;
 }
 
+#ifdef _WIN32
+static int socket_link_accept(
+    struct gracht_link_socket*    link,
+    gracht_handle_t               iocp_handle,
+    struct gracht_server_client** clientOut)
+{
+    struct socket_link_client* client         = link->pending;
+    socklen_t                  address_length = link->address_length;
+    struct sockaddr*           remote         = NULL;
+    int                        remote_length  = 0;
+    struct sockaddr*           local          = NULL;
+    int                        local_length   = 0;
+    int                        status;
+    GRTRACE(GRSTR("socket_link_accept"));
+
+    if (link->base.type == gracht_link_packet_based) {
+        errno = ENOSYS;
+        return -1;
+    }
+
+    // extract the client address from the link buffer
+    GetAcceptExSockaddrs(&link->buffer[0], 0, address_length + 16, address_length + 16,
+        &local, &local_length, &remote, &remote_length);
+    memcpy(&client->address, remote, remote_length);
+
+    // add the new socket to the iocp
+    status = socket_aio_add(iocp_handle, client->socket);
+    if (status) {
+        GRWARNING(GRSTR("socket_link_accept failed to add socket to set_handle"));
+    }
+
+    // queue up yet another accept
+    status = queue_accept(link, iocp_handle);
+    if (status) {
+        GRERROR(GRSTR("socket_link_accept failed to queue up an accept on the listen socket"));
+    }
+
+    // queue up a read on the new client
+    status = WSARecv(client->socket, &client->waitbuf, 1, NULL, &client->flags, &client->overlapped, NULL);
+    if (status == SOCKET_ERROR) {
+        DWORD reason = WSAGetLastError();
+        if (reason != WSA_IO_PENDING) {
+            GRERROR(GRSTR("socket_link_accept failed to queue up a read on the client socket: %u"), reason);
+        }
+    }
+
+    *clientOut = &client->base;
+    return 0;
+}
+#else
 static int socket_link_accept(
     struct gracht_link_socket*    link,
     gracht_handle_t               set_handle,
@@ -249,6 +420,7 @@ static int socket_link_accept(
     *clientOut = &client->base;
     return 0;
 }
+#endif
 
 static int socket_link_recv_packet(struct gracht_link_socket* link, 
     struct gracht_message* context, unsigned int flags)
@@ -263,7 +435,31 @@ static int socket_link_recv_packet(struct gracht_link_socket* link,
         errno = ENOSYS;
         return -1;
     }
-    
+
+#ifdef _WIN32
+    uint32_t restOfData;
+    DWORD    overlappedFlags;
+    DWORD    overlappedLength;
+    BOOL     didSucceed;
+    int      bytesRead;
+
+    // extract the number of bytes received
+    didSucceed = WSAGetOverlappedResult(link->base.connection, &link->overlapped, &overlappedLength, FALSE, &overlappedFlags);
+    if (didSucceed == FALSE || !overlappedLength) {
+        errno = ENODATA;
+        return -1;
+    }
+
+    memcpy(&context->payload[0], &link->buffer[0], overlappedLength);
+    if (overlappedLength < GRACHT_MESSAGE_HEADER_SIZE) {
+        GRTRACE(GRSTR("socket_link_recv_client reading rest of message header %li/%i"), overlappedLength, GRACHT_MESSAGE_HEADER_SIZE);
+        restOfData = GRACHT_MESSAGE_HEADER_SIZE - overlappedLength;
+        bytesRead = recv(link->base.connection, &context->payload[bytesRead], restOfData, MSG_WAITALL);
+        if (bytesRead != restOfData) {
+            return -1;
+        }
+    }
+#else
     // Packets are atomic, either the full packet is there, or none is. So avoid
     // the use of MSG_WAITALL here.
     intmax_t bytesRead = (intmax_t)recvfrom(link->base.connection, base, len, 
@@ -274,17 +470,30 @@ static int socket_link_recv_packet(struct gracht_link_socket* link,
         }
         return -1;
     }
+#endif
 
     addressCrc = crc32_generate((const unsigned char*)&context->payload[0], (size_t)addrlen);
-    GRTRACE(GRSTR("[gracht_connection_recv_stream] read [%u/%u] addr bytes, %p"),
+    GRTRACE(GRSTR("socket_link_recv_packet read [%u/%u] addr bytes, %p"),
             addrlen, link->address_length, &context->payload[0]);
-    GRTRACE(GRSTR("[gracht_connection_recv_stream] read %lu bytes"), bytesRead);
+    GRTRACE(GRSTR("socket_link_recv_packet read %lu bytes"), bytesRead);
 
     // ->server is set by server
     context->link   = link->base.connection;
     context->client = (int)addressCrc;
     context->index  = addrlen;
     context->size   = (uint32_t)bytesRead + (uint32_t)addrlen;
+
+#ifdef _WIN32
+    // queue up another read
+    int status = WSARecvFrom(link->base.connection, &link->waitbuf, 1, NULL, &link->recvFlags,
+        &link->buffer[GRACHT_MESSAGE_HEADER_SIZE], &link->recvLength, &link->overlapped, NULL);
+    if (status == SOCKET_ERROR) {
+        DWORD reason = WSAGetLastError();
+        if (reason != WSA_IO_PENDING) {
+            GRERROR(GRSTR("socket_link_recv_packet failed to queue up a read on the client socket: %u"), reason);
+        }
+    }
+#endif
     return 0;
 }
 

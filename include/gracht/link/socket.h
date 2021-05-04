@@ -64,13 +64,7 @@ int gracht_link_socket_cleanup(void);
  * however wanted. The default configuration is non-listen, connection-less mode
  * and the socket domain is AF_INET.
  */
-struct gracht_link_socket {
-    struct gracht_link      base;
-    int                     listen;
-    int                     domain;
-    struct sockaddr_storage address;
-    socklen_t               address_length;
-};
+struct gracht_link_socket;
 
 int  gracht_link_socket_create(struct gracht_link_socket** linkOut);
 void gracht_link_socket_set_type(struct gracht_link_socket* link, enum gracht_link_type type);

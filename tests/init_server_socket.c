@@ -108,12 +108,12 @@ void register_server_links(gracht_server_t* server)
     init_client_link_config(clientLink);
     init_packet_link_config(packetLink);
 
-    code = gracht_server_add_link(server, &clientLink->base);
+    code = gracht_server_add_link(server, (struct gracht_link*)clientLink);
     if (code) {
         printf("register_server_links failed to add link: %i (%i)\n", code, errno);
     }
 
-    code = gracht_server_add_link(server, &packetLink->base);
+    code = gracht_server_add_link(server, (struct gracht_link*)packetLink);
     if (code) {
         printf("register_server_links failed to add link: %i (%i)\n", code, errno);
     }

@@ -403,8 +403,15 @@ static int handle_client_event(struct gracht_server* server, gracht_conn_t handl
             
             status = entry->link->ops.server.recv_client(entry->client, message, 0);
             if (status) {
-                if (errno != ENODATA && errno != EAGAIN) {
+                // silence the three below error codes, those are expected
+                if (errno != ENODATA && errno != EAGAIN && errno != EFAULT) {
                     GRERROR(GRSTR("handle_client_event server_object.link->recv_client returned %i"), errno);
+                }
+
+                // detect cases of disconnection or transmission failures that are fatal.
+                // in these cases we expect the underlying link to specify EFAULT
+                if (errno == EFAULT) {
+                    client_destroy(server, handle);
                 }
                 server->ops->put_message(server, message);
                 break;
@@ -778,12 +785,12 @@ gracht_handle_t gracht_server_get_set_iod(gracht_server_t* server)
 {
     if (!server) {
         errno = EINVAL;
-        return GRACHT_CONN_INVALID;
+        return GRACHT_HANDLE_INVALID;
     }
 
     if (server->state != RUNNING) {
         errno = EPERM;
-        return GRACHT_CONN_INVALID;
+        return GRACHT_HANDLE_INVALID;
     }
 
     return server->set_handle;
