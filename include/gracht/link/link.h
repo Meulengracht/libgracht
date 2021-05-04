@@ -45,27 +45,40 @@ struct gracht_server_client {
 struct gracht_link;
 
 // Server link API callbacks.
+typedef int (*server_accept_client_fn)(struct gracht_link*, gracht_handle_t set_handle, struct gracht_server_client**);
 typedef int (*server_create_client_fn)(struct gracht_link*, struct gracht_message*, struct gracht_server_client**);
+typedef int (*server_destroy_client_fn)(struct gracht_server_client*, gracht_handle_t set_handle);
 typedef int (*server_recv_client_fn)(struct gracht_server_client*, struct gracht_message*, unsigned int flags);
 typedef int (*server_send_client_fn)(struct gracht_server_client*, struct gracht_buffer*, unsigned int flags);
-typedef int (*server_destroy_client_fn)(struct gracht_server_client*);
 
-typedef gracht_conn_t (*server_link_setup_fn)(struct gracht_link*);
-typedef int           (*server_link_accept_fn)(struct gracht_link*, struct gracht_server_client**);
-typedef int           (*server_link_recv_packet_fn)(struct gracht_link*, struct gracht_message*, unsigned int flags);
-typedef int           (*server_link_respond_fn)(struct gracht_link*, struct gracht_message*, struct gracht_buffer*);
-typedef void          (*server_link_destroy_fn)(struct gracht_link*);
+typedef int (*server_link_recv_fn)(struct gracht_link*, struct gracht_message*, unsigned int flags);
+typedef int (*server_link_send_fn)(struct gracht_link*, struct gracht_message*, struct gracht_buffer*);
+
+typedef gracht_conn_t (*server_link_setup_fn)(struct gracht_link*, gracht_handle_t set_handle);
+typedef void          (*server_link_destroy_fn)(struct gracht_link*, gracht_handle_t set_handle);
 
 struct server_link_ops {
+    /**
+     * Connection oriented functions, and not something that must be supported by
+     * links. These are only for streaming links that support clients.
+     */
+    server_accept_client_fn  accept_client;
     server_create_client_fn  create_client;
     server_destroy_client_fn destroy_client;
     server_recv_client_fn    recv_client;
     server_send_client_fn    send_client;
 
+    /**
+     * Connection-less oriented functions, and must be supported by the link
+     * if the link-type is packet.
+     */
+    server_link_recv_fn recv;
+    server_link_send_fn send;
+    
+    /**
+     * Shared functions that must be implemented for links.
+     */
     server_link_setup_fn       setup;
-    server_link_accept_fn      accept;
-    server_link_recv_packet_fn recv_packet; // recieve packet from any source on the dgram address.
-    server_link_respond_fn     respond;
     server_link_destroy_fn     destroy;
 };
 

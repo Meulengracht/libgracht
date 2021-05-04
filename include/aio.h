@@ -36,16 +36,7 @@ typedef struct ioset_event gracht_aio_event_t;
 
 #define gracht_aio_create()                ioset(0)
 #define gracht_io_wait(aio, events, count) ioset_wait(aio, events, count, 0)
-#define gracht_aio_remove(aio, iod)        ioset_ctrl(aio, IOSET_DEL, iod, NULL);
 #define gracht_aio_destroy(aio)            close(aio)
-
-static int gracht_aio_add(int aio, int iod) {
-    struct ioset_event event = {
-        .events = IOSETIN | IOSETCTL | IOSETLVT,
-        .data.iod = iod
-    };
-    return ioset_ctrl(aio, IOSET_ADD, iod, &event);
-}
 
 #define gracht_aio_event_handle(event)    (event)->data.iod
 #define gracht_aio_event_events(event) (event)->events
@@ -61,45 +52,52 @@ typedef struct epoll_event gracht_aio_event_t;
 
 #define gracht_aio_create()                epoll_create1(0)
 #define gracht_io_wait(aio, events, count) epoll_wait(aio, events, count, -1);
-#define gracht_aio_remove(aio, iod)        epoll_ctl(aio, EPOLL_CTL_DEL, iod, NULL)
 #define gracht_aio_destroy(aio)            close(aio)
-
-static int gracht_aio_add(int aio, int iod) {
-    struct epoll_event event = {
-        .events = EPOLLIN | EPOLLRDHUP,
-        .data.fd = iod
-    };
-    return epoll_ctl(aio, EPOLL_CTL_ADD, iod, &event);
-}
 
 #define gracht_aio_event_handle(event) (event)->data.fd
 #define gracht_aio_event_events(event) (event)->events
 
 #elif defined(_WIN32)
 #include <windows.h>
+#include <stdlib.h>
+
+struct iocp_socket;
+struct iocp_handle {
+    HANDLE              iocp;
+    struct iocp_socket* head;
+}
 
 typedef struct gracht_aio_win32_event {
     unsigned int  events;
     gracht_conn_t iod;
 } gracht_aio_event_t;
+
 #define GRACHT_AIO_EVENT_IN         0x1
 #define GRACHT_AIO_EVENT_DISCONNECT 0x2
 
-#define gracht_aio_create()            CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0);
-#define gracht_aio_destroy(aio)        CloseHandle(aio)
-#define gracht_aio_event_handle(event) (event)->iod
-#define gracht_aio_event_events(event) (event)->events
+static gracht_handle_t gracht_aio_create(void) {
+    struct iocp_handle* iocp = malloc(sizeof(struct iocp_handle));
+    if (!iocp) {
+        return NULL;
+    }
 
-static int gracht_aio_add(gracht_handle_t aio, gracht_conn_t iod) {
-    HANDLE handle = CreateIoCompletionPort((HANDLE)(uintptr_t)iod, aio, iod, 0);
-    return handle == NULL ? -1 : 0;
+    iocp->iocp = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0);
+    if (!iocp->iocp) {
+        free(iocp);
+        return NULL;
+    }
+    iocp->head = NULL;
+    return iocp;
 }
 
-static int gracht_aio_remove(gracht_handle_t aio, gracht_conn_t iod)
-{
-    // null op
-    (void)aio;
-    (void)iod;
+static int gracht_aio_destroy(gracht_handle_t aio) {
+    struct iocp_handle* iocp = aio;
+    if (!aio) {
+        return -1;
+    }
+
+    CloseHandle(iocp->iocp);
+    free(iocp);
     return 0;
 }
 
@@ -124,6 +122,8 @@ static int gracht_io_wait(gracht_handle_t aio, gracht_aio_event_t* events, int c
     return 1;
 }
 
+#define gracht_aio_event_handle(event) (event)->iod
+#define gracht_aio_event_events(event) (event)->events
 #else
 #error "Undefined platform for aio"
 #endif

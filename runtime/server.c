@@ -248,13 +248,11 @@ int gracht_server_add_link(gracht_server_t* server, struct gracht_link* link)
         return -1;
     }
 
-    connection = link->ops.server.setup(link);
+    connection = link->ops.server.setup(link, server->set_handle);
     if (connection == GRACHT_CONN_INVALID) {
         GRERROR(GRSTR("gracht_server_add_link: provided link failed setup"));
         return -1;
     }
-
-    gracht_aio_add(server->set_handle, connection);
 
     server->link_table.handles[tableIndex] = connection;
     server->link_table.links[tableIndex]   = link;
@@ -265,7 +263,7 @@ static int handle_connection(struct gracht_server* server, struct gracht_link* l
 {
     struct gracht_server_client* client;
 
-    int status = link->ops.server.accept(link, &client);
+    int status = link->ops.server.accept_client(link, server->set_handle, &client);
     if (status) {
         GRERROR(GRSTR("gracht_server: failed to accept client"));
         return status;
@@ -282,10 +280,6 @@ static int handle_connection(struct gracht_server* server, struct gracht_link* l
         .client = client
     });
     rwlock_w_unlock(&server->clients_lock);
-
-    // this is no protected as it should be called only from the same thread. The thread
-    // that runs the orchestrator
-    gracht_aio_add(server->set_handle, client->handle);
 
     // invoke the new client callback at last
     if (server->callbacks.clientConnected) {
@@ -359,10 +353,10 @@ static int handle_packet(struct gracht_server* server, struct gracht_link* link)
     while (1) {
         struct gracht_message* message = server->ops->get_incoming_buffer(server);
 
-        status = link->ops.server.recv_packet(link, message, 0);
+        status = link->ops.server.recv(link, message, 0);
         if (status) {
             if (errno != ENODATA) {
-                GRERROR(GRSTR("handle_packet link->ops.server.recv_packet returned %i"), errno);
+                GRERROR(GRSTR("handle_packet link->ops.server.recv returned %i"), errno);
             }
             server->ops->put_message(server, message);
             break;
@@ -392,11 +386,6 @@ static int handle_client_event(struct gracht_server* server, gracht_conn_t handl
     // Check for control event. On non-passive sockets, control event is the
     // disconnect event.
     if (events & GRACHT_AIO_EVENT_DISCONNECT) {
-        status = gracht_aio_remove(server->set_handle, handle);
-        if (status) {
-            GRWARNING(GRSTR("handle_client_event: failed to remove descriptor from aio"));
-        }
-        
         client_destroy(server, handle);
     }
     else if ((events & GRACHT_AIO_EVENT_IN) || !events) {
@@ -446,13 +435,13 @@ static int gracht_server_shutdown(gracht_server_t* server)
 
     // start out by destroying all our clients
     rwlock_w_lock(&server->clients_lock);
-    hashtable_enumerate(&server->clients, client_enum_destroy, NULL);
+    hashtable_enumerate(&server->clients, client_enum_destroy, server);
     rwlock_w_unlock(&server->clients_lock);
 
     // destroy all our links
     for (i = 0; i < GRACHT_SERVER_MAX_LINKS; i++) {
         if (server->link_table.links[i]) {
-            server->link_table.links[i]->ops.server.destroy(server->link_table.links[i]);
+            server->link_table.links[i]->ops.server.destroy(server->link_table.links[i], server->set_handle);
             server->link_table.links[i] = NULL;
         }
     }
@@ -656,7 +645,7 @@ int gracht_server_respond(struct gracht_message* messageContext, gracht_buffer_t
             errno = ENODEV;
             return -1;
         }
-        status = link->ops.server.respond(link, messageContext, message);
+        status = link->ops.server.send(link, messageContext, message);
     }
     else {
         status = entry->link->ops.server.send_client(entry->client, message, GRACHT_MESSAGE_BLOCK);
@@ -821,7 +810,7 @@ static void client_destroy(struct gracht_server* server, gracht_conn_t client)
     rwlock_w_lock(&server->clients_lock);
     entry = hashtable_remove(&server->clients, &(struct client_wrapper){ .handle = client });
     if (entry) {
-        entry->link->ops.server.destroy_client(entry->client);
+        entry->link->ops.server.destroy_client(entry->client, server->set_handle);
     }
     rwlock_w_unlock(&server->clients_lock);
 }
@@ -976,8 +965,9 @@ static void client_enum_broadcast(int index, const void* element, void* userCont
 
 static void client_enum_destroy(int index, const void* element, void* userContext)
 {
-    const struct client_wrapper* entry = element;
+    const struct client_wrapper* entry  = element;
+    struct gracht_server*        server = userContext;
     (void)index;
     (void)userContext;
-    entry->link->ops.server.destroy_client(entry->client);
+    entry->link->ops.server.destroy_client(entry->client, server->set_handle);
 }

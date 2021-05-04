@@ -36,6 +36,7 @@ struct socket_link_client {
     struct sockaddr_storage     address;
     gracht_conn_t               socket;
     gracht_conn_t               link;
+    int                         streaming;
 };
 
 static unsigned int get_socket_flags(unsigned int flags)
@@ -124,6 +125,7 @@ static int socket_link_create_client(struct gracht_link_socket* link, struct gra
     memset(client, 0, sizeof(struct socket_link_client));
     client->base.handle = message->client;
     client->socket      = link->base.connection;
+    client->streaming   = 0;
 
     address = (struct sockaddr_storage*)&message->payload[0];
     memcpy(&client->address, address, (size_t)link->address_length);
@@ -132,7 +134,7 @@ static int socket_link_create_client(struct gracht_link_socket* link, struct gra
     return 0;
 }
 
-static int socket_link_destroy_client(struct socket_link_client* client)
+static int socket_link_destroy_client(struct socket_link_client* client, gracht_handle_t set_handle)
 {
     int status;
     
@@ -141,12 +143,19 @@ static int socket_link_destroy_client(struct socket_link_client* client)
         return -1;
     }
     
+    // remove the client if the client is a streaming one
+    if (client->streaming) {
+        status = socket_aio_remove(set_handle, client->socket);
+        if (status) {
+            GRWARNING(GRSTR("socket_link_destroy_client failed to remove client socket from set_handle"));
+        }
+    }
     status = close(client->base.handle);
     free(client);
     return status;
 }
 
-static gracht_conn_t socket_link_setup(struct gracht_link_socket* link)
+static gracht_conn_t socket_link_setup(struct gracht_link_socket* link, gracht_handle_t set_handle)
 {
     int status;
     
@@ -164,6 +173,10 @@ static gracht_conn_t socket_link_setup(struct gracht_link_socket* link)
             return GRACHT_CONN_INVALID;
         }
         
+        status = socket_aio_add(set_handle, link->base.connection);
+        if (status) {
+            GRWARNING(GRSTR("socket_link_setup failed to add socket to set_handle"));
+        }
         return link->base.connection;
     }
     else {
@@ -184,6 +197,10 @@ static gracht_conn_t socket_link_setup(struct gracht_link_socket* link)
             return GRACHT_CONN_INVALID;
         }
         
+        status = socket_aio_add(set_handle, link->base.connection);
+        if (status) {
+            GRWARNING(GRSTR("socket_link_setup failed to add socket to set_handle"));
+        }
         return link->base.connection;
     }
     
@@ -191,11 +208,15 @@ static gracht_conn_t socket_link_setup(struct gracht_link_socket* link)
     return GRACHT_CONN_INVALID;
 }
 
-static int socket_link_accept(struct gracht_link_socket* link, struct gracht_server_client** clientOut)
+static int socket_link_accept(
+    struct gracht_link_socket*    link,
+    gracht_handle_t               set_handle,
+    struct gracht_server_client** clientOut)
 {
     struct socket_link_client* client;
     socklen_t                  address_length = link->address_length;
-    GRTRACE(GRSTR("[socket_link_accept]"));
+    int                        status;
+    GRTRACE(GRSTR("socket_link_accept"));
 
     if (link->base.type == gracht_link_packet_based) {
         errno = ENOSYS;
@@ -204,7 +225,7 @@ static int socket_link_accept(struct gracht_link_socket* link, struct gracht_ser
     
     client = (struct socket_link_client*)malloc(sizeof(struct socket_link_client));
     if (!client) {
-        GRERROR(GRSTR("link_server: failed to allocate data for link"));
+        GRERROR(GRSTR("socket_link_accept failed to allocate data for link"));
         errno = (ENOMEM);
         return -1;
     }
@@ -213,11 +234,17 @@ static int socket_link_accept(struct gracht_link_socket* link, struct gracht_ser
 
     client->socket = accept(link->base.connection, (struct sockaddr*)&client->address, &address_length);
     if (client->socket < 0) {
-        GRERROR(GRSTR("link_server: failed to accept client: %i - %i"), client->socket, errno);
+        GRERROR(GRSTR("socket_link_accept failed to accept client: %i - %i"), client->socket, errno);
         free(client);
         return -1;
     }
     client->base.handle = client->socket;
+    client->streaming   = 1;
+    
+    status = socket_aio_add(set_handle, client->socket);
+    if (status) {
+        GRWARNING(GRSTR("socket_link_accept failed to add socket to set_handle"));
+    }
     
     *clientOut = &client->base;
     return 0;
@@ -283,13 +310,18 @@ static int socket_link_send_packet(struct gracht_link_socket* link,
     return 0;
 }
 
-static void socket_link_destroy(struct gracht_link_socket* link)
+static void socket_link_destroy(struct gracht_link_socket* link, gracht_handle_t set_handle)
 {
     if (!link) {
         return;
     }
 
     if (link->base.connection != GRACHT_CONN_INVALID) {
+        int status = socket_aio_remove(set_handle, link->base.connection);
+        if (status) {
+            GRWARNING(GRSTR("socket_link_destroy failed to remove link socket from set_handle"));
+        }
+
         close(link->base.connection);
     }
     free(link);
@@ -297,15 +329,16 @@ static void socket_link_destroy(struct gracht_link_socket* link)
 
 void gracht_link_server_socket_api(struct gracht_link_socket* link)
 {
+    link->base.ops.server.accept_client  = (server_accept_client_fn)socket_link_accept;
     link->base.ops.server.create_client  = (server_create_client_fn)socket_link_create_client;
     link->base.ops.server.destroy_client = (server_destroy_client_fn)socket_link_destroy_client;
 
     link->base.ops.server.recv_client = (server_recv_client_fn)socket_link_recv_client;
     link->base.ops.server.send_client = (server_send_client_fn)socket_link_send_client;
 
-    link->base.ops.server.setup       = (server_link_setup_fn)socket_link_setup;
-    link->base.ops.server.accept      = (server_link_accept_fn)socket_link_accept;
-    link->base.ops.server.recv_packet = (server_link_recv_packet_fn)socket_link_recv_packet;
-    link->base.ops.server.respond     = (server_link_respond_fn)socket_link_send_packet;
-    link->base.ops.server.destroy     = (server_link_destroy_fn)socket_link_destroy;
+    link->base.ops.server.recv    = (server_link_recv_fn)socket_link_recv_packet;
+    link->base.ops.server.send    = (server_link_send_fn)socket_link_send_packet;
+
+    link->base.ops.server.setup   = (server_link_setup_fn)socket_link_setup;
+    link->base.ops.server.destroy = (server_link_destroy_fn)socket_link_destroy;
 }
