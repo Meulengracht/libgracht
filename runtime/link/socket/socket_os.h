@@ -138,8 +138,8 @@ static int socket_aio_remove(gracht_handle_t aio, gracht_conn_t iod)
     }
 
     if (itr) {
-        WSACloseEvent(iocpEntry->events);
-        free(iocpEntry);
+        WSACloseEvent(itr->events);
+        free(itr);
         return 0;
     }
     return -1;

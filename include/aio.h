@@ -65,7 +65,7 @@ struct iocp_socket;
 struct iocp_handle {
     HANDLE              iocp;
     struct iocp_socket* head;
-}
+};
 
 typedef struct gracht_aio_win32_event {
     unsigned int  events;
