@@ -65,7 +65,7 @@ static int socket_aio_add(int aio, int iod) {
 
 struct iocp_socket {
     SOCKET              socket;
-    WSAEvent            events;
+    WSAEVENT            events;
     struct iocp_socket* link;
 };
 
