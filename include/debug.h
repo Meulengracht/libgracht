@@ -25,6 +25,13 @@
 
 #define GRACHT_TRACE
 
+// define format specifiers that vary from os to os
+#ifdef _WIN32
+#define F_CONN_T "zu"
+#else
+#define F_CONN_T "i"
+#endif
+
 #if defined(MOLLENOS)
 //#define __TRACE
 #include <ddk/utils.h>
@@ -34,6 +41,7 @@
 #define GRWARNING  WARNING
 #define GRERROR    ERROR
 #else
+
 #include <stdio.h>
 #define GRSTR(str)     str "\n"
 #define GRTRACE(...)   printf(__VA_ARGS__)

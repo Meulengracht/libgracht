@@ -381,7 +381,7 @@ static struct gracht_link* get_link_by_conn(struct gracht_server* server, gracht
 static int handle_client_event(struct gracht_server* server, gracht_conn_t handle, uint32_t events)
 {
     int status;
-    GRTRACE(GRSTR("handle_client_event %i, 0x%x"), handle, events);
+    GRTRACE(GRSTR("handle_client_event %" F_CONN_T ", 0x%x"), handle, events);
     
     // Check for control event. On non-passive sockets, control event is the
     // disconnect event.
@@ -592,7 +592,7 @@ int gracht_server_main_loop(gracht_server_t* server)
             gracht_conn_t handle = gracht_aio_event_handle(&events[i]);
             uint32_t      flags  = gracht_aio_event_events(&events[i]);
 
-            GRTRACE(GRSTR("gracht_server: event %u from %i"), flags, handle);
+            GRTRACE(GRSTR("gracht_server: event %u from %" F_CONN_T), flags, handle);
             if (gracht_server_handle_event(server, handle, flags) == -1 && errno == EPIPE) {
                 // server has been shutdown by the handle_event
                 return 0;

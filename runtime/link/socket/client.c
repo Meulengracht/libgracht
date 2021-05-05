@@ -32,9 +32,9 @@
 static int socket_link_send_stream(struct gracht_link_socket* link,
     struct gracht_buffer* message)
 {
-    intmax_t byteCount;
+    long byteCount;
     
-    byteCount = send(link->base.connection, &message->data[0], message->index, 0);
+    byteCount = (long)send(link->base.connection, &message->data[0], message->index, 0);
     if (byteCount != message->index) {
         GRERROR(GRSTR("link_client: failed to send message, bytes sent: %li, expected: %u (%i)"),
               byteCount, message->index, errno);
@@ -100,13 +100,14 @@ static int socket_link_recv_packet(struct gracht_link_socket* link, struct grach
     socklen_t addrlen = link->address_length;
     char*     base    = &message->data[addrlen];
     size_t    len     = message->index - addrlen;
+    long      bytes_read;
     
     message->index = addrlen;
     
     // Packets are atomic, either the full packet is there, or none is. So avoid
     // the use of MSG_WAITALL here.
     GRTRACE(GRSTR("[gracht_connection_recv_stream] reading full message"));
-    intmax_t bytes_read = (intmax_t)recvfrom(link->base.connection, base, len, flags, 
+    bytes_read = (long)recvfrom(link->base.connection, base, len, flags, 
         (struct sockaddr*)&message->data[0], &addrlen);
     if (bytes_read < GRACHT_MESSAGE_HEADER_SIZE) {
         if (bytes_read == 0) {

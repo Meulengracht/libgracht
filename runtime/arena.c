@@ -113,12 +113,12 @@ static inline void move_header(struct gracht_header* header, long byteCount)
     memmove(target, header, HEADER_SIZE);
 }
 
-static inline struct gracht_header* find_free_header(struct gracht_arena* arena, size_t size)
+static inline struct gracht_header* find_free_header(struct gracht_arena* arena, uint32_t size)
 {
     struct gracht_header* itr    = arena->base;
-    size_t                length = 0;
+    uint32_t              length = 0;
 
-    GRTRACE(GRSTR("find_free_header(arena=0x%p, size=%lu)"), arena, size);
+    GRTRACE(GRSTR("find_free_header(arena=0x%p, size=%u)"), arena, size);
     while (length < arena->length) {
         GRTRACE(GRSTR("header: at=0x%p length=%u, allocated=%i"), itr, itr->length, itr->allocated);
         if (!itr->allocated && itr->length >= size) {
@@ -139,7 +139,7 @@ void* gracht_arena_allocate(struct gracht_arena* arena, void* allocation, size_t
 {
     struct gracht_header* allocHeader;
     uint32_t              correctedSize = (uint32_t)(size & 0x00FFFFFF);
-    GRTRACE(GRSTR("gracht_arena_allocate(arena=0x%p, allocation=0x%p, size=%lu)"), arena, allocation, size);
+    GRTRACE(GRSTR("gracht_arena_allocate(arena=0x%p, allocation=0x%p, size=%u)"), arena, allocation, correctedSize);
 
     if (!arena || !size) {
         return NULL;
@@ -168,7 +168,7 @@ void* gracht_arena_allocate(struct gracht_arena* arena, void* allocation, size_t
         }
     }
     else {
-        allocHeader = find_free_header(arena, size);
+        allocHeader = find_free_header(arena, correctedSize);
     }
     
     if (!allocHeader) {
@@ -198,7 +198,7 @@ void gracht_arena_free(struct gracht_arena* arena, void* memory, size_t size)
     struct gracht_header* header;
     struct gracht_header* nextHeader;
     uint32_t              allocLength = (uint32_t)(size & 0x00FFFFFF);
-    GRTRACE(GRSTR("gracht_arena_free(arena=0x%p, memory=0x%p, size=%lu)"), arena, memory, size);
+    GRTRACE(GRSTR("gracht_arena_free(arena=0x%p, memory=0x%p, size=%u)"), arena, memory, allocLength);
 
     if (!arena || !memory) {
         return;
