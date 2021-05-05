@@ -39,6 +39,9 @@
 #define GRACHTAPI extern
 #endif
 
+/**
+ * Define handle types and connection types (usually corresponds to HANDLE or a fd)
+ */
 #if defined(_WIN32)
 typedef void*      gracht_handle_t;
 typedef uintptr_t  gracht_conn_t;
