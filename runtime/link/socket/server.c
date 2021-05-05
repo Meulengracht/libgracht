@@ -279,7 +279,7 @@ static gracht_conn_t socket_link_setup(struct gracht_link_socket* link, gracht_h
 
         // queue up the first read
         status = WSARecvFrom(link->base.connection, &link->waitbuf, 1, NULL, &link->recvFlags,
-            (sockaddr*)&link->buffer[GRACHT_MESSAGE_HEADER_SIZE], &link->recvLength, &link->overlapped, NULL);
+            (SOCKADDR*)&link->buffer[GRACHT_MESSAGE_HEADER_SIZE], &link->recvLength, &link->overlapped, NULL);
         if (status == SOCKET_ERROR) {
             DWORD reason = WSAGetLastError();
             if (reason != WSA_IO_PENDING) {
@@ -486,7 +486,7 @@ static int socket_link_recv_packet(struct gracht_link_socket* link,
 #ifdef _WIN32
     // queue up another read
     int status = WSARecvFrom(link->base.connection, &link->waitbuf, 1, NULL, &link->recvFlags,
-        (sockaddr*)&link->buffer[GRACHT_MESSAGE_HEADER_SIZE], &link->recvLength, &link->overlapped, NULL);
+        (SOCKADDR*)&link->buffer[GRACHT_MESSAGE_HEADER_SIZE], &link->recvLength, &link->overlapped, NULL);
     if (status == SOCKET_ERROR) {
         DWORD reason = WSAGetLastError();
         if (reason != WSA_IO_PENDING) {
