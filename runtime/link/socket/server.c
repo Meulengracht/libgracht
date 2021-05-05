@@ -129,6 +129,7 @@ static int socket_link_recv_client(struct socket_link_client* client,
 
     // extract the number of bytes received
     status = WSAGetOverlappedResult(client->socket, &client->overlapped, &overlappedLength, FALSE, &overlappedFlags);
+    GRTRACE(GRSTR("WSAGetOverlappedResult=%i, %u"), status, overlappedLength);
     if (status == FALSE) {
         errno = ENODATA;
         return -1;

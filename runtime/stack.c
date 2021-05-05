@@ -23,6 +23,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef _WIN32
+typedef uintptr_t uint_loaded_t;
+#else
+typedef unsigned int uint_loaded_t;
+#endif
+
 int stack_construct(struct stack* stack, size_t initialCount)
 {
     uintptr_t space;
@@ -78,7 +84,7 @@ int stack_resize(struct stack* stack, size_t newSize)
 
 void stack_push(struct stack* stack, void* pointer)
 {
-    unsigned int index;
+    uint_loaded_t index;
 
     if (!stack || !pointer) {
         return;
@@ -98,8 +104,8 @@ perform_push:
 
 void* stack_pop(struct stack* stack)
 {
-    unsigned int index;
-    int          result;
+    uint_loaded_t index;
+    int           result;
 
     if (!stack) {
         return NULL;
@@ -115,5 +121,5 @@ perform_pop:
     if (!result) {
         goto perform_pop;
     }
-    return (void*)((uintptr_t*)atomic_load(&stack->elements))[index];
+    return (void*)((uintptr_t*)atomic_load(&stack->elements))[index - 1];
 }

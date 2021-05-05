@@ -83,16 +83,16 @@ static inline int atomic_compare_exchange_strong(
 
 #ifdef _WIN64
 #define atomic_fetch_add(object, operand) \
-    InterlockedExchangeAdd(object, operand)
-
-#define atomic_fetch_sub(object, operand) \
-    InterlockedExchangeAdd(object, -(operand))
-#else
-#define atomic_fetch_add(object, operand) \
     InterlockedExchangeAdd64(object, operand)
 
 #define atomic_fetch_sub(object, operand) \
     InterlockedExchangeAdd64(object, -(operand))
+#else
+#define atomic_fetch_add(object, operand) \
+    InterlockedExchangeAdd(object, operand)
+
+#define atomic_fetch_sub(object, operand) \
+    InterlockedExchangeAdd(object, -(operand))
 #endif
 #else
 #include <stdatomic.h>

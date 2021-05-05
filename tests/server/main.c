@@ -19,6 +19,7 @@
  * - Implementation of various test programs that verify behaviour of libgracht
  */
 
+#include <assert.h>
 #include <errno.h>
 #include <gracht/link/socket.h>
 #include <gracht/server.h>
@@ -88,6 +89,8 @@ void test_utils_transfer_many_invocation(struct gracht_message* message, const s
     uint32_t                     i;
 
     statuses = (struct test_transfer_status*)malloc(sizeof(struct test_transfer_status) * transactions_count);
+    assert(statuses != NULL);
+
     for (i = 0; i < transactions_count; i++) {
         statuses[i].test_id = transactions[i].test_id;
         statuses[i].code = 13;

@@ -409,6 +409,9 @@ static int handle_client_event(struct gracht_server* server, gracht_conn_t handl
             
             status = entry->link->ops.server.recv_client(entry->client, message, 0);
             if (status) {
+                server->ops->put_message(server, message);
+                rwlock_r_unlock(&server->clients_lock);
+
                 // silence the three below error codes, those are expected
                 if (errno != ENODATA && errno != EAGAIN && errno != EFAULT) {
                     GRERROR(GRSTR("handle_client_event server_object.link->recv_client returned %i"), errno);
@@ -417,10 +420,10 @@ static int handle_client_event(struct gracht_server* server, gracht_conn_t handl
                 // detect cases of disconnection or transmission failures that are fatal.
                 // in these cases we expect the underlying link to specify EFAULT
                 if (errno == EFAULT) {
+                    GRTRACE(GRSTR("handle_client_event client disconnected, cleaning up"));
                     client_destroy(server, handle);
                 }
-                server->ops->put_message(server, message);
-                break;
+                return 0;
             }
 
             server->ops->dispatch(server, message);
