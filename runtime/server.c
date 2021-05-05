@@ -434,6 +434,7 @@ static int gracht_server_shutdown(gracht_server_t* server)
 {
     void* buffer;
     int   i;
+    GRTRACE(GRSTR("gracht_server_shutdown()"));
 
     if (server->state == SHUTDOWN) {
         errno = EALREADY;

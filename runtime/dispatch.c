@@ -104,6 +104,9 @@ void gracht_worker_pool_destroy(struct gracht_worker_pool* pool)
     // destroy pool of workers
     for (i = 0; i < pool->worker_count; i++) {
         pool->workers[i].state = WORKER_SHUTDOWN_REQUEST;
+        cnd_signal(&pool->workers[i].signal);
+
+        // wait for cleanup
         thrd_join(pool->workers[i].id, &exitCode);
         cleanup_worker(&pool->workers[i]);
     }
