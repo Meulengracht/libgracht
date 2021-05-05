@@ -26,6 +26,19 @@
 #include <stdint.h>
 #include <stddef.h>
 
+/**
+ * Handle shared library exporting for non-linux platforms
+ */
+#if defined(GRACHT_SHARED_LIBRARY) && (defined(_WIN32) || defined(MOLLENOS))
+#ifdef GRACHT_BUILD
+#define GRACHTAPI __declspec(dllexport)
+#else
+#define GRACHTAPI __declspec(dllimport)
+#endif
+#else
+#define GRACHTAPI extern
+#endif
+
 #if defined(_WIN32)
 typedef void*      gracht_handle_t;
 typedef uintptr_t  gracht_conn_t;

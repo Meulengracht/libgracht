@@ -49,14 +49,14 @@ extern "C" {
  * 
  * @return int 
  */
-int gracht_link_socket_setup(void);
+GRACHTAPI int gracht_link_socket_setup(void);
 
 /**
  * Only used on windows so far, and is used to cleanup the WSA socket library.
  * 
  * @return int 
  */
-int gracht_link_socket_cleanup(void);
+GRACHTAPI int gracht_link_socket_cleanup(void);
 #endif
 
 /**
@@ -66,11 +66,11 @@ int gracht_link_socket_cleanup(void);
  */
 struct gracht_link_socket;
 
-int  gracht_link_socket_create(struct gracht_link_socket** linkOut);
-void gracht_link_socket_set_type(struct gracht_link_socket* link, enum gracht_link_type type);
-void gracht_link_socket_set_listen(struct gracht_link_socket* link, int listen);
-void gracht_link_socket_set_domain(struct gracht_link_socket* link, int socketDomain);
-void gracht_link_socket_set_address(struct gracht_link_socket* link, const struct sockaddr_storage* address, socklen_t length);
+GRACHTAPI int  gracht_link_socket_create(struct gracht_link_socket** linkOut);
+GRACHTAPI void gracht_link_socket_set_type(struct gracht_link_socket* link, enum gracht_link_type type);
+GRACHTAPI void gracht_link_socket_set_listen(struct gracht_link_socket* link, int listen);
+GRACHTAPI void gracht_link_socket_set_domain(struct gracht_link_socket* link, int socketDomain);
+GRACHTAPI void gracht_link_socket_set_address(struct gracht_link_socket* link, const struct sockaddr_storage* address, socklen_t length);
 
 #ifdef __cplusplus
 }

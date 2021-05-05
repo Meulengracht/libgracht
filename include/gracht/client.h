@@ -53,11 +53,11 @@ extern "C" {
 /**
  * Configuration interface, use these as helpers instead of accessing the raw structure.
  */
-void gracht_client_configuration_init(gracht_client_configuration_t* config);
-void gracht_client_configuration_set_link(gracht_client_configuration_t* config, struct gracht_link* link);
-void gracht_client_configuration_set_send_buffer(gracht_client_configuration_t* config, void* buffer);
-void gracht_client_configuration_set_recv_buffer(gracht_client_configuration_t* config, void* buffer, int size);
-void gracht_client_configuration_set_max_msg_size(gracht_client_configuration_t* config, int maxMessageSize);
+GRACHTAPI void gracht_client_configuration_init(gracht_client_configuration_t* config);
+GRACHTAPI void gracht_client_configuration_set_link(gracht_client_configuration_t* config, struct gracht_link* link);
+GRACHTAPI void gracht_client_configuration_set_send_buffer(gracht_client_configuration_t* config, void* buffer);
+GRACHTAPI void gracht_client_configuration_set_recv_buffer(gracht_client_configuration_t* config, void* buffer, int size);
+GRACHTAPI void gracht_client_configuration_set_max_msg_size(gracht_client_configuration_t* config, int maxMessageSize);
 
 /**
  * Creates a new instance of a gracht client based on the link configuration. An application
@@ -68,7 +68,7 @@ void gracht_client_configuration_set_max_msg_size(gracht_client_configuration_t*
  * @param clientOut Storage for the client pointer.
  * @return int Returns 0 if the creation was successful.
  */
-int gracht_client_create(gracht_client_configuration_t* config, gracht_client_t** clientOut);
+GRACHTAPI int gracht_client_create(gracht_client_configuration_t* config, gracht_client_t** clientOut);
 
 /**
  * Connects the client to the configured server.
@@ -76,7 +76,7 @@ int gracht_client_create(gracht_client_configuration_t* config, gracht_client_t*
  * @param client A client previously created by using gracht_client_create.
  * @return int Returns 0 if the connection was successful
  */
-int gracht_client_connect(gracht_client_t* client);
+GRACHTAPI int gracht_client_connect(gracht_client_t* client);
 
 /**
  * Registers a new protocol with the client. A max of 255 protocols can be registered, and if
@@ -86,7 +86,7 @@ int gracht_client_connect(gracht_client_t* client);
  * @param protocol The protocol instance to register.
  * @return int Returns 0 if the protocol was registered, or -1 if max count of protocols has been registered.
  */
-int gracht_client_register_protocol(gracht_client_t* client, gracht_protocol_t* protocol);
+GRACHTAPI int gracht_client_register_protocol(gracht_client_t* client, gracht_protocol_t* protocol);
 
 /**
  * Unregisters a previously registered protocol. Any messages targetted for that protocol will be ignored after
@@ -94,7 +94,7 @@ int gracht_client_register_protocol(gracht_client_t* client, gracht_protocol_t* 
  * 
  * @param protocol The protocol that should be unregistered. 
  */
-void gracht_client_unregister_protocol(gracht_client_t* client, gracht_protocol_t* protocol);
+GRACHTAPI void gracht_client_unregister_protocol(gracht_client_t* client, gracht_protocol_t* protocol);
 
 /**
  * Destroys a previously created client. This frees up the resources associated, and disconnects any outstanding
@@ -102,7 +102,7 @@ void gracht_client_unregister_protocol(gracht_client_t* client, gracht_protocol_
  * 
  * @param client A pointer to a previously created gracht client.
  */
-void gracht_client_shutdown(gracht_client_t* client);
+GRACHTAPI void gracht_client_shutdown(gracht_client_t* client);
 
 /**
  * Returns the associated connection handle/descriptor that the clients uses. This can be
@@ -111,7 +111,7 @@ void gracht_client_shutdown(gracht_client_t* client);
  * @param client A pointer to a previously created gracht client.
  * @return gracht_conn_t The connection descriptor/handle.
  */
-gracht_conn_t gracht_client_iod(gracht_client_t* client);
+GRACHTAPI gracht_conn_t gracht_client_iod(gracht_client_t* client);
 
 /**
  * Wait for any incoming message. This function can be used to block untill a message is recieved. 
@@ -123,7 +123,7 @@ gracht_conn_t gracht_client_iod(gracht_client_t* client);
  * @param flags The flag GRACHT_MESSAGE_BLOCK can be specified to block untill a new message is received.
  * @return int Result of the wait. Returns 0 if a message was received and handled. Returns -1 if no messages are in queue.
  */
-int gracht_client_wait_message(gracht_client_t *client, struct gracht_message_context *context, unsigned int flags);
+GRACHTAPI int gracht_client_wait_message(gracht_client_t *client, struct gracht_message_context *context, unsigned int flags);
 
 /**
  * Can be used to await a response for a specific function invoke. This only returns when the function response
@@ -135,7 +135,7 @@ int gracht_client_wait_message(gracht_client_t *client, struct gracht_message_co
  * @param flags The waiting mode that should be used.
  * @return int Status of the wait. Only returns -1 if there was any connection issues.
  */
-int gracht_client_await(gracht_client_t* client, struct gracht_message_context* context, unsigned int flags);
+GRACHTAPI int gracht_client_await(gracht_client_t* client, struct gracht_message_context* context, unsigned int flags);
 
 /**
  * Can be used to await multiple response for function invokes. The client can initiate multiple function calls
@@ -149,7 +149,7 @@ int gracht_client_await(gracht_client_t* client, struct gracht_message_context* 
  * @param flags The waiting mode that should be used.
  * @return int Status of the wait. Only returns -1 if there was any connection issues.
  */
-int gracht_client_await_multiple(gracht_client_t* client, struct gracht_message_context** contexts, int count, unsigned int flags);
+GRACHTAPI int gracht_client_await_multiple(gracht_client_t* client, struct gracht_message_context** contexts, int count, unsigned int flags);
 
 #ifdef __cplusplus
 }

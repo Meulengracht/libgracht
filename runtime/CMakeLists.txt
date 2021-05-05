@@ -1,4 +1,7 @@
 
+option (GRACHT_C_BUILD_STATIC "Build the C runtime as a shared library" ON)
+option (GRACHT_C_BUILD_SHARED "Build the C runtime as a shared library" ON)
+
 set (WARNING_COMPILE_FLAGS "-Wall -Wextra -Wno-unused-function")
 set (SRCS "")
 
@@ -43,10 +46,19 @@ if (UNIX)
     add_definitions(${WARNING_COMPILE_FLAGS})
 endif ()
 
+add_definitions(-DGRACHT_BUILD)
+
 add_sources(link/socket/client.c link/socket/server.c link/socket/shared.c)
 add_sources(client.c client_config.c crc.c server.c server_config.c shared.c stack.c queue.c arena.c dispatch.c hashtable.c control.c)
 
-add_library(gracht ${SRCS})
+if (GRACHT_C_BUILD_STATIC)
+    add_library(gracht_static ${SRCS})
+endif ()
+
+if (GRACHT_C_BUILD_SHARED)
+    add_library(gracht SHARED ${SRCS})
+    target_compile_definitions(gracht PUBLIC -DGRACHT_SHARED_LIBRARY)
+endif ()
 
 if (VALI_BUILD)
     install(TARGETS gracht

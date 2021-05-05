@@ -604,17 +604,17 @@ def define_structures(service, outfile):
         write_structure_functionality(service, struct, outfile)
 
 def write_client_api(service, outfile):
-    outfile.write("extern int gracht_client_get_buffer(gracht_client_t*, gracht_buffer_t*);\n")
-    outfile.write("extern int gracht_client_get_status_buffer(gracht_client_t*, struct gracht_message_context*, gracht_buffer_t*);\n")
-    outfile.write("extern int gracht_client_status_finalize(gracht_client_t*, struct gracht_message_context*);\n")
-    outfile.write("extern int gracht_client_invoke(gracht_client_t*, struct gracht_message_context*, gracht_buffer_t*);\n\n")
+    outfile.write("GRACHTAPI int gracht_client_get_buffer(gracht_client_t*, gracht_buffer_t*);\n")
+    outfile.write("GRACHTAPI int gracht_client_get_status_buffer(gracht_client_t*, struct gracht_message_context*, gracht_buffer_t*);\n")
+    outfile.write("GRACHTAPI int gracht_client_status_finalize(gracht_client_t*, struct gracht_message_context*);\n")
+    outfile.write("GRACHTAPI int gracht_client_invoke(gracht_client_t*, struct gracht_message_context*, gracht_buffer_t*);\n\n")
     outfile.write("\n")
 
 def write_server_api(service, outfile):
-    outfile.write("extern int gracht_server_get_buffer(gracht_server_t*, gracht_buffer_t*);\n")
-    outfile.write("extern int gracht_server_respond(struct gracht_message*, gracht_buffer_t*);\n")
-    outfile.write("extern int gracht_server_send_event(gracht_server_t*, gracht_conn_t client, gracht_buffer_t*, unsigned int flags);\n")
-    outfile.write("extern int gracht_server_broadcast_event(gracht_server_t*, gracht_buffer_t*, unsigned int flags);\n")
+    outfile.write("GRACHTAPI int gracht_server_get_buffer(gracht_server_t*, gracht_buffer_t*);\n")
+    outfile.write("GRACHTAPI int gracht_server_respond(struct gracht_message*, gracht_buffer_t*);\n")
+    outfile.write("GRACHTAPI int gracht_server_send_event(gracht_server_t*, gracht_conn_t client, gracht_buffer_t*, unsigned int flags);\n")
+    outfile.write("GRACHTAPI int gracht_server_broadcast_event(gracht_server_t*, gracht_buffer_t*, unsigned int flags);\n")
     outfile.write("\n")
 
 # Define the client callback array - this is the one that will be registered with the client
