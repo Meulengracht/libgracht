@@ -607,7 +607,7 @@ def write_client_api(service, outfile):
     outfile.write("GRACHTAPI int gracht_client_get_buffer(gracht_client_t*, gracht_buffer_t*);\n")
     outfile.write("GRACHTAPI int gracht_client_get_status_buffer(gracht_client_t*, struct gracht_message_context*, gracht_buffer_t*);\n")
     outfile.write("GRACHTAPI int gracht_client_status_finalize(gracht_client_t*, struct gracht_message_context*);\n")
-    outfile.write("GRACHTAPI int gracht_client_invoke(gracht_client_t*, struct gracht_message_context*, gracht_buffer_t*);\n\n")
+    outfile.write("GRACHTAPI int gracht_client_invoke(gracht_client_t*, struct gracht_message_context*, gracht_buffer_t*);\n")
     outfile.write("\n")
 
 def write_server_api(service, outfile):

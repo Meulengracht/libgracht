@@ -88,6 +88,12 @@ typedef struct gracht_server {
     struct link_table              link_table;
 } gracht_server_t;
 
+// api we export to generated files
+GRACHTAPI int gracht_server_get_buffer(gracht_server_t*, gracht_buffer_t*);
+GRACHTAPI int gracht_server_respond(struct gracht_message*, gracht_buffer_t*);
+GRACHTAPI int gracht_server_send_event(gracht_server_t*, gracht_conn_t client, gracht_buffer_t*, unsigned int flags);
+GRACHTAPI int gracht_server_broadcast_event(gracht_server_t*, gracht_buffer_t*, unsigned int flags);
+
 static struct gracht_message* get_in_buffer_st(struct gracht_server*);
 static void                   put_message_st(struct gracht_server*, struct gracht_message*);
 static void                   dispatch_st(struct gracht_server*, struct gracht_message*);
