@@ -437,11 +437,10 @@ static int socket_link_recv_packet(struct gracht_link_socket* link,
     }
 
 #ifdef _WIN32
-    uint32_t restOfData;
-    DWORD    overlappedFlags;
-    DWORD    overlappedLength;
-    BOOL     didSucceed;
-    int      bytesRead;
+    DWORD overlappedFlags;
+    DWORD overlappedLength;
+    BOOL  didSucceed;
+    int   bytesRead;
 
     // extract the number of bytes received
     didSucceed = WSAGetOverlappedResult(link->base.connection, &link->overlapped, &overlappedLength, FALSE, &overlappedFlags);
@@ -450,14 +449,19 @@ static int socket_link_recv_packet(struct gracht_link_socket* link,
         return -1;
     }
 
-    memcpy(&context->payload[0], &link->buffer[0], overlappedLength);
-    if (overlappedLength < GRACHT_MESSAGE_HEADER_SIZE) {
-        GRTRACE(GRSTR("socket_link_recv_client reading rest of message header %li/%i"), overlappedLength, GRACHT_MESSAGE_HEADER_SIZE);
-        restOfData = GRACHT_MESSAGE_HEADER_SIZE - overlappedLength;
-        bytesRead = recv(link->base.connection, &context->payload[overlappedLength], restOfData, MSG_WAITALL);
-        if (bytesRead != restOfData) {
-            return -1;
+    // store initial bytes received (header) and store the address
+    memcpy(base, &link->buffer[0], overlappedLength);
+    memcpy(&context->payload[0], &link->buffer[GRACHT_MESSAGE_HEADER_SIZE], link->recvLength);
+    // link->recvLength should == link->address_length
+
+    // read the rest of the message
+    GRTRACE(GRSTR("socket_link_recv_packet reading rest of message"));
+    bytesRead = recv(link->base.connection, base + overlappedLength, len - overlappedLength, MSG_WAITALL);
+    if (bytesRead <= 0) {
+        if (bytesRead == 0) {
+            errno = (ENODATA);
         }
+        return -1;
     }
 #else
     // Packets are atomic, either the full packet is there, or none is. So avoid
