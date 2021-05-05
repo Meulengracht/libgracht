@@ -758,30 +758,7 @@ void gracht_server_unregister_protocol(gracht_server_t* server, gracht_protocol_
     rwlock_w_unlock(&server->protocols_lock);
 }
 
-gracht_conn_t gracht_server_get_dgram_iod(gracht_server_t* server)
-{
-    if (!server) {
-        errno = EINVAL;
-        return GRACHT_CONN_INVALID;
-    }
-
-    if (server->state != RUNNING) {
-        errno = EPERM;
-        return GRACHT_CONN_INVALID;
-    }
-
-    for (int i = 0; i < GRACHT_SERVER_MAX_LINKS; i++) {
-        if (server->link_table.links[i] &&
-            server->link_table.links[i]->type == gracht_link_packet_based) {
-                return server->link_table.handles[i];
-        }
-    }
-
-    errno = ENOENT;
-    return GRACHT_CONN_INVALID;
-}
-
-gracht_handle_t gracht_server_get_set_iod(gracht_server_t* server)
+gracht_handle_t gracht_server_get_aio_handle(gracht_server_t* server)
 {
     if (!server) {
         errno = EINVAL;

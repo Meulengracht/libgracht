@@ -24,6 +24,7 @@
 #define __GRACHT_UTILS_H__
 
 #include "gracht/types.h"
+#include "gracht/link/link.h"
 
 typedef struct hashtable hashtable_t;
 
@@ -31,6 +32,15 @@ typedef struct hashtable hashtable_t;
 #include <malloc.h>
 #define alloca _alloca
 #endif
+
+struct gracht_link {
+    enum gracht_link_type type;
+    union {
+        struct server_link_ops server;
+        struct client_link_ops client;
+    } ops;
+    gracht_conn_t connection;
+};
 
 #define MSG_INDEX_ID  0
 #define MSG_INDEX_LEN 4

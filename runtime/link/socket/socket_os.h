@@ -23,6 +23,8 @@
 #ifndef __GRACHT_SOCKET_OS_H__
 #define __GRACHT_SOCKET_OS_H__
 
+#include "utils.h"
+
 #if defined(MOLLENOS)
 #include <inet/socket.h>
 #include <ioset.h>
@@ -57,7 +59,6 @@ static int socket_aio_add(int aio, int iod) {
 #include <windows.h>
 #include <mswsock.h>
 #include "aio.h"
-#include "utils.h"
 #include <io.h>
 #include <stdlib.h>
     

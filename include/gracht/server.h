@@ -60,6 +60,10 @@ extern "C" {
 
 /**
  * Configuration interface, use these as helpers instead of accessing the raw structure.
+ * When providing the aio descriptor to the server (windows: iocp handle, linux: epoll fd),
+ * the server will then use that to queue up handles and listen for events. If the server is
+ * used asynchronously, then the application must listen itself on the aio handle provided and
+ * then call gracht_server_handle_event when it detects a handle from the server.
  */
 void gracht_server_configuration_init(gracht_server_configuration_t* config);
 void gracht_server_configuration_set_aio_descriptor(gracht_server_configuration_t* config, gracht_handle_t descriptor);
@@ -135,18 +139,11 @@ int gracht_server_handle_event(gracht_server_t* server, gracht_conn_t handle, un
 int gracht_server_main_loop(gracht_server_t* server);
 
 /**
- * Returns the datagram (connectionless) file descriptor that is used by the server.
- * 
- * @return int The datagram (connectionless) file descriptor.
- */
-gracht_conn_t gracht_server_get_dgram_iod(gracht_server_t* server);
-
-/**
  * Returns the epoll/select/completion port handle/descriptor that is used by the server.
  * 
  * @return aio_handle_t The handle/descriptor.
  */
-gracht_handle_t gracht_server_get_set_iod(gracht_server_t* server);
+gracht_handle_t gracht_server_get_aio_handle(gracht_server_t* server);
 
 /**
  * Creates a deferrable copy of a received message, allowing the caller to specify both

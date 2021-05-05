@@ -95,13 +95,11 @@ struct client_link_ops {
     client_link_destroy_fn destroy;
 };
 
-struct gracht_link {
-    enum gracht_link_type type;
-    union {
-        struct server_link_ops server;
-        struct client_link_ops client;
-    } ops;
-    gracht_conn_t connection;
-};
+/**
+ * Link interface that can be used to query data from links if the application
+ * keeps the link pointer around.
+ */
+gracht_conn_t         gracht_link_get_handle(struct gracht_link* link);
+enum gracht_link_type gracht_link_get_type(struct gracht_link* link);
 
 #endif // !__GRACHT_LINK_H__

@@ -50,3 +50,21 @@ gracht_protocol_function_t* get_protocol_action(hashtable_t* protocols,
     errno = ENOTSUP;
     return NULL;
 }
+
+gracht_conn_t gracht_link_get_handle(struct gracht_link* link)
+{
+    if (!link) {
+        return GRACHT_CONN_INVALID;
+    }
+
+    return link->connection;
+}
+
+enum gracht_link_type gracht_link_get_type(struct gracht_link* link)
+{
+    if (!link) {
+        return gracht_link_stream_based;
+    }
+
+    return link->type;
+}
