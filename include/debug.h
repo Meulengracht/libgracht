@@ -23,7 +23,7 @@
 #ifndef __GRACHT_DEBUG_H__
 #define __GRACHT_DEBUG_H__
 
-#define GRACHT_TRACE
+//#define GRACHT_TRACE
 
 // define format specifiers that vary from os to os
 #ifdef _WIN32
