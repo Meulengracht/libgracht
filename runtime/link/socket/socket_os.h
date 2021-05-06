@@ -64,7 +64,7 @@ static int socket_aio_add(int aio, int iod) {
     
 #define close closesocket
 
-#define MSG_DONTWAIT 0x10000
+#define MSG_DONTWAIT 0
 
 struct iocp_socket {
     SOCKET              socket;
@@ -132,6 +132,14 @@ static int socket_aio_remove(gracht_handle_t aio, gracht_conn_t iod)
         return 0;
     }
     return -1;
+}
+
+static inline void __set_nonblocking_if_needed(unsigned int flags) {
+    u_long opt = 0;
+    if (!(flags & GRACHT_MESSAGE_BLOCK)) {
+        opt = 1;
+    }
+    ioctlsocket(link->base.connection, FIONBIO, &opt);
 }
 
 #endif

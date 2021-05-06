@@ -147,20 +147,26 @@ static int socket_link_recv(struct gracht_link_socket* link,
     struct gracht_buffer* message, unsigned int flags)
 {
     unsigned int convertedFlags = MSG_WAITALL;
-    
+    int          status         = -1;
+
+#ifdef _WIN32
+        __set_nonblocking_if_needed(flags);
+#endif
+
     if (!(flags & GRACHT_MESSAGE_BLOCK)) {
         convertedFlags |= MSG_DONTWAIT;
     }
     
     if (link->base.type == gracht_link_stream_based) {
-        return socket_link_recv_stream(link, message, convertedFlags);
+        status = socket_link_recv_stream(link, message, convertedFlags);
     }
     else if (link->base.type == gracht_link_packet_based) {
-        return socket_link_recv_packet(link, message, convertedFlags);
+        status = socket_link_recv_packet(link, message, convertedFlags);
     }
-    
-    errno = (ENOTSUP);
-    return -1;
+    else {
+        errno = (ENOTSUP);
+    }
+    return status;
 }
 
 static int socket_link_send(struct gracht_link_socket* link,
@@ -168,6 +174,10 @@ static int socket_link_send(struct gracht_link_socket* link,
 {
     // not used for socket
     (void)messageContext;
+
+#ifdef _WIN32
+        __set_nonblocking_if_needed(GRACHT_MESSAGE_BLOCK);
+#endif
 
     if (link->base.type == gracht_link_stream_based) {
         return socket_link_send_stream(link, message);

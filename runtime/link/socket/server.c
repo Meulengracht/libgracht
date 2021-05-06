@@ -85,7 +85,6 @@ static int queue_accept(struct gracht_link_socket* link, gracht_handle_t iocp_ha
     link->pending = client;
     return 0;
 }
-
 #endif
 
 static unsigned int get_socket_flags(unsigned int flags)
@@ -105,6 +104,10 @@ static int socket_link_send_client(struct socket_link_client* client,
 {
     unsigned int socketFlags = get_socket_flags(flags);
     intmax_t     bytesWritten;
+
+#ifdef _WIN32
+    __set_nonblocking_if_needed(flags);
+#endif
 
     GRTRACE(GRSTR("[socket_link_send] sending message"));
     bytesWritten = send(client->base.handle, &message->data[0], message->index, socketFlags);
@@ -129,7 +132,6 @@ static int socket_link_recv_client(struct socket_link_client* client,
 
     // extract the number of bytes received
     status = WSAGetOverlappedResult(client->socket, &client->overlapped, &overlappedLength, FALSE, &overlappedFlags);
-    GRTRACE(GRSTR("WSAGetOverlappedResult=%i, %u"), status, overlappedLength);
     if (status == FALSE) {
         errno = ENODATA;
         return -1;
@@ -145,6 +147,7 @@ static int socket_link_recv_client(struct socket_link_client* client,
     if (overlappedLength != GRACHT_MESSAGE_HEADER_SIZE) {
         GRTRACE(GRSTR("socket_link_recv_client reading rest of message header %li/%i"), overlappedLength, GRACHT_MESSAGE_HEADER_SIZE);
         missingData = GRACHT_MESSAGE_HEADER_SIZE - overlappedLength;
+        __set_nonblocking_if_needed(GRACHT_MESSAGE_BLOCK);
         bytesRead   = recv(client->base.handle, &context->payload[overlappedLength], missingData, MSG_WAITALL);
         if (bytesRead != missingData) {
             return -1;
@@ -457,6 +460,7 @@ static int socket_link_recv_packet(struct gracht_link_socket* link,
 
     // read the rest of the message
     GRTRACE(GRSTR("socket_link_recv_packet reading rest of message"));
+    __set_nonblocking_if_needed(GRACHT_MESSAGE_BLOCK);
     bytesRead = recv(link->base.connection, base + overlappedLength, len - overlappedLength, MSG_WAITALL);
     if (bytesRead <= 0) {
         if (bytesRead == 0) {
@@ -513,6 +517,11 @@ static int socket_link_send_packet(struct gracht_link_socket* link,
         return -1;
     }
     
+#ifdef _WIN32
+    // set into blocking
+    __set_nonblocking_if_needed(GRACHT_MESSAGE_BLOCK);
+#endif
+
     bytesWritten = (long)send(link->base.connection, &message->data[0], message->index, MSG_WAITALL);
     if (bytesWritten != message->index) {
         GRERROR(GRSTR("link_server: failed to respond [%li/%i]"), bytesWritten, message->index);
