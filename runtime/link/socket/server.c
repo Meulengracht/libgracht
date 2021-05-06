@@ -106,7 +106,7 @@ static int socket_link_send_client(struct socket_link_client* client,
     intmax_t     bytesWritten;
 
 #ifdef _WIN32
-    __set_nonblocking_if_needed(flags);
+    __set_nonblocking_if_needed(client->base.handle, flags);
 #endif
 
     GRTRACE(GRSTR("[socket_link_send] sending message"));
@@ -147,7 +147,7 @@ static int socket_link_recv_client(struct socket_link_client* client,
     if (overlappedLength != GRACHT_MESSAGE_HEADER_SIZE) {
         GRTRACE(GRSTR("socket_link_recv_client reading rest of message header %li/%i"), overlappedLength, GRACHT_MESSAGE_HEADER_SIZE);
         missingData = GRACHT_MESSAGE_HEADER_SIZE - overlappedLength;
-        __set_nonblocking_if_needed(GRACHT_MESSAGE_BLOCK);
+        __set_nonblocking_if_needed(client->base.handle, GRACHT_MESSAGE_BLOCK);
         bytesRead   = recv(client->base.handle, &context->payload[overlappedLength], missingData, MSG_WAITALL);
         if (bytesRead != missingData) {
             return -1;

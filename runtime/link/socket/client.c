@@ -150,7 +150,7 @@ static int socket_link_recv(struct gracht_link_socket* link,
     int          status         = -1;
 
 #ifdef _WIN32
-        __set_nonblocking_if_needed(flags);
+        __set_nonblocking_if_needed(link->base.connection, flags);
 #endif
 
     if (!(flags & GRACHT_MESSAGE_BLOCK)) {
@@ -176,7 +176,7 @@ static int socket_link_send(struct gracht_link_socket* link,
     (void)messageContext;
 
 #ifdef _WIN32
-        __set_nonblocking_if_needed(GRACHT_MESSAGE_BLOCK);
+        __set_nonblocking_if_needed(link->base.connection, GRACHT_MESSAGE_BLOCK);
 #endif
 
     if (link->base.type == gracht_link_stream_based) {

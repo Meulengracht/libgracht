@@ -134,12 +134,12 @@ static int socket_aio_remove(gracht_handle_t aio, gracht_conn_t iod)
     return -1;
 }
 
-static inline void __set_nonblocking_if_needed(unsigned int flags) {
+static inline void __set_nonblocking_if_needed(gracht_conn_t socket, unsigned int flags) {
     u_long opt = 0;
     if (!(flags & GRACHT_MESSAGE_BLOCK)) {
         opt = 1;
     }
-    ioctlsocket(link->base.connection, FIONBIO, &opt);
+    ioctlsocket(socket, FIONBIO, &opt);
 }
 
 #endif
