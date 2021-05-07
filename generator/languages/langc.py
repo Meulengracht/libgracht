@@ -653,7 +653,12 @@ def write_structure_functionality(service, struct, outfile):
                 outfile.write(f"        free(in->{member.get_name()});\n")                
             outfile.write(f"        free(in->{member.get_name()});\n")
             outfile.write("    }\n")
-            
+            num_destroy_calls += 1
+        elif member.get_typename() == "string":
+            outfile.write(f"    if (in->{member.get_name()}) ")
+            outfile.write("{\n")
+            outfile.write(f"        free(in->{member.get_name()});\n")
+            outfile.write("    }\n")
             num_destroy_calls += 1
     if num_destroy_calls == 0:
         outfile.write("    (void)in;\n")
