@@ -10,6 +10,31 @@ class CONST(object):
     TYPENAME_CASE_FUNCTION_RESPONSE = 3
     TYPENAME_CASE_MEMBER = 4
 
+def get_c_typename(typename):
+    system_types = [
+        ["uint8", "uint8_t"],
+        ["int8", "int8_t"], 
+        ["uint16", "uint16_t"],
+        ["int16", "int16_t"],
+        ["uint32", "uint32_t"],
+        ["int32", "int32_t"],
+        ["uint64", "uint64_t"],
+        ["int64", "int64_t"],
+        ["long", "ssize_t"],
+        ["ulong", "size_t"],
+        ["uint", "unsigned int"],
+        ["int", "int"],
+        ["string", "char*"],
+        ["bool", "uint8_t"],
+        ["float", "float"],
+        ["double", "double"]
+    ]
+    for systype in system_types:
+        if systype[0] == typename.lower():
+            return systype[1]
+    return typename
+
+
 def is_variable_value_type(service, param):
     if service.typename_is_struct(param.get_typename()):
         return False
@@ -90,15 +115,11 @@ def is_param_const(param, is_output):
 
 def get_param_typename(service, param, case, is_output):
     # resolve enums and structs
-    param_typename = param.get_typename().lower()
+    param_typename = get_c_typename(param.get_typename())
     if service.typename_is_enum(param_typename):
         param_typename = "enum " + service.get_namespace().lower() + "_" + param_typename
     elif service.typename_is_struct(param_typename):
         param_typename = get_struct_typename(service, param_typename)
-
-    # convert system types
-    if param_typename == "string":
-        param_typename = "char*"
 
     # format parameter, unfortunately there are 5 cases to do this
     # TYPENAME_CASE_SIZEOF means we would like the typename for a sizeof call
@@ -144,9 +165,9 @@ def get_parameter_string(service, params, case, is_output):
             parameters_valid.append(get_param_typename(service, param, case, is_output))
         if should_define_param_length_component(param, case):
             if param.get_typename().lower() == "string":
-                length_param = VariableObject("uint32_t", f"{param.get_name()}_max_length", False)
+                length_param = VariableObject("uint32", f"{param.get_name()}_max_length", False)
             else:
-                length_param = VariableObject("uint32_t", f"{param.get_name()}_count", False)
+                length_param = VariableObject("uint32", f"{param.get_name()}_count", False)
             parameters_valid.append(get_param_typename(service, length_param, case, False))
 
     return ", ".join(parameters_valid)
@@ -261,22 +282,26 @@ def write_function_body_prologue(service: ServiceObject, actionId, flags, params
 
     # build message header
     # id and length are filled out by the server/client
-    outfile.write(f"    serialize_uint32_t(&__buffer, 0);\n")
-    outfile.write(f"    serialize_uint32_t(&__buffer, 0);\n")
-    outfile.write(f"    serialize_uint8_t(&__buffer, {str(service.get_id())});\n")
-    outfile.write(f"    serialize_uint8_t(&__buffer, {str(actionId)});\n")
-    outfile.write(f"    serialize_uint8_t(&__buffer, {str(flags)});\n")
+    outfile.write(f"    serialize_uint32(&__buffer, 0);\n")
+    outfile.write(f"    serialize_uint32(&__buffer, 0);\n")
+    outfile.write(f"    serialize_uint8(&__buffer, {str(service.get_id())});\n")
+    outfile.write(f"    serialize_uint8(&__buffer, {str(actionId)});\n")
+    outfile.write(f"    serialize_uint8(&__buffer, {str(flags)});\n")
 
     for param in params:
         if param.get_is_variable():
-            outfile.write(f"    serialize_uint32_t(&__buffer, {param.get_name()}_count);\n")
-            outfile.write(f"    for (__i = 0; __i < {param.get_name()}_count; __i++) ")
-            outfile.write("{\n")
+            outfile.write(f"    serialize_uint32(&__buffer, {param.get_name()}_count);\n")
             if service.typename_is_struct(param.get_typename()):
+                outfile.write(f"    for (__i = 0; __i < {param.get_name()}_count; __i++) ")
+                outfile.write("{\n")
                 outfile.write(f"        serialize_{get_struct_name(service, param.get_typename())}(&__buffer, &{param.get_name()}[__i]);\n")
+                outfile.write("    }\n")
             else:
-                outfile.write(f"        serialize_{param.get_typename()}(&__buffer, &{param.get_name()}[__i]);\n")
-            outfile.write("    }\n")
+                outfile.write(f"    if ({param.get_name()}_count) ")
+                outfile.write("{\n")
+                outfile.write(f"        memcpy(&__buffer.data[__buffer.index], &{param.get_name()}[0], sizeof({get_c_typename(param.get_typename())}) * {param.get_name()}_count);\n")
+                outfile.write(f"        __buffer.index += sizeof({get_c_typename(param.get_typename())}) * {param.get_name()}_count;\n")
+                outfile.write("    }\n")
         elif service.typename_is_struct(param.get_typename()):
             outfile.write(f"    serialize_{get_struct_name(service, param.get_typename())}(&__buffer, {param.get_name()});\n")
         else:
@@ -315,26 +340,34 @@ def write_status_body_prologue(service: ServiceObject, func: FunctionObject, out
     outfile.write("        return __status;\n")
     outfile.write("    }\n\n")
 
+    # in the status body we must use string_copy versions as the buffer dissappears shortly after
+    # deserialization. That unfortunately means all deserialization code that is not known before-hand
+    # which situtation must use _copy code instead of _nocopy
     for param in func.get_response_params():
         typename = param.get_typename()
         if service.typename_is_struct(param.get_typename()):
             typename = get_struct_name(service, typename)
 
         if param.get_is_variable():
-            outfile.write("    __count = deserialize_uint32_t(&__buffer);\n")
-            outfile.write(f"    for (__i = 0; __i < GRMIN(__count, {param.get_name()}_count); __i++) ")
-            outfile.write("{\n")
-            if service.typename_is_struct(param.get_typename()):
-                outfile.write(f"        deserialize_{typename}(&__buffer, &{param.get_name()}_out[__i]);\n")
-            elif typename.lower() == "string":
-                outfile.write(f"        deserialize_string(&__buffer, {param.get_name()}_out[__i], {param.get_name()}_max_length);\n")
+            outfile.write("    __count = deserialize_uint32(&__buffer);\n")
+            if service.typename_is_struct(param.get_typename()) or typename.lower() == "string":
+                outfile.write(f"    for (__i = 0; __i < GRMIN(__count, {param.get_name()}_count); __i++) ")
+                outfile.write("{\n")
+                if service.typename_is_struct(param.get_typename()):
+                    outfile.write(f"        deserialize_{typename}(&__buffer, &{param.get_name()}_out[__i]);\n")
+                elif typename.lower() == "string":
+                    outfile.write(f"        deserialize_string_copy(&__buffer, {param.get_name()}_out[__i], {param.get_name()}_max_length);\n")
+                outfile.write("    }\n")
             else:
-                outfile.write(f"        {param.get_name()}[__i] = deserialize_{typename}(&__buffer));\n")
-            outfile.write("    }\n")
+                outfile.write(f"    if (__count) ")
+                outfile.write("{\n")
+                outfile.write(f"        memcpy(&{param.get_name()}_out[0], &__buffer.data[__buffer.index], sizeof({get_c_typename(param.get_typename())}) * GRMIN(__count, {param.get_name()}_count));\n")
+                outfile.write(f"        __buffer.index += sizeof({get_c_typename(param.get_typename())}) * __count;\n")
+                outfile.write("    }\n")
         elif service.typename_is_struct(param.get_typename()):
             outfile.write(f"    deserialize_{typename}(&__buffer, {param.get_name()}_out);\n")
         elif typename.lower() == "string":
-            outfile.write(f"    deserialize_string(&__buffer, &{param.get_name()}_out[0], {param.get_name()}_max_length);\n")
+            outfile.write(f"    deserialize_string_copy(&__buffer, &{param.get_name()}_out[0], {param.get_name()}_max_length);\n")
         else:
             outfile.write(f"    *{param.get_name()}_out = deserialize_{typename}(&__buffer);\n")
 
@@ -384,16 +417,19 @@ def define_shared_guard_end(service, outfile):
 
 def define_shared_serializers(service, outfile):
     system_types = [
-        ["uint8_t", "uint8_t"],
-        ["int8_t", "int8_t"], 
-        ["uint16_t", "uint16_t"],
-        ["int16_t", "int16_t"],
-        ["uint32_t", "uint32_t"],
-        ["int32_t", "int32_t"],
-        ["uint64_t", "uint64_t"],
-        ["int64_t", "int64_t"],
+        ["uint8", "uint8_t"],
+        ["int8", "int8_t"], 
+        ["uint16", "uint16_t"],
+        ["int16", "int16_t"],
+        ["uint32", "uint32_t"],
+        ["int32", "int32_t"],
+        ["uint64", "uint64_t"],
+        ["int64", "int64_t"],
+        ["long", "ssize_t"],
+        ["ulong", "size_t"],
         ["uint", "unsigned int"],
         ["int", "int"],
+        ["bool", "uint8_t"],
         ["float", "float"],
         ["double", "double"]
     ]
@@ -418,6 +454,11 @@ def define_shared_serializers(service, outfile):
         outfile.write(f"DESERIALIZE_VALUE({system_type[0]}, {system_type[1]})\n")
 
     outfile.write("\nstatic inline void serialize_string(gracht_buffer_t* buffer, const char* string) { \n")
+    outfile.write("    if (!string) {\n")
+    outfile.write("        buffer->data[buffer->index] = 0;\n")
+    outfile.write("        buffer->index += 1;\n")
+    outfile.write("        return;\n")
+    outfile.write("    }\n")
     outfile.write("    uint32_t length = (uint32_t)strlen(string);\n")
     outfile.write("    memcpy(&buffer->data[buffer->index], string, length);\n")
     outfile.write("    buffer->data[buffer->index + length] = 0;\n")
@@ -446,6 +487,14 @@ def define_shared_serializers(service, outfile):
         outfile.write(f"static void deserialize_{struct_name}(gracht_buffer_t* buffer, {struct_typename}* out);\n\n")
     outfile.write("\n")
 
+def define_type_serializers(service, outfile):
+    outfile.write(f"#ifndef __GRACHT_{service.get_name().upper()}_TYPES_DEFINED__\n")
+    outfile.write(f"#define __GRACHT_{service.get_name().upper()}_TYPES_DEFINED__\n")
+    for definedType in service.get_types():
+        outfile.write(f"SERIALIZE_VALUE({definedType.get_name()}, {definedType.get_name()})\n")
+        outfile.write(f"DESERIALIZE_VALUE({definedType.get_name()}, {definedType.get_name()})\n")
+    outfile.write(f"#endif //! __GRACHT_{service.get_name().upper()}_TYPES_DEFINED__\n\n")
+
 def define_struct_serializers(service, outfile):
     for struct in service.get_structs():
         has_variables = False
@@ -463,13 +512,17 @@ def define_struct_serializers(service, outfile):
 
         for member in struct.get_members():
             if member.get_is_variable():
-                outfile.write(f"    serialize_uint32_t(buffer, in->{member.get_name()}_count);\n")
-                outfile.write(f"    for (i = 0; i < in->{member.get_name()}_count; i++) ")
-                outfile.write("    {\n")
-                outfile.write(f"        serialize_{member.get_typename()}(buffer, &in->{member.get_name()}[i])\n")
-                outfile.write("    }\n")
+                outfile.write(f"    serialize_uint32(buffer, in->{member.get_name()}_count);\n")
+                if service.typename_is_struct(member.get_typename()):
+                    outfile.write(f"    for (i = 0; i < in->{member.get_name()}_count; i++) ")
+                    outfile.write("    {\n")
+                    outfile.write(f"        serialize_{get_struct_name(service, member.get_typename())}(buffer, &in->{member.get_name()}[i])\n")
+                    outfile.write("    }\n")
+                else:
+                    outfile.write(f"    memcpy(&buffer->data[buffer->index], &in->{member.get_name()}[0], sizeof({get_c_typename(member.get_typename())}) * in->{member.get_name()}_count);\n")
+                    outfile.write(f"    buffer->index += sizeof({get_c_typename(member.get_typename())}) * in->{member.get_name()}_count;\n")
             elif service.typename_is_struct(member.get_typename()):
-                outfile.write(f"    serialize_{member.get_typename()}(buffer, &in->{member.get_name()});\n")
+                outfile.write(f"    serialize_{get_struct_name(service, member.get_typename())}(buffer, &in->{member.get_name()});\n")
             else:
                 outfile.write(f"    serialize_{member.get_typename()}(buffer, in->{member.get_name()});\n")
         outfile.write("}\n\n")
@@ -481,24 +534,29 @@ def define_struct_serializers(service, outfile):
         
         for member in struct.get_members():
             if member.get_is_variable():
-                outfile.write(f"    out->{member.get_name()}_count = deserialize_uint32_t(buffer);\n")
+                outfile.write(f"    out->{member.get_name()}_count = deserialize_uint32(buffer);\n")
                 outfile.write(f"    if (out->{member.get_name()}_count) ")
                 outfile.write("{\n")
-                outfile.write(f"        {struct_name}_{member.get_name()}_add(out, out->{member.get_name()}_count);\n")
-                outfile.write(f"        for (i = 0; i < out->{member.get_name()}_count; i++) ")
-                outfile.write("        {\n")
                 if service.typename_is_struct(member.get_typename()):
+                    outfile.write(f"        {struct_name}_{member.get_name()}_add(out, out->{member.get_name()}_count);\n")
+                    outfile.write(f"        for (i = 0; i < out->{member.get_name()}_count; i++) ")
+                    outfile.write("        {\n")
                     outfile.write(f"            deserialize_{member.get_typename()}(buffer, &out->{member.get_name()}[i]);\n")
+                    outfile.write("        }\n")
+                elif member.get_typename().lower() == "string":
+                    print("error: variable string arrays are not supported at this moment for the C-code generator")
+                    exit(-1)
                 else:
-                    outfile.write(f"            out->{member.get_name()}[i] = deserialize_{member.get_typename()}(buffer);\n")
-                outfile.write("        }\n")
+                    outfile.write(f"        out->{member.get_name()} = malloc(sizeof({get_c_typename(member.get_typename())}) * out->{member.get_name()}_count);\n")
+                    outfile.write(f"        memcpy(&out->{member.get_name()}[0], &buffer->data[buffer->index], sizeof({get_c_typename(member.get_typename())}) * out->{member.get_name()}_count);\n")
+                    outfile.write(f"        buffer->index += sizeof({get_c_typename(member.get_typename())}) * out->{member.get_name()}_count;\n")
                 outfile.write("    }\n")
                 outfile.write("    else {\n")
                 outfile.write(f"        out->{member.get_name()} = NULL;\n")
                 outfile.write("    }\n")
             elif member.get_typename().lower() == "string":
                 outfile.write(f"    out->{member.get_name()} = malloc(strlen(&buffer->data[buffer->index]) + 1);\n")
-                outfile.write(f"    deserialize_string(buffer, &out->{member.get_name()}[0], 0);\n")
+                outfile.write(f"    deserialize_string_copy(buffer, &out->{member.get_name()}[0], 0);\n")
             elif service.typename_is_struct(member.get_typename()):
                 outfile.write(f"    deserialize_{member.get_typename()}(buffer, &out->{member.get_name()});\n")
             else:
@@ -547,34 +605,35 @@ def write_structure_functionality(service, struct, outfile):
     # write member allocators and indexors
     for member in struct.get_members():
         if member.get_is_variable():
-            member_name = get_struct_name(service, member.get_typename())
-            member_typename = get_struct_typename(service, member.get_typename())
-            
-            # write allocator
-            outfile.write(f"static void {struct_name}_{member.get_name()}_add({struct_typename}* in, uint32_t count) ")
-            outfile.write("{\n")
-            outfile.write(f"    if (in->{member.get_name()}) ")
-            outfile.write("{\n")
-            outfile.write(f"        in->{member.get_name()} = realloc(in->{member.get_name()}, sizeof({member_typename}) * (in->{member.get_name()}_count + count));\n")
-            outfile.write("    }\n")
-            outfile.write("    else {\n")
-            outfile.write(f"        in->{member.get_name()} = malloc(sizeof({member_typename}) * count);\n")
-            outfile.write("    }\n\n")
-            outfile.write("    for (uint32_t i = 0; i < count; i++) {\n")
-            outfile.write(f"        {member_name}_init(&in->{member.get_name()}[in->{member.get_name()}_count + i]);\n")
-            outfile.write("    }\n")
-            outfile.write(f"    in->{member.get_name()}_count += count;\n")
-            outfile.write("}\n\n")
+            if service.typename_is_struct(member.get_typename()):
+                member_name = get_struct_name(service, member.get_typename())
+                member_typename = get_struct_typename(service, member.get_typename())
+                
+                # write allocator
+                outfile.write(f"static void {struct_name}_{member.get_name()}_add({struct_typename}* in, uint32_t count) ")
+                outfile.write("{\n")
+                outfile.write(f"    if (in->{member.get_name()}) ")
+                outfile.write("{\n")
+                outfile.write(f"        in->{member.get_name()} = realloc(in->{member.get_name()}, sizeof({member_typename}) * (in->{member.get_name()}_count + count));\n")
+                outfile.write("    }\n")
+                outfile.write("    else {\n")
+                outfile.write(f"        in->{member.get_name()} = malloc(sizeof({member_typename}) * count);\n")
+                outfile.write("    }\n\n")
+                outfile.write("    for (uint32_t i = 0; i < count; i++) {\n")
+                outfile.write(f"        {member_name}_init(&in->{member.get_name()}[in->{member.get_name()}_count + i]);\n")
+                outfile.write("    }\n")
+                outfile.write(f"    in->{member.get_name()}_count += count;\n")
+                outfile.write("}\n\n")
 
-            # write indexor
-            outfile.write(f"static struct {member_typename}* {struct_name}_{member.get_name()}_get({struct_typename}* in, uint32_t index) ")
-            outfile.write("{\n")
-            outfile.write(f"    if (index >= in->{member.get_name()}_count) ")
-            outfile.write("{\n")
-            outfile.write(f"        {struct_name}_{member.get_name()}_add(in, (index - in->{member.get_name()}_count) + 1)\n")
-            outfile.write("    }\n")
-            outfile.write(f"    return &in->{member.get_name()}[index];\n")
-            outfile.write("}\n\n")
+                # write indexor
+                outfile.write(f"static struct {member_typename}* {struct_name}_{member.get_name()}_get({struct_typename}* in, uint32_t index) ")
+                outfile.write("{\n")
+                outfile.write(f"    if (index >= in->{member.get_name()}_count) ")
+                outfile.write("{\n")
+                outfile.write(f"        {struct_name}_{member.get_name()}_add(in, (index - in->{member.get_name()}_count) + 1)\n")
+                outfile.write("    }\n")
+                outfile.write(f"    return &in->{member.get_name()}[index];\n")
+                outfile.write("}\n\n")
 
 
     # write destructor
@@ -583,15 +642,18 @@ def write_structure_functionality(service, struct, outfile):
     num_destroy_calls = 0
     for member in struct.get_members():
         if member.get_is_variable():
-            member_name = get_struct_name(service, member.get_typename())
             outfile.write(f"    if (in->{member.get_name()}) ")
             outfile.write("{\n")
-            outfile.write(f"        for (int i = 0; i < in->{member.get_name()}_count; i++)")
-            outfile.write("{\n")
-            outfile.write(f"            {member_name}_destroy(&in->{member.get_name()}[i]);\n")
-            outfile.write("        }\n")
+            if service.typename_is_struct(member.get_typename()):
+                member_name = get_struct_name(service, member.get_typename())
+                outfile.write(f"        for (int i = 0; i < in->{member.get_name()}_count; i++)")
+                outfile.write("{\n")
+                outfile.write(f"            {member_name}_destroy(&in->{member.get_name()}[i]);\n")
+                outfile.write("        }\n")
+                outfile.write(f"        free(in->{member.get_name()});\n")                
             outfile.write(f"        free(in->{member.get_name()});\n")
             outfile.write("    }\n")
+            
             num_destroy_calls += 1
     if num_destroy_calls == 0:
         outfile.write("    (void)in;\n")
@@ -599,9 +661,13 @@ def write_structure_functionality(service, struct, outfile):
 
 def define_structures(service, outfile):
     for struct in service.get_structs():
+        struct_name = get_struct_name(service, struct.get_name())
+        outfile.write("#ifndef __" + struct_name.upper() + "_DEFINED__\n")
+        outfile.write("#define __" + struct_name.upper() + "_DEFINED__\n")
         write_structure(service, struct, CONST.TYPENAME_CASE_MEMBER, outfile)
         outfile.write("\n")
         write_structure_functionality(service, struct, outfile)
+        outfile.write("#endif //! __" + struct_name.upper() + "_DEFINED__\n\n")
 
 def write_client_api(service, outfile):
     outfile.write("GRACHTAPI int gracht_client_get_buffer(gracht_client_t*, gracht_buffer_t*);\n")
@@ -659,38 +725,47 @@ def write_deserializer_prologue(service: ServiceObject, members, outfile):
     # write definitions
     for param in members:
         star_modifier = ""
+        default_value = ""
         if param.get_is_variable():
             outfile.write(f"    uint32_t __{param.get_name()}_count;\n")
             star_modifier = "*"
+            default_value = " = NULL"
         if param.get_typename().lower() == "string":
-            outfile.write(f"    char*{star_modifier} __{param.get_name()};\n")
+            outfile.write(f"    char*{star_modifier} __{param.get_name() + default_value};\n")
         elif service.typename_is_struct(param.get_typename()):
-            outfile.write(f"    {get_struct_typename(service, param.get_typename())}{star_modifier} __{param.get_name()};\n")
+            outfile.write(f"    {get_struct_typename(service, param.get_typename())}{star_modifier} __{param.get_name() + default_value};\n")
         else:
-            outfile.write(f"    {param.get_typename()}{star_modifier} __{param.get_name()};\n")
+            outfile.write(f"    {get_c_typename(param.get_typename())}{star_modifier} __{param.get_name() + default_value};\n")
 
 
 def write_deserializer_member(service: ServiceObject, member, outfile):
-    typename = member.get_typename()
+    typename = get_c_typename(member.get_typename())
     if service.typename_is_struct(member.get_typename()):
         typename = get_struct_typename(service, member.get_typename())
 
     if member.get_is_variable():
-        outfile.write(f"    __{member.get_name()}_count = deserialize_uint32_t(__buffer);\n")
-        outfile.write(f"    __{member.get_name()} = malloc(sizeof({typename}) * __{member.get_name()}_count);\n")
-        outfile.write(f"    if (!__{member.get_name()}) ")
+        outfile.write(f"    __{member.get_name()}_count = deserialize_uint32(__buffer);\n")
+        outfile.write(f"    if (__{member.get_name()}_count) ")
         outfile.write("{\n")
-        outfile.write(f"        return;\n")
-        outfile.write("    }\n\n")
-        outfile.write(f"    for (__i = 0; __i < __{member.get_name()}_count; __i++) ")
+        outfile.write(f"        __{member.get_name()} = malloc(sizeof({typename}) * __{member.get_name()}_count);\n")
+        outfile.write(f"        if (!__{member.get_name()}) ")
         outfile.write("{\n")
-        if member.get_typename().lower() == "string":
-            outfile.write(f"        __{member.get_name()}[__i] = deserialize_{member.get_typename()}_nocopy(__buffer);\n")
-        elif service.typename_is_struct(member.get_typename()):
-            outfile.write(f"        deserialize_{get_struct_name(service, member.get_typename())}(__buffer, &__{member.get_name()}[__i]);\n")
+        outfile.write(f"            return;\n")
+        outfile.write("        }\n\n")
+
+        if member.get_typename().lower() == "string" or service.typename_is_struct(member.get_typename()):
+            outfile.write(f"        for (__i = 0; __i < __{member.get_name()}_count; __i++) ")
+            outfile.write("{\n")
+            if member.get_typename().lower() == "string":
+                outfile.write(f"            __{member.get_name()}[__i] = deserialize_{member.get_typename()}_nocopy(__buffer);\n")
+            elif service.typename_is_struct(member.get_typename()):
+                outfile.write(f"            deserialize_{get_struct_name(service, member.get_typename())}(__buffer, &__{member.get_name()}[__i]);\n")
+            outfile.write("        }\n\n")
         else:
-            outfile.write(f"        __{member.get_name()}[__i] = deserialize_{member.get_typename()}(__buffer);\n")
+            outfile.write(f"        memcpy(&__{member.get_name()}[0], &__buffer->data[__buffer->index], sizeof({get_c_typename(member.get_typename())}) * __{member.get_name()}_count);\n")
+            outfile.write(f"        __buffer->index += sizeof({get_c_typename(member.get_typename())}) * __{member.get_name()}_count;\n")
         outfile.write("    }\n\n")
+
     elif member.get_typename().lower() == "string":
         outfile.write(f"    __{member.get_name()} = deserialize_{member.get_typename()}_nocopy(__buffer);\n")
     elif service.typename_is_struct(member.get_typename()):
@@ -900,7 +975,7 @@ class CGenerator:
         outfile.write(f"    extern gracht_protocol_t {service.get_namespace()}_{service.get_name()}_server_protocol;\n\n")
 
     def define_client_subscribe_prototype(self, service, outfile):
-        subscribe_arg = VariableObject("uint8_t", "service", False, "1", str(service.get_id()), True)
+        subscribe_arg = VariableObject("uint8", "service", False, "1", str(service.get_id()), True)
         subscribe_fn = FunctionObject("subscribe", 0, [subscribe_arg], [])
         control_service = ServiceObject(service.get_namespace(), 0, service.get_name(), [], [], [], [], [])
         outfile.write("    " +
@@ -909,7 +984,7 @@ class CGenerator:
         return
 
     def define_client_subscribe(self, service, outfile):
-        subscribe_arg = VariableObject("uint8_t", "service", False, "1", str(service.get_id()), True)
+        subscribe_arg = VariableObject("uint8", "service", False, "1", str(service.get_id()), True)
         subscribe_fn = FunctionObject("subscribe", 0, [subscribe_arg], [])
         control_service = ServiceObject(service.get_namespace(), 0, service.get_name(), [], [], [], [], [])
         outfile.write(
@@ -920,7 +995,7 @@ class CGenerator:
         return
 
     def define_client_unsubscribe_prototype(self, service, outfile):
-        unsubscribe_arg = VariableObject("uint8_t", "service", False, "1", str(service.get_id()), True)
+        unsubscribe_arg = VariableObject("uint8", "service", False, "1", str(service.get_id()), True)
         unsubscribe_fn = FunctionObject("unsubscribe", 1, [unsubscribe_arg], [])
         control_service = ServiceObject(service.get_namespace(), 0, service.get_name(), [], [], [], [], [])
         outfile.write("    " +
@@ -929,7 +1004,7 @@ class CGenerator:
         return
 
     def define_client_unsubscribe(self, service, outfile):
-        unsubscribe_arg = VariableObject("uint8_t", "service", False, "1", str(service.get_id()), True)
+        unsubscribe_arg = VariableObject("uint8", "service", False, "1", str(service.get_id()), True)
         unsubscribe_fn = FunctionObject("unsubscribe", 1, [unsubscribe_arg], [])
         control_service = ServiceObject(service.get_namespace(), 0, service.get_name(), [], [], [], [], [])
         outfile.write(
@@ -1048,13 +1123,14 @@ class CGenerator:
         with open(file_path, 'w') as f:
             write_header(f)
             write_header_guard_start(file_name, f)
-            define_headers(["<gracht/types.h>", "<string.h>", "<stdint.h>"], f)
+            define_headers(["<gracht/types.h>", "<string.h>", "<stdint.h>", "<stdlib.h>"], f)
             define_service_headers(service, f)
             define_shared_ids(service, f)
             define_shared_guard_begin(service, f)
             define_shared_serializers(service, f)
             define_enums(service, f)
             define_structures(service, f)
+            define_type_serializers(service, f)
             define_struct_serializers(service, f)
             define_shared_guard_end(service, f)
             write_header_guard_end(file_name, f)

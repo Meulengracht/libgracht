@@ -100,6 +100,16 @@ void test_utils_transfer_many_invocation(struct gracht_message* message, const s
     free(statuses);
 }
 
+void test_utils_transfer_data_invocation(struct gracht_message* message, const uint8_t* data, const uint32_t data_count)
+{
+    
+}
+
+void test_utils_receive_data_invocation(struct gracht_message* message)
+{
+
+}
+
 void test_utils_get_event_invocation(struct gracht_message* message, const int count)
 {
     printf("get_events: %i\n", count);

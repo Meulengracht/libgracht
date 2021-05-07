@@ -248,6 +248,8 @@ def get_system_types():
         "uint32", "int32", 
         "uint64", "int64", 
         "uint", "int", 
+        "long", "ulong",
+        "bool",
         "string", 
         "float",
         "double"
@@ -636,14 +638,14 @@ def create_tokens_from_text(data):
     tokens = []
     while scanner.index() < len(data):
         el = data[scanner.index()]
-        # skip any spaces, we don't care about them
-        if el.isspace() or el == '\r' or el == '\t':
-            scanner.consume()
-            continue
-        
         # we want to catch newlines to keep track of context
         if el == '\n':
             scanner.nextline()
+            continue
+        
+        # skip any spaces, we don't care about them
+        if el.isspace():
+            scanner.consume()
             continue
         
         # handle comments

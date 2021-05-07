@@ -6,21 +6,25 @@
 namespace test
 
 struct transaction {
-    uint32_t test_id;
+    uint32  test_id;
+    string  serial;
+    uint8[] data;
 }
 
 struct transfer_status {
-    uint32_t test_id;
-    int      code;
+    uint32 test_id;
+    int    code;
 }
 
 service utils (0x1) {
     func print(string text) : (int result) = 1;
     func transfer(transaction transaction) : (transfer_status result) = 2;
     func transfer_many(transaction[] transactions) : (transfer_status[] results) = 3;
-    func get_event(int count) : () = 4;
-    func shutdown() : () = 5;
+    func transfer_data(uint8[] data) : () = 4;
+    func receive_data() : (uint8[] data) = 5;
+    func get_event(int count) : () = 6;
+    func shutdown() : () = 7;
 
-    event myevent : (int n) = 6;
-    event transfer_status : transfer_status = 7;
+    event myevent : (int n) = 8;
+    event transfer_status : transfer_status = 9;
 }
