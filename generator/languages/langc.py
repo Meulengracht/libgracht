@@ -11,7 +11,7 @@ class CONST(object):
     TYPENAME_CASE_MEMBER = 4
 
 
-def get_c_typename(typename):
+def get_c_typename(service: ServiceObject, typename:  str):
     system_types = [
         ["uint8", "uint8_t"],
         ["int8", "int8_t"],
@@ -33,6 +33,10 @@ def get_c_typename(typename):
     for systype in system_types:
         if systype[0] == typename.lower():
             return systype[1]
+    if service.typename_is_struct(typename):
+        return get_scoped_typename(service.lookup_struct(typename))
+    elif service.typename_is_enum(typename):
+        return get_scoped_typename(service.lookup_enum(typename))
     return typename
 
 
@@ -124,7 +128,7 @@ def is_param_const(param, is_output):
 
 def get_param_typename(service, param, case, is_output):
     # resolve enums and structs
-    param_typename = get_c_typename(param.get_typename())
+    param_typename = get_c_typename(service, param.get_typename())
     if service.typename_is_enum(param_typename):
         param_typename = get_scoped_typename(service.lookup_enum(param_typename))
     elif service.typename_is_struct(param_typename):
@@ -304,8 +308,8 @@ def write_variable_struct_member_serializer(service: ServiceObject, member, outf
         outfile.write("    }\n")
     else:
         outfile.write(
-            f"    memcpy(&buffer->data[buffer->index], &in->{name}[0], sizeof({get_c_typename(typename)}) * in->{name}_count);\n")
-        outfile.write(f"    buffer->index += sizeof({get_c_typename(typename)}) * in->{name}_count;\n")
+            f"    memcpy(&buffer->data[buffer->index], &in->{name}[0], sizeof({get_c_typename(service, typename)}) * in->{name}_count);\n")
+        outfile.write(f"    buffer->index += sizeof({get_c_typename(service, typename)}) * in->{name}_count;\n")
 
 
 def write_variable_member_serializer(service: ServiceObject, member, outfile):
@@ -322,8 +326,8 @@ def write_variable_member_serializer(service: ServiceObject, member, outfile):
         outfile.write(f"    if ({name}_count) ")
         outfile.write("{\n")
         outfile.write(
-            f"        memcpy(&__buffer.data[__buffer.index], &{name}[0], sizeof({get_c_typename(typename)}) * {name}_count);\n")
-        outfile.write(f"        __buffer.index += sizeof({get_c_typename(typename)}) * {name}_count;\n")
+            f"        memcpy(&__buffer.data[__buffer.index], &{name}[0], sizeof({get_c_typename(service, typename)}) * {name}_count);\n")
+        outfile.write(f"        __buffer.index += sizeof({get_c_typename(service, typename)}) * {name}_count;\n")
         outfile.write("    }\n")
 
 
@@ -372,10 +376,10 @@ def write_variable_struct_member_deserializer(service: ServiceObject, member, ou
         print("error: variable string arrays are not supported at this moment for the C-code generator")
         exit(-1)
     else:
-        outfile.write(f"        out->{name} = malloc(sizeof({get_c_typename(typename)}) * out->{name}_count);\n")
+        outfile.write(f"        out->{name} = malloc(sizeof({get_c_typename(service, typename)}) * out->{name}_count);\n")
         outfile.write(
-            f"        memcpy(&out->{name}[0], &buffer->data[buffer->index], sizeof({get_c_typename(typename)}) * out->{name}_count);\n")
-        outfile.write(f"        buffer->index += sizeof({get_c_typename(typename)}) * out->{name}_count;\n")
+            f"        memcpy(&out->{name}[0], &buffer->data[buffer->index], sizeof({get_c_typename(service, typename)}) * out->{name}_count);\n")
+        outfile.write(f"        buffer->index += sizeof({get_c_typename(service, typename)}) * out->{name}_count;\n")
     outfile.write("    }\n")
     outfile.write("    else {\n")
     outfile.write(f"        out->{name} = NULL;\n")
@@ -385,7 +389,7 @@ def write_variable_struct_member_deserializer(service: ServiceObject, member, ou
 def write_variable_member_deserializer2(service: ServiceObject, member, outfile):
     name = member.get_name()
     typename = member.get_typename()
-    c_typename = get_c_typename(typename)
+    c_typename = get_c_typename(service, typename)
 
     # get the count of elements to deserialize, and then allocate buffer space
     outfile.write(f"    __{name}_count = deserialize_uint32(__buffer);\n")
@@ -432,8 +436,8 @@ def write_variable_member_deserializer(service: ServiceObject, member, outfile):
         outfile.write(f"    if (__count) ")
         outfile.write("{\n")
         outfile.write(f"        memcpy(&{name}_out[0], &__buffer.data[__buffer.index], " +
-                      f"sizeof({get_c_typename(typename)}) * GRMIN(__count, {name}_count));\n")
-        outfile.write(f"        __buffer.index += sizeof({get_c_typename(typename)}) * __count;\n")
+                      f"sizeof({get_c_typename(service, typename)}) * GRMIN(__count, {name}_count));\n")
+        outfile.write(f"        __buffer.index += sizeof({get_c_typename(service, typename)}) * __count;\n")
         outfile.write("    }\n")
 
 
@@ -901,7 +905,7 @@ def write_deserializer_prologue(service: ServiceObject, members, outfile):
             outfile.write(f"    {typename}{star_modifier} __{param.get_name() + default_value};\n")
         else:
             outfile.write(
-                f"    {get_c_typename(param.get_typename())}{star_modifier} __{param.get_name() + default_value};\n")
+                f"    {get_c_typename(service, param.get_typename())}{star_modifier} __{param.get_name() + default_value};\n")
 
 
 def write_deserializer_invocation_members(service: ServiceObject, members, outfile):
