@@ -1,6 +1,8 @@
 
 option (GRACHT_C_BUILD_STATIC "Build the C runtime as a shared library" ON)
 option (GRACHT_C_BUILD_SHARED "Build the C runtime as a shared library" ON)
+option (GRACHT_C_LINK_SOCKET  "Build the C runtime link: socket" ON)
+option (GRACHT_C_LINK_VALI    "Build the C runtime link: vali-ipc" OFF)
 
 set (WARNING_COMPILE_FLAGS "-Wall -Wextra -Wno-unused-function")
 set (SRCS "")
@@ -17,23 +19,12 @@ macro (add_sources)
 endmacro()
 
 # Configure include paths
-if (VALI_BUILD)
-    include_directories (
-        ${CMAKE_BINARY_DIR}
-        ../libds/include
-        ../libddk/include
-        ../libc/include
-        ../include
-    )
-else ()
-    include_directories(
+include_directories(
         ${CMAKE_BINARY_DIR}
         ../include
-    )
-endif ()
+)
 
-if (MOLLENOS)
-    add_definitions(${WARNING_COMPILE_FLAGS})
+if (GRACHT_C_LINK_VALI)
     add_sources (
             link/vali-ipc/client.c
             link/vali-ipc/message.c
@@ -42,7 +33,7 @@ if (MOLLENOS)
     )
 endif ()
 
-if (UNIX)
+if (UNIX OR MOLLENOS)
     add_definitions(${WARNING_COMPILE_FLAGS})
 endif ()
 

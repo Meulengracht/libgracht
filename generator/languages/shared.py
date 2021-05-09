@@ -1,14 +1,3 @@
-class TypeDefinition:
-    def __init__(self, typeName, sourceName):
-        self.name = typeName
-        self.source = sourceName
-
-    def get_name(self):
-        return self.name
-
-    def get_source(self):
-        return self.source
-
 class ValueDefinition:
     def __init__(self, name, value):
         self.name = name
@@ -20,16 +9,6 @@ class ValueDefinition:
     def get_value(self):
         return self.value
 
-class EnumObject:
-    def __init__(self, name, values):
-        self.name = name
-        self.values = values
-
-    def get_name(self):
-        return self.name
-
-    def get_values(self):
-        return self.values
 
 class VariableObject:
     def __init__(self, typename, name, is_variable, count=1, default_value=None, fixed=False):
@@ -58,10 +37,59 @@ class VariableObject:
     def get_fixed(self):
         return self.fixed
 
+
+class TypeDefinition:
+    def __init__(self, source, namespace, type_name, type_source):
+        self.source = source
+        self.namespace = namespace
+        self.type_name = type_name
+        self.type_source = type_source
+
+    def get_source(self):
+        return self.source
+
+    def get_namespace(self):
+        return self.namespace
+
+    def get_type_name(self):
+        return self.type_name
+
+    def get_type_source(self):
+        return self.type_source
+
+
+class EnumObject:
+    def __init__(self, source, namespace, name, values):
+        self.source = source
+        self.namespace = namespace
+        self.name = name
+        self.values = values
+
+    def get_source(self):
+        return self.source
+
+    def get_namespace(self):
+        return self.namespace
+
+    def get_name(self):
+        return self.name
+
+    def get_values(self):
+        return self.values
+
+
 class StructureObject:
-    def __init__(self, name, members):
+    def __init__(self, source, namespace, name, members):
+        self.source = source
+        self.namespace = namespace
         self.name = name
         self.members = members
+
+    def get_source(self):
+        return self.source
+
+    def get_namespace(self):
+        return self.namespace
 
     def get_name(self):
         return self.name
@@ -107,10 +135,10 @@ class FunctionObject:
 
 
 class ServiceObject:
-    def __init__(self, namespace, id, name, types, enums, structs, functions, events):
+    def __init__(self, namespace, serviceId, name, types, enums, structs, functions, events):
         self.namespace = namespace
         self.name = name
-        self.id = id
+        self.id = serviceId
         self.types = types
         self.enums = enums
         self.functions = functions
@@ -148,16 +176,28 @@ class ServiceObject:
                 return True
         return False
 
+    def lookup_enum(self, typename):
+        for enum in self.enums:
+            if enum.get_name().lower() == typename.lower():
+                return enum
+        return None
+
     def typename_is_struct(self, typename):
         for struct in self.structs:
             if struct.get_name().lower() == typename.lower():
                 return True
         return False
 
+    def lookup_struct(self, typename):
+        for struct in self.structs:
+            if struct.get_name().lower() == typename.lower():
+                return struct
+        return None
+
     def resolve_type(self, param):
-        value_type = [x for x in self.types if x.get_name().lower() == param.get_typename().lower()]
+        value_type = [x for x in self.types if x.get_type_name().lower() == param.get_typename().lower()]
         if len(value_type):
-            self.imports.append(value_type[0].get_source())
+            self.imports.append(value_type[0].get_type_source())
 
     def resolve_all_types(self):
         for func in self.functions:
