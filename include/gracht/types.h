@@ -42,25 +42,25 @@
 /**
  * Define handle types and connection types (usually corresponds to HANDLE or a fd)
  */
-#if defined(_WIN32)
+#if defined(MOLLENOS)
+typedef int gracht_handle_t;
+typedef int gracht_conn_t;
+#define GRACHT_HANDLE_INVALID ((int)-1)
+#define GRACHT_CONN_INVALID   ((int)-1)
+#elif defined(_WIN32)
 typedef void*      gracht_handle_t;
 typedef uintptr_t  gracht_conn_t;
 #define GRACHT_HANDLE_INVALID NULL
 #define GRACHT_CONN_INVALID   (uintptr_t)(~0)
-#elif defined(MOLLENOS)
-typedef int gracht_handle_t;
-typedef int gracht_conn_t;
-#define GRACHT_HANDLE_INVALID (int)-1
-#define GRACHT_CONN_INVALID   (int)-1
 #else
 typedef int gracht_handle_t;
 typedef int gracht_conn_t;
-#define GRACHT_HANDLE_INVALID (int)-1
-#define GRACHT_CONN_INVALID   (int)-1
+#define GRACHT_HANDLE_INVALID ((int)-1)
+#define GRACHT_CONN_INVALID   ((int)-1)
 #endif
 
 #define GRACHT_MESSAGE_HEADER_SIZE 11
-#define GRACHT_MESSAGE_DEFERRABLE_SIZE(message) (sizeof(struct gracht_message) + message->size)
+#define GRACHT_MESSAGE_DEFERRABLE_SIZE(message) (sizeof(struct gracht_message) + (message)->size)
 
 /**
  * Internally used in the message serializers to note which type of

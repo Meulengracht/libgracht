@@ -29,7 +29,8 @@
 #include <internal/_syscalls.h>
 #include <internal/_utils.h>
 #include "gracht/link/vali.h"
-#include "gracht/debug.h"
+#include "private.h"
+#include "debug.h"
 #include <io.h>
 #include <os/mollenos.h>
 #include <stdlib.h>
@@ -42,29 +43,27 @@ static int vali_link_connect(struct gracht_link_vali* link)
         errno = EINVAL;
         return -1;
     }
+
+    // create an ipc context, 4kb should be more than enough
+    link->iod = ipcontext(0x1000, NULL);
+    if (link->iod < 0) {
+        return -1;
+    }
+
     return link->iod;
 }
 
-static int vali_link_send_message(struct gracht_link_vali* link,
-                                  struct gracht_message* messageBase, struct vali_link_message* messageContext)
+static int vali_link_send(struct gracht_link_vali* link,
+                          struct gracht_message* messageBase,
+                          struct vali_link_message* messageContext)
 {
     struct ipmsg_header  message;
     struct ipmsg_header* messagePointer = &message;
     OsStatus_t           status;
-    int                  i;
 
     message.address  = &messageContext->address;
     message.base     = messageBase;
     message.sender   = GetNativeHandle(link->iod);
-
-    if (messageBase->header.length > GRACHT_DEFAULT_MESSAGE_SIZE) {
-        for (i = 0; messageBase->header.length > GRACHT_DEFAULT_MESSAGE_SIZE && i < messageBase->header.param_in; i++) {
-            if (messageBase->params[i].length > GRACHT_MESSAGE_THRESHOLD) {
-                messageBase->params[i].type = GRACHT_PARAM_SHM;
-                messageBase->header.length -= messageBase->params[i].length;
-            }
-        }
-    }
 
     status = Syscall_IpcContextSend(&messagePointer, 1, 0);
     if (status != OsSuccess) {
@@ -106,28 +105,10 @@ static void vali_link_destroy(struct gracht_link_vali* link)
     free(link);
 }
 
-int gracht_link_vali_client_create(struct gracht_link_vali** linkOut)
+void gracht_link_client_vali_api(struct gracht_link_vali* link)
 {
-    struct gracht_link_vali* link;
-
-    link = (struct gracht_link_vali*)malloc(sizeof(struct gracht_link_vali));
-    if (!link) {
-        ERROR("[gracht] [client-link] [vali] failed to allocate memory"));
-        errno = (ENOMEM);
-        return -1;
-    }
-
-    // create an ipc context, 4kb should be more than enough
-    link->iod = ipcontext(0x1000, NULL);
-    if (link->iod < 0) {
-        return -1;
-    }
-
-    link->ops.connect     = (client_link_connect_fn)vali_link_connect;
-    link->ops.recv        = (client_link_recv_fn)vali_link_recv;
-    link->ops.send        = (client_link_send_fn)vali_link_send_message;
-    link->ops.destroy     = (client_link_destroy_fn)vali_link_destroy;
-
-    *linkOut = &link->ops;
-    return 0;
+    link->base.ops.client.connect = (client_link_connect_fn)vali_link_connect;
+    link->base.ops.client.recv    = (client_link_recv_fn)vali_link_recv;
+    link->base.ops.client.send    = (client_link_send_fn)vali_link_send;
+    link->base.ops.client.destroy = (client_link_destroy_fn)vali_link_destroy;
 }

@@ -1,6 +1,5 @@
-/* MollenOS
- *
- * Copyright 2019, Philip Meulengracht
+/**
+ * Copyright 2021, Philip Meulengracht
  *
  * This program is free software : you can redistribute it and / or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,22 +20,15 @@
  *   and functionality, refer to the individual things for descriptions
  */
 
-#include <errno.h>
-#include <ddk/bytepool.h>
-#include "gracht/link/vali.h"
-#include <stdlib.h>
-#include <string.h>
+#ifndef __GRACHT_VALI_PRIVATE_H__
+#define __GRACHT_VALI_PRIVATE_H__
 
-// message size is defined by protocol generator
-int gracht_vali_message_create(gracht_client_t* client, int message_size, struct vali_link_message** messageOut)
-{
-    struct vali_link_message* message = malloc(sizeof(struct vali_link_message) + message_size);
-    if (!message) {
-        errno = (ENOMEM);
-        return -1;
-    }
-    
-    memset(message, 0, sizeof(struct vali_link_message) + message_size);
-    *messageOut = message;
-    return 0;
-}
+#include "utils.h"
+
+struct gracht_link_vali {
+    struct gracht_link base;
+    struct ipmsg_addr  address;
+    int                iod;
+};
+
+#endif // !__GRACHT_VALI_PRIVATE_H__

@@ -22,11 +22,15 @@
  *   and functionality, refer to the individual things for descriptions
  */
 
-#include <os/mollenos.h>
 #include "gracht/link/vali.h"
+#include "private.h"
 #include <inet/socket.h>
 #include <inet/local.h>
+#include <stdlib.h>
 #include <string.h>
+
+extern void gracht_link_client_vali_api(struct gracht_link_vali*);
+extern void gracht_link_server_vali_api(struct gracht_link_vali*);
 
 int gracht_os_get_server_client_address(struct sockaddr_storage* address, int* address_length_out)
 {
@@ -54,10 +58,36 @@ int gracht_os_get_server_packet_address(struct sockaddr_storage* address, int* a
     return 0;
 }
 
-int gracht_os_thread_set_name(const char* thread_name)
+int gracht_link_vali_create(struct gracht_link_vali** linkOut)
 {
-    if (SetCurrentThreadName(thread_name) != OsSuccess) {
+    struct gracht_link_vali* link;
+
+    link = (struct gracht_link_vali*)malloc(sizeof(struct gracht_link_vali));
+    if (!link) {
+        errno = ENOMEM;
         return -1;
     }
+
+    memset(link, 0, sizeof(struct gracht_link_vali));
+    link->iod = -1;
+    link->base.type = gracht_link_packet_based;
+    gracht_link_client_vali_api(link);
+
+    *linkOut = link;
     return 0;
+}
+
+void gracht_link_vali_set_listen(struct gracht_link_vali* link, int listen)
+{
+    if (listen) {
+        gracht_link_server_vali_api(link);
+    }
+    else {
+        gracht_link_client_vali_api(link);
+    }
+}
+
+void gracht_link_vali_set_address(struct gracht_link_vali* link, struct ipmsg_addr* address)
+{
+    memcpy(&link->address, address, sizeof(struct ipmsg_addr));
 }

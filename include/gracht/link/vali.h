@@ -30,18 +30,10 @@
 #include <ipcontext.h>
 #include <os/osdefs.h>
 
-struct sockaddr_storage;
-
 struct vali_link_message {
     struct gracht_message_context base;
     struct ipmsg_addr             address;
 };
-
-struct gracht_link_vali {
-    struct gracht_link base;
-    int                iod;
-};
-
 
 #define VALI_MSG_INIT_HANDLE(handle) { { 0 }, IPMSG_ADDR_INIT_HANDLE(handle) }
 
@@ -49,18 +41,23 @@ struct gracht_link_vali {
 extern "C" {
 #endif
 
+
+/**
+ * Represents the vali link datastructure, and can be configured to work
+ * however wanted. The default configuration is non-listen, connection-less mode.
+ * The address must be provided as it either provides the address it should listen on or
+ * the address it should connect to
+ */
+struct gracht_link_vali;
+
+GRACHTAPI int  gracht_link_vali_create(struct gracht_link_vali** linkOut);
+GRACHTAPI void gracht_link_vali_set_listen(struct gracht_link_vali* link, int listen);
+GRACHTAPI void gracht_link_vali_set_address(struct gracht_link_vali* link, struct ipmsg_addr*);
+
 // OS API
-int gracht_os_get_server_client_address(struct sockaddr_storage*, int*);
-int gracht_os_get_server_packet_address(struct sockaddr_storage*, int*);
-int gracht_os_thread_set_name(const char*);
-
-// Server API
-int gracht_link_vali_server_create(struct gracht_link_vali**, struct ipmsg_addr*);
-
-// Client API
-int gracht_link_vali_client_create(struct gracht_link_vali**);
-
-int gracht_vali_message_create(gracht_client_t*, int message_size, struct vali_link_message**);
+struct sockaddr_storage;
+GRACHTAPI int gracht_os_get_server_client_address(struct sockaddr_storage*, int*);
+GRACHTAPI int gracht_os_get_server_packet_address(struct sockaddr_storage*, int*);
 
 #ifdef __cplusplus
 }

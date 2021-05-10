@@ -12,9 +12,11 @@ check_include_files (pthread.h HAVE_PTHREAD)
 if (VALI_BUILD)
     set (HAVE_C11_THREADS ON)
     include_directories (
+            ${CMAKE_CURRENT_BINARY_DIR}
             ../libds/include
             ../libddk/include
             ../libc/include
+            ../include
     )
 endif ()
 

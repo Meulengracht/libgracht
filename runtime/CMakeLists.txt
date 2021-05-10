@@ -27,11 +27,14 @@ include_directories(
 if (GRACHT_C_LINK_VALI)
     add_sources (
             link/vali-ipc/client.c
-            link/vali-ipc/message.c
-            link/vali-ipc/os.c
+            link/vali-ipc/shared.c
             link/vali-ipc/server.c
     )
 endif ()
+
+if (GRACHT_C_LINK_SOCKET)
+    add_sources(link/socket/client.c link/socket/server.c link/socket/shared.c)
+endif()
 
 if (UNIX OR MOLLENOS)
     add_definitions(${WARNING_COMPILE_FLAGS})
@@ -39,7 +42,6 @@ endif ()
 
 add_definitions(-DGRACHT_BUILD)
 
-add_sources(link/socket/client.c link/socket/server.c link/socket/shared.c)
 add_sources(client.c client_config.c crc.c server.c server_config.c shared.c stack.c queue.c arena.c dispatch.c hashtable.c control.c)
 
 if (GRACHT_C_BUILD_STATIC)
@@ -56,6 +58,8 @@ if (GRACHT_C_BUILD_SHARED)
         endif ()
     elseif (WIN32)
         target_link_libraries(gracht ws2_32 wsock32)
+    elseif (MOLLENOS)
+        target_link_libraries(gracht c)
     endif ()
 endif ()
 
