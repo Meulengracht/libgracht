@@ -41,6 +41,9 @@ void test_utils_event_transfer_status_invocation(gracht_client_t* client, const 
     (void)transfer_status;
 }
 
+static const char* transaction_serial = "my_test_transaction";
+static uint8_t     transaction_data[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 };
+
 int main(void)
 {
     gracht_client_t*              client;
@@ -60,7 +63,11 @@ int main(void)
 
     // run test
     for (code = 0; code < 12; code++) {
-        transactions[code].test_id = code + 1;
+        test_transaction_init(&transactions[code]);
+        transactions[code].test_id    = code + 1;
+        transactions[code].serial     = (char*)transaction_serial;
+        transactions[code].data       = transaction_data;
+        transactions[code].data_count = sizeof(transaction_data);
     }
     
     test_utils_transfer_many(client, &context, &transactions[0], 12);

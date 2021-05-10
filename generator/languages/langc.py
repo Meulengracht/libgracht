@@ -283,7 +283,7 @@ def write_variable_count(members, outfile):
             needs_count = True
 
     if needs_count:
-        outfile.write("    uint32_t        __count;\n")
+        outfile.write("    uint32_t __count;\n")
 
 
 def write_variable_iterator(service: ServiceObject, members, outfile):
@@ -293,7 +293,7 @@ def write_variable_iterator(service: ServiceObject, members, outfile):
             needs_iterator = True
 
     if needs_iterator:
-        outfile.write("    uint32_t        __i;\n")
+        outfile.write("    uint32_t __i;\n")
 
 
 def write_variable_struct_member_serializer(service: ServiceObject, member, outfile):
@@ -306,6 +306,9 @@ def write_variable_struct_member_serializer(service: ServiceObject, member, outf
         outfile.write("    {\n")
         outfile.write(f"        serialize_{get_scoped_name(struct_type)}(buffer, &in->{name}[__i])\n")
         outfile.write("    }\n")
+    elif typename.lower() == "string":
+        print("error: variable string arrays are not supported at this moment for the C-code generator")
+        exit(-1)
     else:
         outfile.write(
             f"    memcpy(&buffer->data[buffer->index], &in->{name}[0], sizeof({get_c_typename(service, typename)}) * in->{name}_count);\n")
@@ -322,6 +325,9 @@ def write_variable_member_serializer(service: ServiceObject, member, outfile):
         outfile.write("{\n")
         outfile.write(f"        serialize_{get_scoped_name(struct_type)}(&__buffer, &{name}[__i]);\n")
         outfile.write("    }\n")
+    elif typename.lower() == "string":
+        print("error: variable string arrays are not supported at this moment for the C-code generator")
+        exit(-1)
     else:
         outfile.write(f"    if ({name}_count) ")
         outfile.write("{\n")
@@ -406,6 +412,8 @@ def write_variable_member_deserializer2(service: ServiceObject, member, outfile)
         outfile.write("{\n")
         if typename.lower() == "string":
             outfile.write(f"            __{name}[__i] = deserialize_string_nocopy(__buffer);\n")
+            print("error: variable string arrays are not supported at this moment for the C-code generator")
+            exit(-1)
         elif service.typename_is_struct(member.get_typename()):
             struct_type = service.lookup_struct(typename)
             struct_name = get_scoped_name(struct_type)
@@ -431,6 +439,8 @@ def write_variable_member_deserializer(service: ServiceObject, member, outfile):
             outfile.write(f"        deserialize_{struct_name}(&__buffer, &{name}_out[__i]);\n")
         elif typename.lower() == "string":
             outfile.write(f"        deserialize_string_copy(&__buffer, {name}_out[__i], {name}_max_length);\n")
+            print("error: variable string arrays are not supported at this moment for the C-code generator")
+            exit(-1)
         outfile.write("    }\n")
     else:
         outfile.write(f"    if (__count) ")
@@ -502,7 +512,7 @@ def write_member_deserializer(service: ServiceObject, member, outfile):
 
 def write_function_body_prologue(service: ServiceObject, action_id, flags, params, is_server, outfile):
     outfile.write("    gracht_buffer_t __buffer;\n")
-    outfile.write("    int             __status;\n")
+    outfile.write("    int __status;\n")
     write_variable_iterator(service, params, outfile)
     outfile.write("\n")
 
@@ -544,7 +554,7 @@ def define_function_body(service: ServiceObject, func: FunctionObject, outfile):
 
 def write_status_body_prologue(service: ServiceObject, func: FunctionObject, outfile):
     outfile.write("    gracht_buffer_t __buffer;\n")
-    outfile.write("    int             __status;\n")
+    outfile.write("    int __status;\n")
     write_variable_iterator(service, func.get_response_params(), outfile)
     write_variable_count(func.get_response_params(), outfile)
     outfile.write("\n")
