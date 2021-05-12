@@ -1268,7 +1268,7 @@ class CGenerator:
         return
 
     def write_callback_prototypes(self, service, callbacks, outfile):
-        if len(service.get_functions()) > 0:
+        if len(callbacks) > 0:
             outfile.write("    /**\n")
             outfile.write("     * Invocation callback prototypes that must be defined. These are the functions\n")
             outfile.write("     * that will be called when a message is received.\n")
