@@ -26,16 +26,10 @@
 // - Stream
 
 #include <errno.h>
-#include <internal/_syscalls.h>
-#include <internal/_utils.h>
 #include "gracht/link/vali.h"
 #include "private.h"
-#include "debug.h"
 #include <io.h>
-#include <os/mollenos.h>
 #include <stdlib.h>
-
-#define GRACHT_MESSAGE_THRESHOLD 128
 
 static int vali_link_connect(struct gracht_link_vali* link)
 {
@@ -44,8 +38,8 @@ static int vali_link_connect(struct gracht_link_vali* link)
         return -1;
     }
 
-    // create an ipc context, 4kb should be more than enough
-    link->iod = ipcontext(0x1000, NULL);
+    // create an ipc context, 16kb should be more than enough
+    link->iod = ipcontext(0x4000, NULL);
     if (link->iod < 0) {
         return -1;
     }
@@ -54,42 +48,34 @@ static int vali_link_connect(struct gracht_link_vali* link)
 }
 
 static int vali_link_send(struct gracht_link_vali* link,
-                          struct gracht_message* messageBase,
-                          struct vali_link_message* messageContext)
+                          struct gracht_buffer* message,
+                          struct vali_link_message* context)
 {
-    struct ipmsg_header  message;
-    struct ipmsg_header* messagePointer = &message;
-    OsStatus_t           status;
+    int status;
 
-    message.address  = &messageContext->address;
-    message.base     = messageBase;
-    message.sender   = GetNativeHandle(link->iod);
-
-    status = Syscall_IpcContextSend(&messagePointer, 1, 0);
-    if (status != OsSuccess) {
-        OsStatusToErrno(status);
+    status = ipsend(link->iod, &context->address, message->data, message->index, 0);
+    if (status) {
+        errno = (EPIPE);
         return GRACHT_MESSAGE_ERROR;
     }
     return GRACHT_MESSAGE_INPROGRESS;
 }
 
-static int vali_link_recv(struct gracht_link_vali* link, void* messageBuffer,
-                          unsigned int flags, struct gracht_message** messageOut)
+static int vali_link_recv(struct gracht_link_vali* link, struct gracht_buffer* message, unsigned int flags)
 {
-    struct ipmsg* message = (struct ipmsg*)messageBuffer;
-    int           status;
-    unsigned int  convertedFlags = 0;
+    int status;
+    int convertedFlags = 0;
 
     if (!(flags & GRACHT_MESSAGE_BLOCK)) {
         convertedFlags |= IPMSG_DONTWAIT;
     }
 
-    status = getmsg(link->iod, message, GRACHT_DEFAULT_MESSAGE_SIZE, convertedFlags);
+    status = iprecv(link->iod, &message->data[sizeof(UUId_t)], message->index, convertedFlags, (UUId_t*)message->data);
     if (status) {
         return status;
     }
 
-    *messageOut = &message->base;
+    message->index = sizeof(UUId_t);
     return 0;
 }
 

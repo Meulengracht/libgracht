@@ -40,14 +40,15 @@ struct vali_link_client {
 };
 
 static int vali_link_send_client(struct vali_link_client* client,
-    struct gracht_message* message, unsigned int flags)
+    struct gracht_buffer* message, unsigned int flags)
 {
-    struct ipmsg_header ipmsg = {
-            .sender  = GetNativeHandle(client->base.handle),
-            .address = &client->address,
-            .base    = message
-    };
-    return putmsg(client->link, &ipmsg, 0);
+    int status;
+
+    status = ipsend(client->link, NULL, message->data, message->index, 0);
+    if (status) {
+        return status;
+    }
+    return 0;
 }
 
 static int vali_link_recv_client(struct gracht_server_client* client,
@@ -61,15 +62,13 @@ static int vali_link_create_client(struct gracht_link_vali* link, struct gracht_
     struct vali_link_client** clientOut)
 {
     struct vali_link_client* client;
-    UUId_t                   clientHandle;
     
     if (!link || !message || !clientOut) {
         errno = (EINVAL);
         return -1;
     }
 
-    clientHandle = ((struct ipmsg*)&message->payload[0])->sender;
-    client       = (struct vali_link_client*)malloc(sizeof(struct vali_link_client));
+    client = (struct vali_link_client*)malloc(sizeof(struct vali_link_client));
     if (!client) {
         errno = (ENOMEM);
         return -1;
@@ -80,13 +79,13 @@ static int vali_link_create_client(struct gracht_link_vali* link, struct gracht_
     client->link = link->iod;
 
     client->address.type = IPMSG_ADDRESS_HANDLE;
-    client->address.data.handle = clientHandle;
+    client->address.data.handle = message->client;
 
     *clientOut = client;
     return 0;
 }
 
-static int vali_link_destroy_client(struct vali_link_client* client)
+static int vali_link_destroy_client(struct vali_link_client* client, gracht_handle_t set_handle)
 {
     int status;
     
@@ -100,9 +99,10 @@ static int vali_link_destroy_client(struct vali_link_client* client)
     return status;
 }
 
-static int vali_link_accept(struct gracht_link_vali* link, struct gracht_server_client** clientOut)
+static int vali_link_accept(struct gracht_link_vali* link, gracht_handle_t set_handle, struct gracht_server_client** clientOut)
 {
     (void)link;
+    (void)set_handle;
     (void)clientOut;
     errno = (ENOTSUP);
     return -1;
@@ -110,35 +110,36 @@ static int vali_link_accept(struct gracht_link_vali* link, struct gracht_server_
 
 static int vali_link_recv(struct gracht_link_vali* link, struct gracht_message* context)
 {
-    struct ipmsg* message = (struct ipmsg*)&context->payload[0];
-    int           status;
+    UUId_t client;
+    int    status;
     
-    status = getmsg(link->iod, message, GRACHT_DEFAULT_MESSAGE_SIZE, IPMSG_DONTWAIT);
+    status = iprecv(link->iod, &context->payload[0], 0, IPMSG_DONTWAIT, &client);
     if (status) {
         return status;
     }
 
     context->link   = 0;
-    context->client = (int)message->sender;
+    context->client = client;
     context->index  = 0;
     context->size   = 0;
     return 0;
 }
 
 static int vali_link_send(struct gracht_link_vali* link,
-    struct gracht_message* messageContext, struct gracht_message* message)
+    struct gracht_message* messageContext, struct gracht_buffer* data)
 {
-    struct ipmsg* recvmsg = (struct ipmsg*)&messageContext->payload[0];
-    struct ipmsg_addr ipaddr = {
-            .type = IPMSG_ADDRESS_HANDLE,
-            .data.handle = recvmsg->sender
-    };
-    struct ipmsg_header ipmsg = {
-            .sender  = GetNativeHandle(link->iod),
-            .address = &ipaddr,
-            .base    = message
-    };
-    return resp(link->iod, &messageContext->payload[0], &ipmsg);
+    int               status;
+    struct ipmsg_addr addr;
+
+    addr.type = IPMSG_ADDRESS_HANDLE;
+    addr.data.handle = messageContext->client;
+
+    // send to connection-less client (all of them)
+    status = ipsend(link->iod, &addr, data->data, data->index, 0);
+    if (status) {
+        return status;
+    }
+    return 0;
 }
 
 static void vali_link_destroy(struct gracht_link_vali* link)
