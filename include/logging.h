@@ -20,8 +20,8 @@
  *   and functionality, refer to the individual things for descriptions
  */
 
-#ifndef __GRACHT_DEBUG_H__
-#define __GRACHT_DEBUG_H__
+#ifndef __GRACHT_LOGGING_H__
+#define __GRACHT_LOGGING_H__
 
 //#define GRACHT_TRACE
 
@@ -54,4 +54,4 @@
 #define GRTRACE(...)
 #endif
 
-#endif // !__GRACHT_DEBUG_H__
+#endif // !__GRACHT_LOGGING_H__

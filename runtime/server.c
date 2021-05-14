@@ -23,7 +23,7 @@
 #include <errno.h>
 #include "aio.h"
 #include "arena.h"
-#include "debug.h"
+#include "logging.h"
 #include "gracht/server.h"
 #include "gracht/link/link.h"
 #include "thread_api.h"

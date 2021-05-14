@@ -398,31 +398,31 @@ def write_variable_member_deserializer2(service: ServiceObject, member, outfile)
     c_typename = get_c_typename(service, typename)
 
     # get the count of elements to deserialize, and then allocate buffer space
-    outfile.write(f"    __{name}_count = deserialize_uint32(__buffer);\n")
-    outfile.write(f"    if (__{name}_count) ")
+    outfile.write(f"    {name}_count = deserialize_uint32(__buffer);\n")
+    outfile.write(f"    if ({name}_count) ")
     outfile.write("{\n")
-    outfile.write(f"        __{name} = malloc(sizeof({c_typename}) * __{name}_count);\n")
-    outfile.write(f"        if (!__{name}) ")
+    outfile.write(f"        {name} = malloc(sizeof({c_typename}) * {name}_count);\n")
+    outfile.write(f"        if (!{name}) ")
     outfile.write("{\n")
     outfile.write(f"            return;\n")
     outfile.write("        }\n\n")
 
     if typename.lower() == "string" or service.typename_is_struct(typename):
-        outfile.write(f"        for (__i = 0; __i < __{name}_count; __i++) ")
+        outfile.write(f"        for (__i = 0; __i < {name}_count; __i++) ")
         outfile.write("{\n")
         if typename.lower() == "string":
-            outfile.write(f"            __{name}[__i] = deserialize_string_nocopy(__buffer);\n")
+            outfile.write(f"            {name}[__i] = deserialize_string_nocopy(__buffer);\n")
             print("error: variable string arrays are not supported at this moment for the C-code generator")
             exit(-1)
         elif service.typename_is_struct(member.get_typename()):
             struct_type = service.lookup_struct(typename)
             struct_name = get_scoped_name(struct_type)
-            outfile.write(f"            deserialize_{struct_name}(__buffer, &__{name}[__i]);\n")
+            outfile.write(f"            deserialize_{struct_name}(__buffer, &{name}[__i]);\n")
         outfile.write("        }\n\n")
     else:
         outfile.write(
-            f"        memcpy(&__{name}[0], &__buffer->data[__buffer->index], sizeof({c_typename}) * __{name}_count);\n")
-        outfile.write(f"        __buffer->index += sizeof({c_typename}) * __{name}_count;\n")
+            f"        memcpy(&{name}[0], &__buffer->data[__buffer->index], sizeof({c_typename}) * {name}_count);\n")
+        outfile.write(f"        __buffer->index += sizeof({c_typename}) * {name}_count;\n")
     outfile.write("    }\n\n")
 
 
@@ -478,17 +478,17 @@ def write_member_deserializer2(service: ServiceObject, member, outfile):
     if member.get_is_variable():
         write_variable_member_deserializer2(service, member, outfile)
     elif typename.lower() == "string":
-        outfile.write(f"    __{name} = deserialize_string_nocopy(__buffer);\n")
+        outfile.write(f"    {name} = deserialize_string_nocopy(__buffer);\n")
     elif service.typename_is_struct(typename):
         struct_type = service.lookup_struct(typename)
         struct_name = get_scoped_name(struct_type)
-        outfile.write(f"    deserialize_{struct_name}(__buffer, &__{name});\n")
+        outfile.write(f"    deserialize_{struct_name}(__buffer, &{name});\n")
     elif service.typename_is_enum(member.get_typename()):
         enum_type = service.lookup_enum(typename)
         enum_name = get_scoped_typename(enum_type)
-        outfile.write(f"    __{name} = ({enum_name})deserialize_int(__buffer);\n")
+        outfile.write(f"    {name} = ({enum_name})deserialize_int(__buffer);\n")
     else:
-        outfile.write(f"    __{name} = deserialize_{typename}(__buffer);\n")
+        outfile.write(f"    {name} = deserialize_{typename}(__buffer);\n")
 
 
 def write_member_deserializer(service: ServiceObject, member, outfile):
@@ -900,22 +900,22 @@ def write_deserializer_prologue(service: ServiceObject, members, outfile):
         star_modifier = ""
         default_value = ""
         if param.get_is_variable():
-            outfile.write(f"    uint32_t __{param.get_name()}_count;\n")
+            outfile.write(f"    uint32_t {param.get_name()}_count;\n")
             star_modifier = "*"
             default_value = " = NULL"
         if param.get_typename().lower() == "string":
-            outfile.write(f"    char*{star_modifier} __{param.get_name() + default_value};\n")
+            outfile.write(f"    char*{star_modifier} {param.get_name() + default_value};\n")
         elif service.typename_is_struct(param.get_typename()):
             struct_type = service.lookup_struct(param.get_typename())
             typename = get_scoped_typename(struct_type)
-            outfile.write(f"    {typename}{star_modifier} __{param.get_name() + default_value};\n")
+            outfile.write(f"    {typename}{star_modifier} {param.get_name() + default_value};\n")
         elif service.typename_is_enum(param.get_typename()):
             enum_type = service.lookup_enum(param.get_typename())
             typename = get_scoped_typename(enum_type)
-            outfile.write(f"    {typename}{star_modifier} __{param.get_name() + default_value};\n")
+            outfile.write(f"    {typename}{star_modifier} {param.get_name() + default_value};\n")
         else:
             outfile.write(
-                f"    {get_c_typename(service, param.get_typename())}{star_modifier} __{param.get_name() + default_value};\n")
+                f"    {get_c_typename(service, param.get_typename())}{star_modifier} {param.get_name() + default_value};\n")
 
 
 def write_deserializer_invocation_members(service: ServiceObject, members, outfile):
@@ -924,9 +924,9 @@ def write_deserializer_invocation_members(service: ServiceObject, members, outfi
             outfile.write(", ")
         if not member.get_is_variable() and service.typename_is_struct(member.get_typename()):
             outfile.write("&")
-        outfile.write(f"__{member.get_name()}")
+        outfile.write(f"{member.get_name()}")
         if member.get_is_variable():
-            outfile.write(f", __{member.get_name()}_count")
+            outfile.write(f", {member.get_name()}_count")
         if index < (len(members) - 1):
             outfile.write(", ")
 
@@ -939,15 +939,15 @@ def write_deserializer_destroy_members(service: ServiceObject, members, outfile)
             indent = "    "
             indexer = ""
             if member.get_is_variable():
-                outfile.write(f"    for (__i = 0; __i < __{member.get_name()}_count; __i++) ")
+                outfile.write(f"    for (__i = 0; __i < {member.get_name()}_count; __i++) ")
                 outfile.write("{\n")
                 indent = "        "
                 indexer = "[__i]"
-            outfile.write(f"{indent}{struct_name}_destroy(&__{member.get_name()}{indexer});\n")
+            outfile.write(f"{indent}{struct_name}_destroy(&{member.get_name()}{indexer});\n")
             if member.get_is_variable():
                 outfile.write("    }\n")
         if member.get_is_variable():
-            outfile.write(f"    free(__{member.get_name()});\n")
+            outfile.write(f"    free({member.get_name()});\n")
 
 
 # Define the client deserializers. These are builtin callbacks that will

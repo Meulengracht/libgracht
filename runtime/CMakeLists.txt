@@ -59,7 +59,13 @@ if (GRACHT_C_BUILD_SHARED)
     elseif (WIN32)
         target_link_libraries(gracht ws2_32 wsock32)
     elseif (MOLLENOS)
-        target_link_libraries(gracht c)
+        if (VALI_BUILD)
+            target_link_libraries(gracht c)
+            set_target_properties (gracht
+                PROPERTIES
+                    LINK_FLAGS "/lldmap /entry:dllmain"
+                )
+        endif ()
     endif ()
 endif ()
 
@@ -69,7 +75,7 @@ if (VALI_BUILD)
         LIBRARY DESTINATION vali-ddk/lib
         RUNTIME DESTINATION vali-ddk/bin
     )
-    install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/ DESTINATION vali-ddk/include)
+    install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/gracht/ DESTINATION vali-ddk/include)
     install(DIRECTORY ${PROJECT_SOURCE_DIR}/generator/ DESTINATION vali-ddk/share/vali)
 else ()
     install(TARGETS gracht
@@ -77,6 +83,6 @@ else ()
         LIBRARY DESTINATION lib
         RUNTIME DESTINATION bin
     )
-    install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/ DESTINATION include)
+    install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/gracht/ DESTINATION include)
     install(DIRECTORY ${PROJECT_SOURCE_DIR}/generator/ DESTINATION share/gracht)
 endif ()

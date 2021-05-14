@@ -21,7 +21,7 @@
  */
 
 #include "gracht/link/socket.h"
-#include "debug.h"
+#include "logging.h"
 #include "socket_os.h"
 #include <errno.h>
 #include <stdlib.h>

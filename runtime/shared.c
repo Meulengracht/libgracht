@@ -22,7 +22,7 @@
 
 #include "gracht/types.h"
 #include "hashtable.h"
-#include "debug.h"
+#include "logging.h"
 #include "utils.h"
 #include <errno.h>
 #include <stdlib.h>

@@ -23,7 +23,7 @@
 #include <assert.h>
 #include <errno.h>
 #include "gracht/link/socket.h"
-#include "debug.h"
+#include "logging.h"
 #include <stdlib.h>
 #include <string.h>
 

@@ -27,7 +27,7 @@
 #include "arena.h"
 #include "crc.h"
 #include "hashtable.h"
-#include "debug.h"
+#include "logging.h"
 #include "thread_api.h"
 #include "control.h"
 #include "utils.h"

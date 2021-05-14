@@ -18,7 +18,7 @@
  * Gracht Server Dispatcher
  */
 
-#include "debug.h"
+#include "logging.h"
 #include "thread_api.h"
 #include "queue.h"
 #include "server_private.h"

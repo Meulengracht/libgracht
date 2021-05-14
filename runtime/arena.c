@@ -24,7 +24,7 @@
  */
 
 #include <errno.h>
-#include "debug.h"
+#include "logging.h"
 #include "server_private.h"
 #include <stdint.h>
 #include <stdlib.h>
