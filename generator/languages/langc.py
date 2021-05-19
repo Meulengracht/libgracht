@@ -199,7 +199,7 @@ def get_client_event_callback_name(service, evt):
 
 
 def get_service_internal_callback_name(service, act):
-    return f"__{service.get_namespace()}_{act.get_name()}_internal"
+    return f"__{service.get_namespace()}_{service.get_name()}_{act.get_name()}_internal"
 
 
 def get_event_prototype_name_single(service, evt, case):
