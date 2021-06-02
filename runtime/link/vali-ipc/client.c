@@ -72,13 +72,13 @@ static inline int get_ip_flags(unsigned int flags)
 
 static int vali_link_recv(struct gracht_link_vali* link, struct gracht_buffer* message, unsigned int flags)
 {
-    int status;
+    int bytesRead;
     int ipFlags = get_ip_flags(flags);
     int index   = sizeof(UUId_t);
 
-    status = iprecv(link->base.connection, &message->data[index], message->index, ipFlags, (UUId_t*)message->data);
-    if (status) {
-        return status;
+    bytesRead = iprecv(link->base.connection, &message->data[index], message->index, ipFlags, (UUId_t*)message->data);
+    if (bytesRead < 0) {
+        return bytesRead;
     }
 
     message->index = index;
