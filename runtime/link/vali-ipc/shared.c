@@ -69,7 +69,7 @@ int gracht_link_vali_create(struct gracht_link_vali** linkOut)
     }
 
     memset(link, 0, sizeof(struct gracht_link_vali));
-    link->iod = -1;
+    link->base.connection = GRACHT_CONN_INVALID;
     link->base.type = gracht_link_packet_based;
     gracht_link_client_vali_api(link);
 

@@ -1,5 +1,5 @@
-/* MollenOS
- *
+/**
+ * Vali
  * Copyright 2019, Philip Meulengracht
  *
  * This program is free software : you can redistribute it and / or modify
@@ -33,18 +33,18 @@
 
 static int vali_link_connect(struct gracht_link_vali* link)
 {
-    if (!link) {
+    if (!link || link->base.type != gracht_link_packet_based) {
         errno = EINVAL;
         return -1;
     }
 
     // create an ipc context, 16kb should be more than enough
-    link->iod = ipcontext(0x4000, NULL);
-    if (link->iod < 0) {
+    link->base.connection = ipcontext(0x4000, NULL);
+    if (link->base.connection == GRACHT_CONN_INVALID) {
         return -1;
     }
 
-    return link->iod;
+    return link->base.connection;
 }
 
 static int vali_link_send(struct gracht_link_vali* link,
@@ -53,7 +53,7 @@ static int vali_link_send(struct gracht_link_vali* link,
 {
     int status;
 
-    status = ipsend(link->iod, &context->address, message->data, message->index, 0);
+    status = ipsend(link->base.connection, &context->address, message->data, message->index, 0);
     if (status) {
         errno = (EPIPE);
         return GRACHT_MESSAGE_ERROR;
@@ -61,21 +61,27 @@ static int vali_link_send(struct gracht_link_vali* link,
     return GRACHT_MESSAGE_INPROGRESS;
 }
 
+static inline int get_ip_flags(unsigned int flags)
+{
+    int ipFlags = 0;
+    if (!(flags & GRACHT_MESSAGE_BLOCK)) {
+        ipFlags |= IPMSG_DONTWAIT;
+    }
+    return ipFlags;
+}
+
 static int vali_link_recv(struct gracht_link_vali* link, struct gracht_buffer* message, unsigned int flags)
 {
     int status;
-    int convertedFlags = 0;
+    int ipFlags = get_ip_flags(flags);
+    int index   = sizeof(UUId_t);
 
-    if (!(flags & GRACHT_MESSAGE_BLOCK)) {
-        convertedFlags |= IPMSG_DONTWAIT;
-    }
-
-    status = iprecv(link->iod, &message->data[sizeof(UUId_t)], message->index, convertedFlags, (UUId_t*)message->data);
+    status = iprecv(link->base.connection, &message->data[index], message->index, ipFlags, (UUId_t*)message->data);
     if (status) {
         return status;
     }
 
-    message->index = sizeof(UUId_t);
+    message->index = index;
     return 0;
 }
 
@@ -85,8 +91,8 @@ static void vali_link_destroy(struct gracht_link_vali* link)
         return;
     }
 
-    if (link->iod > 0) {
-        close(link->iod);
+    if (link->base.connection != GRACHT_CONN_INVALID) {
+        close(link->base.connection);
     }
     free(link);
 }

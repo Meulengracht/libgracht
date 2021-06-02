@@ -28,7 +28,6 @@
 struct gracht_link_vali {
     struct gracht_link base;
     struct ipmsg_addr  address;
-    int                iod;
 };
 
 #endif // !__GRACHT_VALI_PRIVATE_H__

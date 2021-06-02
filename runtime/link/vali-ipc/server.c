@@ -1,5 +1,5 @@
-/* MollenOS
- *
+/**
+ * Vali
  * Copyright 2019, Philip Meulengracht
  *
  * This program is free software : you can redistribute it and / or modify
@@ -30,8 +30,10 @@
 #include "private.h"
 #include <internal/_utils.h>
 #include <io.h>
+#include <ioset.h>
 #include <stdlib.h>
 #include <string.h>
+#include <logging.h>
 
 struct vali_link_client {
     struct gracht_server_client base;
@@ -40,11 +42,17 @@ struct vali_link_client {
 };
 
 static int vali_link_send_client(struct vali_link_client* client,
-    struct gracht_buffer* message, unsigned int flags)
+    struct gracht_buffer* data, unsigned int flags)
 {
-    int status;
+    int               status;
+    struct ipmsg_addr addr;
+    _CRT_UNUSED(flags);
 
-    status = ipsend(client->link, NULL, message->data, message->index, 0);
+    addr.type = IPMSG_ADDRESS_HANDLE;
+    addr.data.handle = (UUId_t)client->base.handle;
+
+    // send to connection-less client (all of them)
+    status = ipsend(client->link, &addr, data->data, data->index, 0);
     if (status) {
         return status;
     }
@@ -54,6 +62,9 @@ static int vali_link_send_client(struct vali_link_client* client,
 static int vali_link_recv_client(struct gracht_server_client* client,
     struct gracht_message* context, unsigned int flags)
 {
+    _CRT_UNUSED(client);
+    _CRT_UNUSED(context);
+    _CRT_UNUSED(flags);
     errno = (ENOTSUP);
     return -1;
 }
@@ -76,7 +87,7 @@ static int vali_link_create_client(struct gracht_link_vali* link, struct gracht_
 
     memset(client, 0, sizeof(struct vali_link_client));
     client->base.handle = message->client;
-    client->link = link->iod;
+    client->link = link->base.connection;
 
     client->address.type = IPMSG_ADDRESS_HANDLE;
     client->address.data.handle = message->client;
@@ -87,76 +98,120 @@ static int vali_link_create_client(struct gracht_link_vali* link, struct gracht_
 
 static int vali_link_destroy_client(struct vali_link_client* client, gracht_handle_t set_handle)
 {
-    int status;
+    _CRT_UNUSED(set_handle); // we do not support individual links
     
     if (!client) {
         errno = (EINVAL);
         return -1;
     }
-    
-    status = close(client->base.handle);
+
     free(client);
-    return status;
+    return 0;
 }
 
-static int vali_link_accept(struct gracht_link_vali* link, gracht_handle_t set_handle, struct gracht_server_client** clientOut)
+static int vali_link_accept(struct gracht_link_vali*      link,
+                            gracht_handle_t               set_handle,
+                            struct gracht_server_client** clientOut)
 {
-    (void)link;
-    (void)set_handle;
-    (void)clientOut;
+    // we don't support listen links like this
+    _CRT_UNUSED(link);
+    _CRT_UNUSED(set_handle);
+    _CRT_UNUSED(clientOut);
     errno = (ENOTSUP);
     return -1;
 }
 
-static int vali_link_recv(struct gracht_link_vali* link, struct gracht_message* context)
+static inline int get_ip_flags(unsigned int flags)
+{
+    int ipFlags = 0;
+    if (!(flags & GRACHT_MESSAGE_BLOCK)) {
+        ipFlags |= IPMSG_DONTWAIT;
+    }
+    return ipFlags;
+}
+
+static int vali_link_recv(struct gracht_link_vali* link, struct gracht_message* context, unsigned int flags)
 {
     UUId_t client;
-    int    status;
-    
-    status = iprecv(link->iod, &context->payload[0], 0, IPMSG_DONTWAIT, &client);
-    if (status) {
-        return status;
+    int    bytesRead;
+    int    ipFlags = get_ip_flags(flags);
+
+    if (link->base.type != gracht_link_packet_based) {
+        errno = ENOSYS;
+        return -1;
     }
 
-    context->link   = 0;
-    context->client = client;
+    bytesRead = iprecv(link->base.connection, &context->payload[0], context->index, ipFlags, &client);
+    if (bytesRead < 0) {
+        return bytesRead;
+    }
+
+    // ->server is set by server
+    context->link   = link->base.connection;
+    context->client = (gracht_conn_t)client;
+    context->size   = (uint32_t)bytesRead;
     context->index  = 0;
-    context->size   = 0;
     return 0;
 }
 
 static int vali_link_send(struct gracht_link_vali* link,
-    struct gracht_message* messageContext, struct gracht_buffer* data)
+                          struct gracht_message*   messageContext,
+                          struct gracht_buffer*    data)
 {
     int               status;
     struct ipmsg_addr addr;
+
+    if (link->base.type != gracht_link_packet_based) {
+        errno = ENOSYS;
+        return -1;
+    }
 
     addr.type = IPMSG_ADDRESS_HANDLE;
     addr.data.handle = messageContext->client;
 
     // send to connection-less client (all of them)
-    status = ipsend(link->iod, &addr, data->data, data->index, 0);
+    status = ipsend(link->base.connection, &addr, data->data, data->index, 0);
     if (status) {
         return status;
     }
     return 0;
 }
 
-static void vali_link_destroy(struct gracht_link_vali* link)
+static void vali_link_destroy(struct gracht_link_vali* link, gracht_handle_t set_handle)
 {
     if (!link) {
         return;
     }
-    
-    close(link->iod);
+
+    // remove the link
+    if (link->base.connection > 0) {
+        int status = ioset_ctrl(set_handle, IOSET_DEL, link->base.connection, NULL);
+        if (status) {
+            GRWARNING(GRSTR("vali_link_destroy failed to remove link socket from set_handle"));
+        }
+
+        close(link->base.connection);
+    }
     free(link);
 }
 
 static int vali_link_setup(struct gracht_link_vali* link, gracht_handle_t set_handle)
 {
-    // create an ipc context
-    link->iod = ipcontext(0x4000, &link->address); /* 16kB */
+    if (!link || link->base.type != gracht_link_packet_based) {
+        errno = EINVAL;
+        return -1;
+    }
 
+    // create an ipc context
+    link->base.connection = ipcontext(0x4000, &link->address); /* 16kB */
+    if (link->base.connection == GRACHT_CONN_INVALID) {
+        return -1;
+    }
+
+    ioset_ctrl(set_handle, IOSET_ADD, link->base.connection, &(struct ioset_event){
+        .data.iod = link->base.connection,
+        .events   = IOSETIN | IOSETCTL | IOSETLVT
+    });
     return 0;
 }
 
