@@ -276,8 +276,9 @@ static int handle_connection(struct gracht_server* server, struct gracht_link* l
     }
 
     // this is a streaming client, which means we handle them differently if they should
-    // unsubscribe to certain protocols
+    // unsubscribe to certain protocols. Streaming clients are subscribed to all from start
     client->flags |= GRACHT_CLIENT_FLAG_STREAM;
+    memset(&client->subscriptions[0], 0xFF, sizeof(client->subscriptions));
     
     rwlock_w_lock(&server->clients_lock);
     hashtable_set(&server->clients, &(struct client_wrapper) { 

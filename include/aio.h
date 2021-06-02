@@ -60,7 +60,7 @@ typedef struct epoll_event gracht_aio_event_t;
 #elif defined(_WIN32)
 #include <windows.h>
 #include <stdlib.h>
-#include "debug.h"
+#include "logging.h"
 
 struct iocp_socket;
 struct iocp_handle {

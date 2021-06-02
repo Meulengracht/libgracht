@@ -75,7 +75,7 @@ if (VALI_BUILD)
         LIBRARY DESTINATION vali-ddk/lib
         RUNTIME DESTINATION vali-ddk/bin
     )
-    install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/gracht/ DESTINATION vali-ddk/include)
+    install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/gracht/ DESTINATION vali-ddk/include/gracht)
     install(DIRECTORY ${PROJECT_SOURCE_DIR}/generator/ DESTINATION vali-ddk/share/vali)
 else ()
     install(TARGETS gracht
@@ -83,6 +83,6 @@ else ()
         LIBRARY DESTINATION lib
         RUNTIME DESTINATION bin
     )
-    install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/gracht/ DESTINATION include)
+    install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/gracht/ DESTINATION include/gracht)
     install(DIRECTORY ${PROJECT_SOURCE_DIR}/generator/ DESTINATION share/gracht)
 endif ()
