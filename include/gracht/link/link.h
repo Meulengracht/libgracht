@@ -95,11 +95,19 @@ struct client_link_ops {
     client_link_destroy_fn destroy;
 };
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * Link interface that can be used to query data from links if the application
  * keeps the link pointer around.
  */
 GRACHTAPI gracht_conn_t         gracht_link_get_handle(struct gracht_link* link);
 GRACHTAPI enum gracht_link_type gracht_link_get_type(struct gracht_link* link);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // !__GRACHT_LINK_H__
