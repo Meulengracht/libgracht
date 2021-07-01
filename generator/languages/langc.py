@@ -505,7 +505,7 @@ def write_member_deserializer(service: ServiceObject, member, outfile):
     elif service.typename_is_enum(member.get_typename()):
         enum_type = service.lookup_enum(typename)
         enum_name = get_scoped_typename(enum_type)
-        outfile.write(f"    *{name}_out = ({enum_name})deserialize_int(__buffer);\n")
+        outfile.write(f"    *{name}_out = ({enum_name})deserialize_int(&__buffer);\n")
     else:
         outfile.write(f"    *{name}_out = deserialize_{typename}(&__buffer);\n")
 
