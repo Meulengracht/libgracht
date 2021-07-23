@@ -24,6 +24,17 @@ include_directories(
         ../include
 )
 
+# On Vali builds we would like to also include some paths, but
+# not during kernel builds, we need to get rid of this dependency at some
+# point as we do not actually require this anymore
+if (MOLLENOS AND NOT VALI_BUILD)
+    if (NOT DEFINED ENV{VALI_DDK_PATH})
+        message(FATAL_ERROR "Please set the VALI_DDK_PATH environmental variable to the path of the Vali DDK.")
+    endif ()
+    include_directories($ENV{VALI_DDK_PATH}/include)
+    link_directories($ENV{VALI_DDK_PATH}/lib)
+endif ()
+
 if (GRACHT_C_LINK_VALI)
     add_sources (
             link/vali-ipc/client.c
@@ -65,6 +76,8 @@ if (GRACHT_C_BUILD_SHARED)
                 PROPERTIES
                     LINK_FLAGS "/lldmap /entry:dllmain"
                 )
+        else ()
+            target_link_libraries(gracht static_libddk)
         endif ()
     endif ()
 endif ()
