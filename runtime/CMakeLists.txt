@@ -56,7 +56,7 @@ add_definitions(-DGRACHT_BUILD)
 add_sources(client.c client_config.c crc.c server.c server_config.c shared.c stack.c queue.c arena.c dispatch.c hashtable.c control.c)
 
 if (GRACHT_C_BUILD_STATIC)
-    add_library(gracht_static ${SRCS})
+    add_library(gracht_static STATIC ${SRCS})
 endif ()
 
 if (GRACHT_C_BUILD_SHARED)
