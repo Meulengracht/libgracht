@@ -68,3 +68,11 @@ enum gracht_link_type gracht_link_get_type(struct gracht_link* link)
 
     return link->type;
 }
+
+#if defined(GRACHT_SHARED_LIBRARY) && defined(MOLLENOS)
+// dll entry point for mollenos shared libraries
+// this must be present
+void dllmain(int action) {
+    (void)action;
+}
+#endif
