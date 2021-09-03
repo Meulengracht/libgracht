@@ -91,10 +91,3 @@ void gracht_link_vali_set_address(struct gracht_link_vali* link, struct ipmsg_ad
 {
     memcpy(&link->address, address, sizeof(struct ipmsg_addr));
 }
-
-#ifdef GRACHT_SHARED_LIBRARY
-void dllmain(int action)
-{
-    _CRT_UNUSED(action);
-}
-#endif
