@@ -77,7 +77,7 @@ if (GRACHT_C_BUILD_SHARED)
                     LINK_FLAGS "/lldmap /entry:dllmain"
                 )
         else ()
-            target_link_libraries(gracht static_libddk)
+            target_link_libraries(gracht libddk)
         endif ()
     endif ()
 endif ()
