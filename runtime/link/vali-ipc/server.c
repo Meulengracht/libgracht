@@ -28,7 +28,6 @@
 #include <errno.h>
 #include "gracht/link/vali.h"
 #include "private.h"
-#include <internal/_utils.h>
 #include <io.h>
 #include <ioset.h>
 #include <stdlib.h>
