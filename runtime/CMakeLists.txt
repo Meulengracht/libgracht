@@ -56,6 +56,9 @@ add_sources(client.c client_config.c crc.c server.c server_config.c shared.c sta
 
 if (GRACHT_C_BUILD_STATIC)
     add_library(gracht_static STATIC ${SRCS})
+    if (NOT VALI_BUILD)
+        target_link_libraries(gracht_static ValiDDK::libddk)
+    endif ()
 endif ()
 
 if (GRACHT_C_BUILD_SHARED)
