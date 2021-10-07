@@ -74,10 +74,6 @@ if (GRACHT_C_BUILD_SHARED)
     elseif (MOLLENOS)
         if (VALI_BUILD)
             target_link_libraries(gracht c)
-            set_target_properties (gracht
-                PROPERTIES
-                    LINK_FLAGS "/lldmap /entry:dllmain"
-                )
         else ()
             target_link_libraries(gracht ValiDDK::libddk)
         endif ()
