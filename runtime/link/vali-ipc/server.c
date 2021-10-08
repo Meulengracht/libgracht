@@ -134,6 +134,7 @@ static int vali_link_recv(struct gracht_link_vali* link, struct gracht_message* 
     UUId_t client;
     int    bytesRead;
     int    ipFlags = get_ip_flags(flags);
+    TRACE("vali_link_recv %u", flags);
 
     if (link->base.type != gracht_link_packet_based) {
         errno = ENOSYS;
@@ -198,20 +199,20 @@ static int vali_link_setup(struct gracht_link_vali* link, gracht_handle_t set_ha
 {
     if (!link || link->base.type != gracht_link_packet_based) {
         errno = EINVAL;
-        return -1;
+        return GRACHT_CONN_INVALID;
     }
 
     // create an ipc context
     link->base.connection = ipcontext(0x4000, &link->address); /* 16kB */
     if (link->base.connection == GRACHT_CONN_INVALID) {
-        return -1;
+        return GRACHT_CONN_INVALID;
     }
 
     ioset_ctrl(set_handle, IOSET_ADD, link->base.connection, &(struct ioset_event){
         .data.iod = link->base.connection,
         .events   = IOSETIN | IOSETCTL | IOSETLVT
     });
-    return 0;
+    return link->base.connection;
 }
 
 void gracht_link_server_vali_api(struct gracht_link_vali* link)

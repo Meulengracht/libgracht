@@ -299,6 +299,7 @@ static struct gracht_message* get_in_buffer_st(struct gracht_server* server)
 {
     struct gracht_message* message = (struct gracht_message*)server->recvBuffer;
     message->server = server;
+    message->index  = server->allocationSize;
     return message;
 }
 
@@ -342,6 +343,7 @@ static struct gracht_message* get_in_buffer_mt(struct gracht_server* server)
     message = gracht_arena_allocate(server->arena, NULL, server->allocationSize);
     mtx_unlock(&server->arena_lock);
     message->server = server;
+    message->index  = server->allocationSize;
     return message;
 }
 
@@ -667,8 +669,8 @@ int gracht_server_respond(struct gracht_message* messageContext, gracht_buffer_t
     }
     else {
         status = entry->link->ops.server.send_client(entry->client, message, GRACHT_MESSAGE_BLOCK);
+        rwlock_r_unlock(&messageContext->server->clients_lock);
     }
-    rwlock_r_unlock(&messageContext->server->clients_lock);
 
     // return the borrowed buffer to the stack
     stack_push(&messageContext->server->bufferStack, message->data);
