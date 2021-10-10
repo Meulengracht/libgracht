@@ -275,7 +275,8 @@ int gracht_client_status_finalize(gracht_client_t* client, struct gracht_message
     // guard against already checked
     mtx_lock(&client->data_lock);
     descriptor = (struct gracht_message_descriptor*)hashtable_remove(&client->messages, 
-        &(struct gracht_message_descriptor) { .id = context->message_id });
+            &(struct gracht_message_descriptor) { .id = context->message_id }
+        );
     if (descriptor && descriptor->buffer.data) {
         gracht_arena_free(client->arena, descriptor->buffer.data, 0);
     }
@@ -309,7 +310,7 @@ int gracht_client_wait_message(
         struct gracht_message_context* context,
         unsigned int                   flags)
 {
-    struct gracht_buffer buffer;
+    struct gracht_buffer buffer = { 0 };
     uint32_t             messageId = 0;
     uint8_t              messageFlags;
     int                  status;
@@ -328,6 +329,7 @@ listenForMessage:
         struct gracht_message_descriptor* descriptor = hashtable_get(&client->messages, 
             &(struct gracht_message_descriptor) { .id = context->message_id });
         if (!descriptor) {
+            errno = ENOENT;
             return -1;
         }
         if (descriptor->status != GRACHT_MESSAGE_INPROGRESS) {
@@ -346,7 +348,7 @@ listenForMessage:
         }
     }
 
-    // initialize buffer
+    // initialize buffer, after this point NO returning, only jump to listenOrExit
     mtx_lock(&client->data_lock);
     buffer.data = gracht_arena_allocate(client->arena, NULL, client->max_message_size);
     mtx_unlock(&client->data_lock);
@@ -356,14 +358,15 @@ listenForMessage:
         mtx_unlock(&client->wait_lock);
         // out of memory. client should handle messages
         errno = ENOMEM;
-        return -1;
+        status = -1;
+        goto listenOrExit;
     }
 
     status = client->link->ops.client.recv(client->link, &buffer, flags);
     mtx_unlock(&client->wait_lock);
     if (status) {
         // In case of any recieving errors we must exit immediately
-        return status;
+        goto listenOrExit;
     }
     
     messageFlags = GB_MSG_FLG(&buffer);
@@ -375,11 +378,6 @@ listenForMessage:
         messageFlags, GB_MSG_SID(&buffer), GB_MSG_AID(&buffer));
     if (MESSAGE_FLAG_TYPE(messageFlags) == MESSAGE_FLAG_EVENT) {
         status = client_invoke_action(client, &buffer);
-        
-        // cleanup buffer after handling event
-        mtx_lock(&client->data_lock);
-        gracht_arena_free(client->arena, buffer.data, 0);
-        mtx_unlock(&client->data_lock);
     }
     else if (MESSAGE_FLAG_TYPE(messageFlags) == MESSAGE_FLAG_RESPONSE) {
         struct gracht_message_descriptor* descriptor = hashtable_get(&client->messages, 
@@ -403,14 +401,24 @@ listenForMessage:
         mtx_lock(&client->data_lock);
         mark_awaiters(client, descriptor);
         mtx_unlock(&client->data_lock);
+
+        // zero the buffer pointer, so it does not get freed, freeing is now handled by
+        // the awaiter
+        buffer.data = NULL;
     }
 
 listenOrExit:
+    if (buffer.data) {
+        mtx_lock(&client->data_lock);
+        gracht_arena_free(client->arena, buffer.data, 0);
+        mtx_unlock(&client->data_lock);
+    }
+
     if (context) {
         // In case a context was provided the meaning is that we should wait
         // for a specific message. Make sure that the message we've handled were
         // the one that was requested.
-        if (context->message_id != messageId) {
+        if (messageId != 0 && context->message_id != messageId) {
             goto listenForMessage;
         }
     }
@@ -570,7 +578,10 @@ void gracht_client_unregister_protocol(gracht_client_t* client, gracht_protocol_
 
 static void mark_awaiters(gracht_client_t* client, struct gracht_message_descriptor* descriptor)
 {
-    struct gracht_message_awaiter* awaiter = hashtable_get(&client->awaiters, &(struct gracht_message_awaiter) { .id = descriptor->awaiter_id });
+    struct gracht_message_awaiter* awaiter = hashtable_get(
+                &client->awaiters,
+                &(struct gracht_message_awaiter) { .id = descriptor->awaiter_id }
+            );
     if (!awaiter) {
         return;
     }
