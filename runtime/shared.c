@@ -35,7 +35,7 @@ gracht_protocol_function_t* get_protocol_action(hashtable_t* protocols,
     
     protocol = hashtable_get(protocols, &(gracht_protocol_t) { .id = protocol_id });
     if (!protocol) {
-        GRERROR(GRSTR("[get_protocol_action] protocol %u was not implemented"), protocol_id);
+        GRERROR(GRSTR("get_protocol_action(p=%u, a=%u) protocol was not implemented"), protocol_id, action_id);
         errno = ENOTSUP;
         return NULL;
     }
@@ -46,7 +46,7 @@ gracht_protocol_function_t* get_protocol_action(hashtable_t* protocols,
         }
     }
 
-    GRERROR(GRSTR("[get_protocol_action] action %u was not implemented"), action_id);
+    GRERROR(GRSTR("get_protocol_action(p=%u, a=%u) action was not implemented"), protocol_id, action_id);
     errno = ENOTSUP;
     return NULL;
 }

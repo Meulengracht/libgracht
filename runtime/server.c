@@ -160,10 +160,11 @@ int gracht_server_create(gracht_server_configuration_t* config, gracht_server_t*
     hashtable_construct(&server->clients, 0, sizeof(struct client_wrapper), client_hash, client_cmp);
     stack_construct(&server->bufferStack, 8);
 
+    // everything is setup - update state before registering control protocol
+    server->state = RUNNING;
+
     gracht_server_register_protocol(server, &gracht_control_server_protocol);
 
-    // everything is setup - update state
-    server->state = RUNNING;
     *serverOut = server;
     return 0;
 }
