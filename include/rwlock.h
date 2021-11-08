@@ -66,7 +66,7 @@ static void rwlock_r_unlock(struct rwlock* lock)
 static void rwlock_w_lock(struct rwlock* lock)
 {
     mtx_lock(&lock->sync_object);
-    if (lock->readers) {
+    while (lock->readers) {
         cnd_wait(&lock->signal, &lock->sync_object);
     }
 }

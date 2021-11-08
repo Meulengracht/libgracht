@@ -953,7 +953,7 @@ static void client_enum_broadcast(int index, const void* element, void* userCont
 {
     const struct client_wrapper* entry   = element;
     struct broadcast_context*    context = userContext;
-    uint8_t                      protocol = GB_MSG_SID(context->message);
+    uint8_t                      protocol = GB_MSG_SID_0(context->message);
     (void)index;
 
     if (client_is_subscribed(entry->client, protocol)) {
