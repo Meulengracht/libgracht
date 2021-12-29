@@ -25,16 +25,16 @@
 
 #include <stdint.h>
 
-struct queue {
+struct gr_queue {
     unsigned int dequeue_index;
     unsigned int queue_index;
     unsigned int capacity;
     uintptr_t*   elements;
 };
 
-int   queue_construct(struct queue* queue, unsigned int capacity);
-void  queue_destroy(struct queue* queue);
-int   queue_enqueue(struct queue* queue, void* pointer);
-void* queue_dequeue(struct queue* queue);
+int   gr_queue_construct(struct gr_queue* queue, unsigned int capacity);
+void  gr_queue_destroy(struct gr_queue* queue);
+int   gr_queue_enqueue(struct gr_queue* queue, void* pointer);
+void* gr_queue_dequeue(struct gr_queue* queue);
 
 #endif // !__GRACHT_QUEUE_H__

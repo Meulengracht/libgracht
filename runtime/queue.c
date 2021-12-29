@@ -22,7 +22,7 @@
 #include "queue.h"
 #include <stdlib.h>
 
-int queue_construct(struct queue* queue, unsigned int capacity)
+int gr_queue_construct(struct gr_queue* queue, unsigned int capacity)
 {
     if (!queue || !capacity) {
         errno = EINVAL;
@@ -42,7 +42,7 @@ int queue_construct(struct queue* queue, unsigned int capacity)
     return 0;
 }
 
-void queue_destroy(struct queue* queue)
+void gr_queue_destroy(struct gr_queue* queue)
 {
     if (!queue) {
         return;
@@ -51,14 +51,14 @@ void queue_destroy(struct queue* queue)
     free(queue->elements);
 }
 
-static inline int capacity_remaining(struct queue* queue)
+static inline int capacity_remaining(struct gr_queue* queue)
 {
     // return the remaining capacity, which is the current number of queued elements
     // subtracted from the capacity of the queue
     return queue->capacity - (queue->queue_index - queue->dequeue_index);
 }
 
-int queue_enqueue(struct queue* queue, void* pointer)
+int gr_queue_enqueue(struct gr_queue* queue, void* pointer)
 {
     unsigned int index;
 
@@ -77,7 +77,7 @@ int queue_enqueue(struct queue* queue, void* pointer)
     return 0;
 }
 
-void* queue_dequeue(struct queue* queue)
+void* gr_queue_dequeue(struct gr_queue* queue)
 {
     unsigned int index;
 

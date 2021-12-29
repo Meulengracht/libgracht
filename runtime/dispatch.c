@@ -34,9 +34,9 @@ enum gracht_worker_state {
 
 struct gracht_worker {
     thrd_t         id;
-    mtx_t          sync_object;
-    struct queue   job_queue;
-    cnd_t          signal;
+    mtx_t           sync_object;
+    struct gr_queue job_queue;
+    cnd_t           signal;
     int            state;
 };
 
@@ -126,7 +126,7 @@ void gracht_worker_pool_dispatch(struct gracht_worker_pool* pool, struct gracht_
 
     worker = &pool->workers[pool->rr_index];
     mtx_lock(&worker->sync_object);
-    queue_enqueue(&worker->job_queue, recvMessage);
+    gr_queue_enqueue(&worker->job_queue, recvMessage);
     mtx_unlock(&worker->sync_object);
     cnd_signal(&worker->signal);
 
@@ -150,7 +150,7 @@ static void initialize_worker(struct gracht_server* server, struct gracht_worker
     context->worker = worker;
     context->server = server;
 
-    queue_construct(&worker->job_queue, SERVER_WORKER_DEFAULT_QUEUE_SIZE);
+    gr_queue_construct(&worker->job_queue, SERVER_WORKER_DEFAULT_QUEUE_SIZE);
     mtx_init(&worker->sync_object, mtx_plain);
     cnd_init(&worker->signal);
     worker->state = WORKER_STARTUP;
@@ -164,7 +164,7 @@ static void cleanup_worker(struct gracht_worker* worker)
 {
     mtx_destroy(&worker->sync_object);
     cnd_destroy(&worker->signal);
-    queue_destroy(&worker->job_queue);
+    gr_queue_destroy(&worker->job_queue);
 }
 
 static int worker_dowork(void* context)
@@ -178,7 +178,7 @@ static int worker_dowork(void* context)
     worker->state = WORKER_ALIVE;
     while (1) {
         mtx_lock(&worker->sync_object);
-        job = queue_dequeue(&worker->job_queue);
+        job = gr_queue_dequeue(&worker->job_queue);
         if (!job) {
             cnd_wait(&worker->signal, &worker->sync_object);
             if (worker->state == WORKER_SHUTDOWN_REQUEST) {
@@ -187,7 +187,7 @@ static int worker_dowork(void* context)
                 break;
             }
 
-            job = queue_dequeue(&worker->job_queue);
+            job = gr_queue_dequeue(&worker->job_queue);
             // assert(job_header != NULL);
         }
         mtx_unlock(&worker->sync_object);
@@ -205,10 +205,10 @@ static int worker_dowork(void* context)
     }
     GRTRACE(GRSTR("worker_dowork: shutting down"));
 
-    job = queue_dequeue(&worker->job_queue);
+    job = gr_queue_dequeue(&worker->job_queue);
     while (job) {
         server_cleanup_message(workerContext->server, job);
-        job = queue_dequeue(&worker->job_queue);
+        job = gr_queue_dequeue(&worker->job_queue);
     }
 
     free(workerContext);

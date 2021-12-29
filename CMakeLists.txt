@@ -1,5 +1,5 @@
 # Project setup
-cmake_minimum_required (VERSION 3.8.2)
+cmake_minimum_required (VERSION 3.13.4)
 project (Gracht)
 enable_language (C)
 
