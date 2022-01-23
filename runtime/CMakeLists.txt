@@ -56,6 +56,7 @@ add_sources(client.c client_config.c crc.c server.c server_config.c shared.c sta
 
 if (GRACHT_C_BUILD_STATIC)
     add_library(gracht_static STATIC ${SRCS})
+    target_include_directories(gracht_static PUBLIC ../include)
     if (MOLLENOS AND NOT VALI_BUILD)
         target_link_libraries(gracht_static ValiDDK::libddk)
     endif ()
@@ -63,6 +64,7 @@ endif ()
 
 if (GRACHT_C_BUILD_SHARED)
     add_library(gracht SHARED ${SRCS})
+    target_include_directories(gracht PUBLIC ../include)
     target_compile_definitions(gracht PUBLIC -DGRACHT_SHARED_LIBRARY)
     if (UNIX)
         target_link_libraries(gracht -lrt -lc)
