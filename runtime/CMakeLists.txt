@@ -76,11 +76,7 @@ if (GRACHT_C_BUILD_SHARED)
     elseif (MOLLENOS)
         if (VALI_BUILD)
             target_link_libraries(gracht c)
-            if (DEFINED VALI_PATH_INITRD)
-                add_custom_command (TARGET gracht POST_BUILD
-                        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:gracht> ${VALI_PATH_INITRD}
-                        )
-            endif ()
+            deploy_to_initrd(gracht OFF)
         else ()
             target_link_libraries(gracht ValiDDK::libddk)
         endif ()
