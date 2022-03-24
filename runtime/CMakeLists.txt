@@ -90,7 +90,14 @@ if (VALI_BUILD)
         RUNTIME DESTINATION vali-ddk/bin
     )
     install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/gracht/ DESTINATION vali-ddk/include/gracht)
-    install(DIRECTORY ${PROJECT_SOURCE_DIR}/generator/ DESTINATION vali-ddk/share/vali)
+    install(
+        DIRECTORY ${PROJECT_SOURCE_DIR}/generator/ 
+        DESTINATION vali-ddk/share/vali
+        FILES_MATCHING
+        PATTERN "*.py"
+        PATTERN "__init__.py" EXCLUDE
+        PATTERN "__pycache__" EXCLUDE
+    )
 else ()
     install(TARGETS gracht
         ARCHIVE DESTINATION lib
@@ -98,5 +105,12 @@ else ()
         RUNTIME DESTINATION bin
     )
     install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/gracht/ DESTINATION include/gracht)
-    install(DIRECTORY ${PROJECT_SOURCE_DIR}/generator/ DESTINATION share/gracht)
+    install(
+        DIRECTORY ${PROJECT_SOURCE_DIR}/generator/ 
+        DESTINATION share/gracht
+        FILES_MATCHING
+        PATTERN "*.py"
+        PATTERN "__init__.py" EXCLUDE
+        PATTERN "__pycache__" EXCLUDE
+    )
 endif ()
