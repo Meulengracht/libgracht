@@ -28,10 +28,10 @@ include_directories(
 # not during kernel builds, we need to get rid of this dependency at some
 # point as we do not actually require this anymore
 if (MOLLENOS AND NOT VALI_BUILD)
-    if (NOT DEFINED ENV{VALI_DDK_PATH})
-        message(FATAL_ERROR "Please set the VALI_DDK_PATH environmental variable to the path of the Vali DDK.")
+    if (NOT DEFINED ENV{VALI_SDK_PATH})
+        message(FATAL_ERROR "Please set the VALI_SDK_PATH environmental variable to the path of the Vali SDK.")
     endif ()
-    include($ENV{VALI_DDK_PATH}/lib/cmake/ValiDDKTargets.cmake)
+    include($ENV{VALI_SDK_PATH}/lib/cmake/ValiDDKTargets.cmake)
 endif ()
 
 if (GRACHT_C_LINK_VALI)
@@ -85,14 +85,14 @@ endif ()
 
 if (VALI_BUILD)
     install(TARGETS gracht
-        ARCHIVE DESTINATION vali-ddk/lib
-        LIBRARY DESTINATION vali-ddk/lib
-        RUNTIME DESTINATION vali-ddk/bin
+        ARCHIVE DESTINATION lib
+        LIBRARY DESTINATION lib
+        RUNTIME DESTINATION bin
     )
-    install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/gracht/ DESTINATION vali-ddk/include/gracht)
+    install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/gracht/ DESTINATION include/gracht)
     install(
         DIRECTORY ${PROJECT_SOURCE_DIR}/generator/ 
-        DESTINATION vali-ddk/share/vali
+        DESTINATION share/vali
         FILES_MATCHING
         PATTERN "*.py"
         PATTERN "__init__.py" EXCLUDE
