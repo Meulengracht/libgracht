@@ -12,3 +12,5 @@ _deps
 build/
 *.pyc
 *.code-workspace
+.fridge/
+.oven/
