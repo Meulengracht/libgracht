@@ -13,23 +13,21 @@ project:
 
 ingredients:
 - name: vali/clang-cc
-  description: Use the clang cross-compiler to build the OS
   channel: devel
+  platform: host
+  arch: host
 - name: vali/sdk-c
-  description: Require the C SDK to build the library for Vali
   channel: devel
-  platform: vali
 - name: vali/sdk-cpp
-  description: Require the C++ SDK to build the library for Vali
   channel: devel
-  platform: vali
 
 recipes:
   - name: libgracht
     path: /
     toolchain: vali/clang-cc
     steps:
-    - type: generate
+    - name: config
+      type: generate
       system: cmake
       arguments:
         - -G
@@ -38,10 +36,16 @@ recipes:
         - -DCMAKE_TOOLCHAIN_FILE=${{ PROJECT_PATH }}/chef/Vali.cmake
       env:
         CROSS: ${{ TOOLCHAIN_PREFIX }}
+        VALI_ARCH: ${{ CHEF_ARCHITECTURE }}
         VALI_SDK_PATH: ${{ INGREDIENTS_PREFIX }}
-    - type: build
-      depends: [generate]
+    - name: build
+      type: build
+      depends: [config]
       system: make
+      env:
+        CROSS: ${{ TOOLCHAIN_PREFIX }}
+        VALI_ARCH: ${{ CHEF_ARCHITECTURE }}
+        VALI_SDK_PATH: ${{ INGREDIENTS_PREFIX }}
 
 packs:
 - name: libgracht
