@@ -81,9 +81,9 @@ typedef struct gracht_server {
     int                            set_handle_provided;
     struct gracht_arena*           arena;
     mtx_t                          arena_lock;
-    hashtable_t                    protocols;
+    gr_hashtable_t                    protocols;
     struct rwlock                  protocols_lock;
-    hashtable_t                    clients;
+    gr_hashtable_t                    clients;
     struct rwlock                  clients_lock;
     struct link_table              link_table;
 } gracht_server_t;
@@ -156,8 +156,8 @@ int gracht_server_create(gracht_server_configuration_t* config, gracht_server_t*
     mtx_init(&server->arena_lock, mtx_plain);
     rwlock_init(&server->protocols_lock);
     rwlock_init(&server->clients_lock);
-    hashtable_construct(&server->protocols, 0, sizeof(struct gracht_protocol), protocol_hash, protocol_cmp);
-    hashtable_construct(&server->clients, 0, sizeof(struct client_wrapper), client_hash, client_cmp);
+    gr_hashtable_construct(&server->protocols, 0, sizeof(struct gracht_protocol), protocol_hash, protocol_cmp);
+    gr_hashtable_construct(&server->clients, 0, sizeof(struct client_wrapper), client_hash, client_cmp);
     stack_construct(&server->bufferStack, 8);
 
     // everything is setup - update state before registering control protocol
@@ -282,7 +282,7 @@ static int handle_connection(struct gracht_server* server, struct gracht_link* l
     memset(&client->subscriptions[0], 0xFF, sizeof(client->subscriptions));
     
     rwlock_w_lock(&server->clients_lock);
-    hashtable_set(&server->clients, &(struct client_wrapper) { 
+    gr_hashtable_set(&server->clients, &(struct client_wrapper) { 
         .handle = client->handle,
         .link = link,
         .client = client
@@ -402,7 +402,7 @@ static int handle_client_event(struct gracht_server* server, gracht_conn_t handl
         struct client_wrapper* entry;
         
         rwlock_r_lock(&server->clients_lock);
-        entry = hashtable_get(&server->clients, &(struct client_wrapper){ .handle = handle });
+        entry = gr_hashtable_get(&server->clients, &(struct client_wrapper){ .handle = handle });
         while (entry) {
             struct gracht_message* message = server->ops->get_incoming_buffer(server);
             if (!message) {
@@ -456,7 +456,7 @@ static int gracht_server_shutdown(gracht_server_t* server)
 
     // start out by destroying all our clients
     rwlock_w_lock(&server->clients_lock);
-    hashtable_enumerate(&server->clients, client_enum_destroy, server);
+    gr_hashtable_enumerate(&server->clients, client_enum_destroy, server);
     rwlock_w_unlock(&server->clients_lock);
 
     // destroy all our links
@@ -489,8 +489,8 @@ static int gracht_server_shutdown(gracht_server_t* server)
     }
 
     stack_destroy(&server->bufferStack);
-    hashtable_destroy(&server->protocols);
-    hashtable_destroy(&server->clients);
+    gr_hashtable_destroy(&server->protocols);
+    gr_hashtable_destroy(&server->clients);
     mtx_destroy(&server->arena_lock);
     rwlock_destroy(&server->protocols_lock);
     rwlock_destroy(&server->clients_lock);
@@ -656,7 +656,7 @@ int gracht_server_respond(struct gracht_message* messageContext, gracht_buffer_t
     GB_MSG_LEN_0(message) = message->index;
 
     rwlock_r_lock(&messageContext->server->clients_lock);
-    entry = hashtable_get(&messageContext->server->clients, &(struct client_wrapper){ .handle = messageContext->client });
+    entry = gr_hashtable_get(&messageContext->server->clients, &(struct client_wrapper){ .handle = messageContext->client });
     if (!entry) {
         struct gracht_link* link;
         
@@ -692,7 +692,7 @@ int gracht_server_send_event(gracht_server_t* server, gracht_conn_t client, grac
     GB_MSG_LEN_0(message) = message->index;
 
     rwlock_r_lock(&server->clients_lock);
-    clientEntry = hashtable_get(&server->clients, &(struct client_wrapper){ .handle = client });
+    clientEntry = gr_hashtable_get(&server->clients, &(struct client_wrapper){ .handle = client });
     if (!clientEntry) {
         rwlock_r_unlock(&server->clients_lock);
         errno = ENOENT;
@@ -724,7 +724,7 @@ int gracht_server_broadcast_event(gracht_server_t* server, gracht_buffer_t* mess
     GB_MSG_LEN_0(message) = message->index;
 
     rwlock_r_lock(&server->clients_lock);
-    hashtable_enumerate(&server->clients, client_enum_broadcast, &context);
+    gr_hashtable_enumerate(&server->clients, client_enum_broadcast, &context);
     rwlock_r_unlock(&server->clients_lock);
 
     // return the borrowed buffer to the stack
@@ -745,12 +745,12 @@ int gracht_server_register_protocol(gracht_server_t* server, gracht_protocol_t* 
     }
 
     rwlock_w_lock(&server->protocols_lock);
-    if (hashtable_get(&server->protocols, protocol)) {
+    if (gr_hashtable_get(&server->protocols, protocol)) {
         rwlock_w_unlock(&server->protocols_lock);
         errno = EEXIST;
         return -1;
     }
-    hashtable_set(&server->protocols, protocol);
+    gr_hashtable_set(&server->protocols, protocol);
     rwlock_w_unlock(&server->protocols_lock);
     return 0;
 }
@@ -768,7 +768,7 @@ void gracht_server_unregister_protocol(gracht_server_t* server, gracht_protocol_
     }
     
     rwlock_w_lock(&server->protocols_lock);
-    hashtable_remove(&server->protocols, protocol);
+    gr_hashtable_remove(&server->protocols, protocol);
     rwlock_w_unlock(&server->protocols_lock);
 }
 
@@ -806,7 +806,7 @@ static void client_destroy(struct gracht_server* server, gracht_conn_t client)
     }
 
     rwlock_w_lock(&server->clients_lock);
-    entry = hashtable_remove(&server->clients, &(struct client_wrapper){ .handle = client });
+    entry = gr_hashtable_remove(&server->clients, &(struct client_wrapper){ .handle = client });
     if (entry) {
         entry->link->ops.server.destroy_client(entry->client, server->set_handle);
     }
@@ -860,7 +860,7 @@ void gracht_control_subscribe_invocation(const struct gracht_message* message, c
     // if they actually use the functions provided by the protocol. It is also possible to receive targetted
     // events that come in response to a function call even without subscribing.
     rwlock_r_lock(&message->server->clients_lock);
-    entry = hashtable_get(&message->server->clients, &(struct client_wrapper){ .handle = message->client });
+    entry = gr_hashtable_get(&message->server->clients, &(struct client_wrapper){ .handle = message->client });
     if (!entry) {
         struct client_wrapper newEntry;
 
@@ -882,7 +882,7 @@ void gracht_control_subscribe_invocation(const struct gracht_message* message, c
         // write-locks are only acquired by this thread. So any changes made are only the ones we make
         // right now
         rwlock_w_lock(&message->server->clients_lock);
-        hashtable_set(&message->server->clients, &newEntry);
+        gr_hashtable_set(&message->server->clients, &newEntry);
         rwlock_w_unlock(&message->server->clients_lock);
 
         if (message->server->callbacks.clientConnected) {
@@ -910,7 +910,7 @@ void gracht_control_unsubscribe_invocation(const struct gracht_message* message,
     int                    cleanup = 0;
     
     rwlock_r_lock(&message->server->clients_lock);
-    entry = hashtable_get(&message->server->clients, &(struct client_wrapper){ .handle = message->client });
+    entry = gr_hashtable_get(&message->server->clients, &(struct client_wrapper){ .handle = message->client });
     if (!entry) {
         rwlock_r_unlock(&message->server->clients_lock);
         return;

@@ -26,7 +26,7 @@
 #include "gracht/types.h"
 #include "gracht/link/link.h"
 
-typedef struct hashtable hashtable_t;
+typedef struct hashtable gr_hashtable_t;
 
 #ifdef _WIN32
 #include <malloc.h>
@@ -60,7 +60,7 @@ struct gracht_link {
 #define GB_MSG_AID(buffer) *((uint8_t*)(&((buffer)->data[(buffer)->index + MSG_INDEX_AID])))
 #define GB_MSG_FLG(buffer) *((uint8_t*)(&((buffer)->data[(buffer)->index + MSG_INDEX_FLG])))
 
-gracht_protocol_function_t* get_protocol_action(hashtable_t* protocols, uint8_t protocol_id, uint8_t action_id);
+gracht_protocol_function_t* get_protocol_action(gr_hashtable_t* protocols, uint8_t protocol_id, uint8_t action_id);
 
 static uint64_t protocol_hash(const void* element)
 {

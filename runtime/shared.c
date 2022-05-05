@@ -27,13 +27,13 @@
 #include <errno.h>
 #include <stdlib.h>
 
-gracht_protocol_function_t* get_protocol_action(hashtable_t* protocols,
+gracht_protocol_function_t* get_protocol_action(gr_hashtable_t* protocols,
     uint8_t protocol_id, uint8_t action_id)
 {
     int                i;
     gracht_protocol_t* protocol;
     
-    protocol = hashtable_get(protocols, &(gracht_protocol_t) { .id = protocol_id });
+    protocol = gr_hashtable_get(protocols, &(gracht_protocol_t) { .id = protocol_id });
     if (!protocol) {
         GRERROR(GRSTR("get_protocol_action(p=%u, a=%u) protocol was not implemented"), protocol_id, action_id);
         errno = ENOTSUP;

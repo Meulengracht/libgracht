@@ -32,7 +32,7 @@ typedef uint64_t (*hashtable_hashfn)(const void* element);
 typedef int      (*hashtable_cmpfn)(const void* lh, const void* rh);
 typedef void     (*hashtable_enumfn)(int index, const void* element, void* userContext);
 
-typedef struct hashtable {
+typedef struct gr_hashtable {
     size_t capacity;
     size_t element_count;
     size_t grow_count;
@@ -43,7 +43,7 @@ typedef struct hashtable {
 
     hashtable_hashfn hash;
     hashtable_cmpfn  cmp;
-} hashtable_t;
+} gr_hashtable_t;
 
 /**
  * Constructs a new hashtable that can be used to store and retrieve elements. The hashtable is constructed
@@ -55,13 +55,13 @@ typedef struct hashtable {
  * @param cmpFunction     The function that will be invoked when comparing the keys of two elements.
  * @return                Status of the hashtable construction.
  */
-int hashtable_construct(hashtable_t* hashtable, size_t requestCapacity, size_t elementSize, hashtable_hashfn hashFunction, hashtable_cmpfn cmpFunction);
+int gr_hashtable_construct(gr_hashtable_t* hashtable, size_t requestCapacity, size_t elementSize, hashtable_hashfn hashFunction, hashtable_cmpfn cmpFunction);
 
 /**
  * Destroys the hashtable and frees up any resources previously allocated. The structure itself is not freed.
  * @param hashtable The hashtable to cleanup.
  */
-void hashtable_destroy(hashtable_t* hashtable);
+void gr_hashtable_destroy(gr_hashtable_t* hashtable);
 
 /**
  * Inserts or replaces the element with the calculated hash. 
@@ -69,7 +69,7 @@ void hashtable_destroy(hashtable_t* hashtable);
  * @param element   The element that should be inserted into the hashtable.
  * @return          The replaced element is returned, or NULL if element was inserted.
  */
-void* hashtable_set(hashtable_t* hashtable, const void* element);
+void* gr_hashtable_set(gr_hashtable_t* hashtable, const void* element);
 
 /**
  * Retrieves the element with the corresponding key.
@@ -77,14 +77,14 @@ void* hashtable_set(hashtable_t* hashtable, const void* element);
  * @param key       The key to retrieve an element for.
  * @return          A pointer to the object.
  */
-void* hashtable_get(hashtable_t* hashtable, const void* key);
+void* gr_hashtable_get(gr_hashtable_t* hashtable, const void* key);
 
 /**
  * Removes the element from the hashtable with the given key.
  * @param hashtable The hashtable to remove the element from.
  * @param key       Key of the element to lookup.
  */
-void* hashtable_remove(hashtable_t* hashtable, const void* key);
+void* gr_hashtable_remove(gr_hashtable_t* hashtable, const void* key);
 
 /**
  * Enumerates all elements in the hashtable.
@@ -92,6 +92,6 @@ void* hashtable_remove(hashtable_t* hashtable, const void* key);
  * @param enumFunction Callback function to invoke on each element.
  * @param context      A user-provided callback context.
  */
-void hashtable_enumerate(hashtable_t* hashtable, hashtable_enumfn enumFunction, void* context);
+void gr_hashtable_enumerate(gr_hashtable_t* hashtable, hashtable_enumfn enumFunction, void* context);
 
 #endif //!__GRACHT_HASHTABLE_H__

@@ -41,10 +41,10 @@ struct hashtable_element {
 #define GET_ELEMENT_ARRAY(hashtable, elements, index) (struct hashtable_element*)&((uint8_t*)elements)[index * hashtable->element_size]
 #define GET_ELEMENT(hashtable, index)                 GET_ELEMENT_ARRAY(hashtable, hashtable->elements, index)
 
-static int  hashtable_resize(hashtable_t* hashtable, size_t newCapacity);
-static void hashtable_remove_and_bump(hashtable_t* hashtable, struct hashtable_element* element, size_t index);
+static int  hashtable_resize(gr_hashtable_t* hashtable, size_t newCapacity);
+static void gr_hashtable_remove_and_bump(gr_hashtable_t* hashtable, struct hashtable_element* element, size_t index);
 
-int hashtable_construct(hashtable_t* hashtable, size_t requestCapacity, size_t elementSize, hashtable_hashfn hashFunction, hashtable_cmpfn cmpFunction)
+int gr_hashtable_construct(gr_hashtable_t* hashtable, size_t requestCapacity, size_t elementSize, hashtable_hashfn hashFunction, hashtable_cmpfn cmpFunction)
 {
     size_t initialCapacity  = HASHTABLE_MINIMUM_CAPACITY;
     size_t totalElementSize = elementSize + sizeof(struct hashtable_element);
@@ -90,7 +90,7 @@ int hashtable_construct(hashtable_t* hashtable, size_t requestCapacity, size_t e
     return 0;
 }
 
-void hashtable_destroy(hashtable_t* hashtable)
+void gr_hashtable_destroy(gr_hashtable_t* hashtable)
 {
     if (!hashtable) {
         return;
@@ -105,7 +105,7 @@ void hashtable_destroy(hashtable_t* hashtable)
     }
 }
 
-void* hashtable_set(hashtable_t* hashtable, const void* element)
+void* gr_hashtable_set(gr_hashtable_t* hashtable, const void* element)
 {
     if (!hashtable) {
         errno = EINVAL;
@@ -164,7 +164,7 @@ void* hashtable_set(hashtable_t* hashtable, const void* element)
     }
 }
 
-void* hashtable_get(hashtable_t* hashtable, const void* key)
+void* gr_hashtable_get(gr_hashtable_t* hashtable, const void* key)
 {
     uint64_t hash;
     size_t   index;
@@ -194,7 +194,7 @@ void* hashtable_get(hashtable_t* hashtable, const void* key)
     }
 }
 
-void* hashtable_remove(hashtable_t* hashtable, const void* key)
+void* gr_hashtable_remove(gr_hashtable_t* hashtable, const void* key)
 {
     uint64_t hash;
     size_t   index;
@@ -222,7 +222,7 @@ void* hashtable_remove(hashtable_t* hashtable, const void* key)
         }
 
         if (current->hash == hash && !hashtable->cmp(&current->payload[0], key)) {
-            hashtable_remove_and_bump(hashtable, current, index);
+            gr_hashtable_remove_and_bump(hashtable, current, index);
             return &((struct hashtable_element*)hashtable->swap)->payload[0];
         }
 
@@ -230,7 +230,7 @@ void* hashtable_remove(hashtable_t* hashtable, const void* key)
     }
 }
 
-void hashtable_enumerate(hashtable_t* hashtable, hashtable_enumfn enumFunction, void* context)
+void gr_hashtable_enumerate(gr_hashtable_t* hashtable, hashtable_enumfn enumFunction, void* context)
 {
     size_t i;
 
@@ -247,7 +247,7 @@ void hashtable_enumerate(hashtable_t* hashtable, hashtable_enumfn enumFunction, 
     }
 }
 
-static void hashtable_remove_and_bump(hashtable_t* hashtable, struct hashtable_element* element, size_t index)
+static void gr_hashtable_remove_and_bump(gr_hashtable_t* hashtable, struct hashtable_element* element, size_t index)
 {
     struct hashtable_element* previous = element;
 
@@ -276,7 +276,7 @@ static void hashtable_remove_and_bump(hashtable_t* hashtable, struct hashtable_e
     hashtable->element_count--;
 }
 
-static int hashtable_resize(hashtable_t* hashtable, size_t newCapacity)
+static int hashtable_resize(gr_hashtable_t* hashtable, size_t newCapacity)
 {
     size_t updatedIndex;
     void*  resizedStorage;
