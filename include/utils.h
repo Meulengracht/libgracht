@@ -26,7 +26,7 @@
 #include "gracht/types.h"
 #include "gracht/link/link.h"
 
-typedef struct hashtable gr_hashtable_t;
+typedef struct gr_hashtable gr_hashtable_t;
 
 #ifdef _WIN32
 #include <malloc.h>
