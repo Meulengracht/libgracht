@@ -104,7 +104,13 @@ void test_utils_transfer_data_invocation(struct gracht_message* message, const u
 
 void test_utils_receive_data_invocation(struct gracht_message* message)
 {
+    char tmp[16] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 };
+    test_utils_receive_data_response(message, &tmp[0], sizeof(tmp));
+}
 
+void test_utils_receive_string_invocation(struct gracht_message* message)
+{
+    test_utils_receive_string_response(message, "hello from test server!");
 }
 
 void test_utils_get_event_invocation(struct gracht_message* message, const int count)

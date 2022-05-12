@@ -55,6 +55,8 @@ add_custom_target(
     DEPENDS test_utils_service_server.c test_utils_service_client.c
 )
 
+configure_file(run-tests.sh ${CMAKE_BINARY_DIR}/run-tests.sh COPYONLY)
+
 if (UNIX)
     add_definitions("-ggdb")
 endif ()

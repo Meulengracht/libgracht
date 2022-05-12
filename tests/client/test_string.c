@@ -41,33 +41,77 @@ void test_utils_event_transfer_status_invocation(gracht_client_t* client, const 
     (void)transfer_status;
 }
 
-int main(int argc, char **argv)
+static int __test_print(gracht_client_t* client, const char* string)
 {
-    gracht_client_t*              client;
-    int                           code, status = -1337;
     struct gracht_message_context context;
+    int code, status = -1337;
 
-    // create client
-    code = init_client_with_socket_link(&client);
+    code = test_utils_print(client, &context, string);
     if (code) {
         return code;
+    }
+
+    gracht_client_wait_message(client, &context, GRACHT_MESSAGE_BLOCK);
+    test_utils_print_result(client, &context, &status);
+    if (status != strlen(string)) {
+        errno = EINVAL;
+        return -1;
+    }
+    return 0;
+}
+
+static int __test_receive_string(gracht_client_t* client)
+{
+    struct gracht_message_context context;
+    int code, status = -1337;
+    char buffer[128];
+
+    code = test_utils_receive_string(client, &context);
+    if (code) {
+        return code;
+    }
+
+    gracht_client_wait_message(client, &context, GRACHT_MESSAGE_BLOCK);
+    test_utils_receive_string_result(client, &context, &buffer[0], sizeof(buffer));
+    if (strcmp(buffer, "hello from test server!")) {
+        errno = EINVAL;
+        return -1;
+    }
+    return 0;
+}
+
+int main(int argc, char **argv)
+{
+    gracht_client_t* client;
+    int              status;
+    char*            text = "hello from wm_client!";
+
+    if (argc > 1) {
+        text = argv[1];
+    }
+
+    // create client
+    status = init_client_with_socket_link(&client);
+    if (status) {
+        fprintf(stderr, "failed to create client: %s\n", strerror(status));
+        return status;
     }
 
     // register protocols
     gracht_client_register_protocol(client, &test_utils_client_protocol);
 
-    // run test
-    if (argc > 1) {
-        code = test_utils_print(client, &context, argv[1]);
-    }
-    else {
-        code = test_utils_print(client, &context, "hello from wm_client!");
+    status = __test_print(client, text);
+    if (status) {
+        fprintf(stderr, "__test_print: FAILED [%s]\n", strerror(status));
+        return status;
     }
 
-    gracht_client_wait_message(client, &context, GRACHT_MESSAGE_BLOCK);
-    test_utils_print_result(client, &context, &status);
-    
-    printf("gracht_client: recieved status %i\n", status);
+    status = __test_receive_string(client);
+    if (status) {
+        fprintf(stderr, "__test_receive_string: FAILED [%s]\n", strerror(status));
+        return status;
+    }
+
     gracht_client_shutdown(client);
-    return 0;
+    return status;
 }
