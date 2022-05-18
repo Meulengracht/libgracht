@@ -35,7 +35,7 @@ recipes:
         - -DGRACHT_C_LINK_VALI=ON
         - -DCMAKE_TOOLCHAIN_FILE=${{ PROJECT_PATH }}/chef/Vali.cmake
       env:
-        CROSS: ${{ TOOLCHAIN_PREFIX }}
+        CROSS: ${{ TOOLCHAIN_PREFIX }}/usr/local
         VALI_ARCH: ${{ CHEF_TARGET_ARCHITECTURE }}
         VALI_SDK_PATH: ${{ INGREDIENTS_PREFIX }}
     - name: build
@@ -43,8 +43,6 @@ recipes:
       depends: [config]
       system: make
       env:
-        CROSS: ${{ TOOLCHAIN_PREFIX }}
-        VALI_ARCH: ${{ CHEF_TARGET_ARCHITECTURE }}
         VALI_SDK_PATH: ${{ INGREDIENTS_PREFIX }}
 
 packs:
