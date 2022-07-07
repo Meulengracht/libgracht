@@ -48,7 +48,7 @@ static int vali_link_send_client(struct vali_link_client* client,
     _CRT_UNUSED(flags);
 
     addr.type = IPMSG_ADDRESS_HANDLE;
-    addr.data.handle = (UUId_t)client->base.handle;
+    addr.data.handle = (uuid_t)client->base.handle;
 
     // send to connection-less client (all of them)
     status = ipsend(client->link, &addr, data->data, data->index, 0);
@@ -131,7 +131,7 @@ static inline int get_ip_flags(unsigned int flags)
 
 static int vali_link_recv(struct gracht_link_vali* link, struct gracht_message* context, unsigned int flags)
 {
-    UUId_t client;
+    uuid_t client;
     int    bytesRead;
     int    ipFlags = get_ip_flags(flags);
     TRACE("vali_link_recv %u", flags);

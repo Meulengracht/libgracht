@@ -74,9 +74,9 @@ static int vali_link_recv(struct gracht_link_vali* link, struct gracht_buffer* m
 {
     int bytesRead;
     int ipFlags = get_ip_flags(flags);
-    int index   = sizeof(UUId_t);
+    int index   = sizeof(uuid_t);
 
-    bytesRead = iprecv(link->base.connection, &message->data[index], message->index, ipFlags, (UUId_t*)message->data);
+    bytesRead = iprecv(link->base.connection, &message->data[index], message->index, ipFlags, (uuid_t*)message->data);
     if (bytesRead < 0) {
         return bytesRead;
     }
