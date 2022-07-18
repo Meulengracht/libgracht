@@ -15,6 +15,7 @@ if (VALI_BUILD)
             ${CMAKE_CURRENT_BINARY_DIR}
             ../libds/include
             ../libddk/include
+            ../libos/include
             ../libc/include
             ../include
     )
