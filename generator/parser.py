@@ -292,22 +292,6 @@ def get_keywords():
     return keywords
 
 
-def get_system_types():
-    types = [
-        "uint8", "int8",
-        "uint16", "int16",
-        "uint32", "int32",
-        "uint64", "int64",
-        "uint", "int",
-        "long", "ulong",
-        "bool",
-        "string",
-        "float",
-        "double"
-    ]
-    return types
-
-
 def error(text):
     print(f"ENCOUNTERED PARSE ERROR: {text}")
     sys.exit(-1)
@@ -840,6 +824,7 @@ def main(args):
 
     for service in services:
         service.validate()
+        service.consolidate_pass()
 
     if args.include:
         include_services = args.include.split(',')

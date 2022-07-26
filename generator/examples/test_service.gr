@@ -15,11 +15,14 @@ service calculator (0x1) {
     func getHistory() : (string history) = 4;
     func getHistories() : (string[] histories) = 5;
 
-    func transfer(transfer_request request) : (int status) = 6;
-    func transfer_many(transfer_request[] request) : (int[] statuses) = 7;
+    func getVehicle() : (vehicle result) = 6;
+    func setVehicle(vehicle vehicle) : () = 7;
 
-    event error : (int code, string description) = 8;
-    event transfer_complete : transfer_complete_event = 9;
+    func transfer(transfer_request request) : (int status) = 8;
+    func transfer_many(transfer_request[] request) : (int[] statuses) = 9;
+
+    event error : (int code, string description) = 10;
+    event transfer_complete : transfer_complete_event = 11;
 }
 
 service control (2) {

@@ -3,6 +3,7 @@
  * Includes example of a test protocol and some test structures
  */
 
+define uint8_t from "stdint.h"
 define uint32_t from "stdint.h"
 
 enum error_codes {
