@@ -22,3 +22,24 @@ struct transfer_request {
 struct transfer_complete_event {
     uint32_t id;
 }
+
+struct vehicle_base {
+    uint32_t id;
+}
+
+struct car {
+    vehicle_base;
+    string name;
+}
+
+struct truck {
+    vehicle_base;
+    string name;
+}
+
+struct vehicle {
+    variant data {
+        car car;
+        truck truck;
+    }
+}

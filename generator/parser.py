@@ -33,6 +33,7 @@ class TOKENS(object):
     IMPORT = 19
     QUOTE = 20
     FROM = 21
+    VARIANT = 22
 
 
 class Token:
@@ -129,6 +130,10 @@ class ParseContext:
 
     def create_member(self, type_name, name, is_variable, count=1):
         self.members.append(VariableObject(type_name, name, is_variable, count))
+        return
+
+    def create_member_variant(self, name, variants):
+        self.members.append(VariableVariantObject(name, variants))
         return
 
     def create_define(self, type_name, type_source):
@@ -243,6 +248,12 @@ def get_enum_scope_syntax():
 
 def get_struct_scope_syntax():
     syntax = {
+        # <identifier>
+        ("struct_extensions", handle_struct_extension): [TOKENS.IDENTIFIER, TOKENS.SEMICOLON],
+
+        # variant <identifier> {
+        ("struct_variant", handle_struct_variant): [TOKENS.VARIANT, TOKENS.IDENTIFIER, TOKENS.LBRACKET],
+
         # <identifier> <identifier>;
         ("struct_member0", handle_struct_member): [TOKENS.IDENTIFIER, TOKENS.IDENTIFIER, TOKENS.SEMICOLON],
 
@@ -275,7 +286,8 @@ def get_keywords():
         "struct": TOKENS.STRUCT,
         "func": TOKENS.FUNC,
         "event": TOKENS.EVENT,
-        "from": TOKENS.FROM
+        "from": TOKENS.FROM,
+        "variant": TOKENS.VARIANT
     }
     return keywords
 
@@ -410,13 +422,11 @@ def handle_service(context, tokens):
     tokens.pop(0)  # consume LBRACKET
 
     if tokens[0].token_type() != TOKENS.RBRACKET:
-        # create sublist
-        rbracket = next((x for x in tokens if x.token_type() == TOKENS.RBRACKET), None)
+        rbracket = get_matching_rbracket(tokens)
         if rbracket is None:
             error("expected '}' at end of struct")
-        endOfStruct = tokens.index(rbracket)
-        parse_scope(context, tokens[:endOfStruct], get_service_scope_syntax())
-        del tokens[:endOfStruct]
+        parse_scope(context, tokens[:rbracket], get_service_scope_syntax())
+        del tokens[:rbracket]
 
     tokens.pop(0)  # consume RBRACKET
     context.create_service(service_id, name)
@@ -552,17 +562,24 @@ def handle_enum(context, tokens):
     tokens.pop(0)  # consume LBRACKET
 
     if tokens[0].token_type() != TOKENS.RBRACKET:
-        # create sublist
-        rbracket = next((x for x in tokens if x.token_type() == TOKENS.RBRACKET), None)
+        rbracket = get_matching_rbracket(tokens)
         if rbracket is None:
             error("expected '}' at end of enum")
-        endOfEnum = tokens.index(rbracket) + 1
-        parse_scope(context, tokens[:endOfEnum], get_enum_scope_syntax())
-        del tokens[:endOfEnum]
+        rbracket += 1
+        parse_scope(context, tokens[:rbracket], get_enum_scope_syntax())
+        del tokens[:rbracket]
     else:
         tokens.pop(0)  # consume RBRACKET
     context.create_enum(name)
 
+def handle_struct_extension(context, tokens):
+    trace(f"struct extension {tokens[0].value()}")
+    typeName = tokens[0].value()
+
+    tokens.pop(0)  # consume IDENTIFIER
+    tokens.pop(0)  # consume SEMICOLON
+
+    context.create_member(typeName, "", False, 1)
 
 def handle_struct_member(context, tokens):
     trace(f"struct member {tokens[0].value()}")
@@ -582,6 +599,40 @@ def handle_struct_member(context, tokens):
 
     context.create_member(typeName, name, isVariable, count)
 
+def handle_struct_variant(context, tokens):
+    trace(f"struct variant member {tokens[1].value()}")
+
+    tokens.pop(0)  # consume VARIANT
+    name = tokens[0].value()
+    variants = []
+
+    # parse the variant members
+    tokens.pop(0)  # consume IDENTIFIER
+    tokens.pop(0)  # consume LBRACKET
+    
+    while tokens[0].token_type() != TOKENS.RBRACKET:
+        assert(tokens[0].token_type() == TOKENS.IDENTIFIER)
+        assert(tokens[1].token_type() == TOKENS.IDENTIFIER)
+        assert(tokens[2].token_type() == TOKENS.SEMICOLON)
+        variants.append(VariableObject(tokens[0].value(), tokens[1].value(), False, 1))
+        tokens.pop(0)  # consume IDENTIFIER
+        tokens.pop(0)  # consume IDENTIFIER
+        tokens.pop(0)  # consume SEMICOLON
+
+    tokens.pop(0)  # consume RBRACKET
+
+    context.create_member_variant(name, variants)
+
+def get_matching_rbracket(tokens):
+    level = 0
+    for i, token in enumerate(tokens):
+        if token.token_type() == TOKENS.LBRACKET:
+            level += 1
+        elif token.token_type() == TOKENS.RBRACKET:
+            if level == 0:
+                return i
+            level -= 1
+    return None
 
 def handle_struct(context, tokens):
     name = tokens[1].value()
@@ -592,13 +643,11 @@ def handle_struct(context, tokens):
     tokens.pop(0)  # consume LBRACKET
 
     if tokens[0].token_type() != TOKENS.RBRACKET:
-        # create sublist
-        rbracket = next((x for x in tokens if x.token_type() == TOKENS.RBRACKET), None)
+        rbracket = get_matching_rbracket(tokens)
         if rbracket is None:
             error("expected '}' at end of struct")
-        endOfStruct = tokens.index(rbracket)
-        parse_scope(context, tokens[:endOfStruct], get_struct_scope_syntax())
-        del tokens[:endOfStruct]
+        parse_scope(context, tokens[:rbracket], get_struct_scope_syntax())
+        del tokens[:rbracket]
 
     tokens.pop(0)  # consume RBRACKET
     context.create_struct(name, context.finish_members())

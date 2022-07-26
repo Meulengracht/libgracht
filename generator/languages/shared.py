@@ -37,6 +37,16 @@ class VariableObject:
     def get_fixed(self):
         return self.fixed
 
+class VariableVariantObject:
+    def __init__(self, name, entries):
+        self.name = name
+        self.entries = entries
+
+    def get_name(self):
+        return self.name
+
+    def get_entries(self):
+        return self.entries
 
 class TypeDefinition:
     def __init__(self, source, namespace, type_name, type_source):
