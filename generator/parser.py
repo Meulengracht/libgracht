@@ -4,7 +4,11 @@ import os
 import sys
 
 from languages.langc import CGenerator
-from languages.shared import *
+from common.shared import *
+
+# import all the passes
+from passes.validate import pass_validate
+from passes.consolidate import pass_consolidate
 
 trace_enabled = 0
 
@@ -823,8 +827,8 @@ def main(args):
     generator = None
 
     for service in services:
-        service.validate()
-        service.consolidate_pass()
+        pass_validate(service)
+        pass_consolidate(service)
 
     if args.include:
         include_services = args.include.split(',')

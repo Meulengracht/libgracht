@@ -107,7 +107,9 @@ class StructureObject:
         self.namespace = namespace
         self.name = name
         self.members = members
-        self.consolidated = False
+
+    def set_members(self, members):
+        self.members = members
 
     def get_source(self):
         return self.source
@@ -120,18 +122,6 @@ class StructureObject:
 
     def get_members(self):
         return self.members
-
-    def remove_member(self, member):
-        self.members.remove(member)
-    
-    def add_member(self, member):
-        self.members.append(member)
-
-    def is_consolidated(self):
-        return self.consolidated
-    
-    def set_consolidated(self, consolidated):
-        self.consolidated = consolidated
 
 
 class EventObject:
@@ -181,35 +171,7 @@ class ServiceObject:
         self.events = events
         self.structs = structs
         self.imports = []
-
-    def validate(self):
-        # validet the id of the protocol itself
-        if self.id < 1 or self.id > 255:
-            raise ValueError(f"The id of service {self.name} must be in range of 1..255")
-
-        # we want to validate the ids of our functions and events that
-        # they are in range of 1-255 and that there are no conflicts
-        ids_parsed = []
-        for func in self.functions:
-            if func.get_id() in ids_parsed:
-                raise ValueError(f"The id of function {func.get_name()} ({func.get_id()}) is already in use")
-            if func.get_id() < 1 or func.get_id() > 255:
-                raise ValueError(f"The id of function {func.get_name()} must be in range of 1..255")
-            ids_parsed.append(func.get_id())
-        for evt in self.events:
-            if evt.get_id() in ids_parsed:
-                raise ValueError(f"The id of event {evt.get_name()} ({evt.get_id()}) is already in use")
-            if evt.get_id() < 1 or evt.get_id() > 255:
-                raise ValueError(f"The id of event {evt.get_name()} must be in range of 1..255")
-            ids_parsed.append(evt.get_id())
-
-        # also resolve all external types to gather a list of imports or usings
-        self.resolve_all_types()
-
-    def consolidate_pass(self):
-        for struct in self.structs:
-            self.consolidate_struct(struct)
-
+        
     def typename_is_enum(self, typename):
         for enum in self.enums:
             if enum.get_name().lower() == typename.lower():
@@ -249,65 +211,8 @@ class ServiceObject:
                 return True
         return False
 
-    def resolve_type(self, param):
-        if isinstance(param, VariableVariantObject):
-            for entry in param.get_entries():
-                self.resolve_type(entry)
-            return
-
-        if self.typename_is_builtin(param.get_typename()):
-            return
-        if self.typename_is_enum(param.get_typename()):
-            return
-        if self.typename_is_struct(param.get_typename()):
-            return
-
-        value_type = [x for x in self.types if x.get_type_name().lower() == param.get_typename().lower()]
-        if len(value_type):
-            self.imports.append(value_type[0].get_type_source())
-        else:
-            raise ValueError(f"Type {param.get_typename()} cannot be resolved")
-
-    def resolve_all_types(self):
-        for func in self.functions:
-            for param in func.get_request_params():
-                self.resolve_type(param)
-            for param in func.get_response_params():
-                self.resolve_type(param)
-        for evt in self.events:
-            for param in evt.get_params():
-                self.resolve_type(param)
-        for struct in self.structs:
-            for member in struct.get_members():
-                self.resolve_type(member)
-
-        unique_imports = set(self.imports)
-        self.imports = list(unique_imports)
-        return
-
-    def consolidate_struct_member(self, struct, member):
-        if isinstance(member, VariableVariantObject):
-            # we do not support consolidation inside a variant
-            return
-        
-        if member.get_name() == "":
-            typename = member.get_typename()
-            struct_target = self.lookup_struct(typename)
-            if struct_target is None:
-                raise ValueError(f"Type {typename} cannot be resolved")
-            if not struct_target.is_consolidated():
-                self.consolidate_struct(struct_target)
-            
-            for member_target in struct_target.get_members():
-                struct.add_member(member_target)
-            struct.remove_member(member)
-
-    def consolidate_struct(self, struct):
-        if struct.is_consolidated():
-            return
-        for member in struct.get_members():
-            self.consolidate_struct_member(struct, member)
-        struct.set_consolidated(True)
+    def set_imports(self, imports):
+        self.imports = imports
 
     def get_namespace(self):
         return self.namespace
