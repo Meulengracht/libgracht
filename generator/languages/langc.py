@@ -1,6 +1,5 @@
 import os
 
-from numpy import var
 from common.shared import *
 
 
