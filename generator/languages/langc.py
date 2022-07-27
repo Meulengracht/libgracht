@@ -1542,62 +1542,66 @@ class CGenerator:
         file_name = service.get_namespace() + "_" + service.get_name() + "_service_client.h"
         file_path = os.path.join(directory, file_name)
         with open(file_path, 'w') as f:
-            write_header(f)
-            write_header_guard_start(file_name, f)
-            define_headers(["<gracht/client.h>"], f)
-            include_shared_header(service, f)
-            write_c_guard_start(f)
-            self.write_callback_prototypes(service, service.get_events(), f)
-            self.define_prototypes(service, f)
-            self.define_client_service_extern(service, f)
-            write_c_guard_end(f)
-            write_header_guard_end(file_name, f)
+            cout = CodeWriter(f)
+            write_header(cout)
+            write_header_guard_start(file_name, cout)
+            define_headers(["<gracht/client.h>"], cout)
+            include_shared_header(service, cout)
+            write_c_guard_start(cout)
+            self.write_callback_prototypes(service, service.get_events(), cout)
+            self.define_prototypes(service, cout)
+            self.define_client_service_extern(service, cout)
+            write_c_guard_end(cout)
+            write_header_guard_end(file_name, cout)
         return
 
     def generate_client_impl(self, service, directory):
         file_name = service.get_namespace() + "_" + service.get_name() + "_service_client.c"
         file_path = os.path.join(directory, file_name)
         with open(file_path, 'w') as f:
-            write_header(f)
+            cout = CodeWriter(f)
+            write_header(cout)
             define_headers([
                 "\"" + service.get_namespace() + "_" + service.get_name() + "_service_client.h\"",
-                "<string.h>", "<stdlib.h>"], f)
-            write_client_api(service, f)
-            write_client_callback_array(service, f)
-            write_client_deserializers(service, f)
-            self.define_client_functions(service, f)
+                "<string.h>", "<stdlib.h>"], cout)
+            write_client_api(service, cout)
+            write_client_callback_array(service, cout)
+            write_client_deserializers(service, cout)
+            self.define_client_functions(service, cout)
         return
 
     def generate_server_header(self, service, directory):
         file_name = service.get_namespace() + "_" + service.get_name() + "_service_server.h"
         file_path = os.path.join(directory, file_name)
         with open(file_path, 'w') as f:
-            write_header(f)
-            write_header_guard_start(file_name, f)
-            define_headers(["<gracht/server.h>"], f)
-            include_shared_header(service, f)
-            write_c_guard_start(f)
-            self.write_callback_prototypes(service, service.get_functions(), f)
-            self.write_server_response_prototypes(service, f)
-            self.write_server_event_prototypes(service, f)
-            self.define_server_service_extern(service, f)
-            write_c_guard_end(f)
-            write_header_guard_end(file_name, f)
+            cout = CodeWriter(f)
+            write_header(cout)
+            write_header_guard_start(file_name, cout)
+            define_headers(["<gracht/server.h>"], cout)
+            include_shared_header(service, cout)
+            write_c_guard_start(cout)
+            self.write_callback_prototypes(service, service.get_functions(), cout)
+            self.write_server_response_prototypes(service, cout)
+            self.write_server_event_prototypes(service, cout)
+            self.define_server_service_extern(service, cout)
+            write_c_guard_end(cout)
+            write_header_guard_end(file_name, cout)
         return
 
     def generate_server_impl(self, service, directory):
         file_name = service.get_namespace() + "_" + service.get_name() + "_service_server.c"
         file_path = os.path.join(directory, file_name)
         with open(file_path, 'w') as f:
-            write_header(f)
+            cout = CodeWriter(f)
+            write_header(cout)
             define_headers([
                 "\"" + service.get_namespace() + "_" + service.get_name() + "_service_server.h\"",
-                "<string.h>", "<stdlib.h>"], f)
-            write_server_api(service, f)
-            write_server_callback_array(service, f)
-            write_server_deserializers(service, f)
-            self.define_server_responses(service, f)
-            self.define_events(service, f)
+                "<string.h>", "<stdlib.h>"], cout)
+            write_server_api(service, cout)
+            write_server_callback_array(service, cout)
+            write_server_deserializers(service, cout)
+            self.define_server_responses(service, cout)
+            self.define_events(service, cout)
         return
 
     def generate_shared_files(self, out, services, include_services):
