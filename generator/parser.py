@@ -125,7 +125,7 @@ class Scanner:
         self.data = data
         self.findex = 0
         self.lineIndex = 0
-        self.lineNo = 0
+        self.lineNo = 1 # lines always start at 1, not 0!
         self.lineContents = self.get_line()
 
     def current(self):
