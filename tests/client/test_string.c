@@ -60,7 +60,7 @@ static int __test_print(gracht_client_t* client, const char* string)
     return 0;
 }
 
-static int __test_receive_string(gracht_client_t* client)
+static int __test_receive_string(gracht_client_t* client, const char* expected)
 {
     struct gracht_message_context context;
     int code, status = -1337;
@@ -73,9 +73,23 @@ static int __test_receive_string(gracht_client_t* client)
 
     gracht_client_wait_message(client, &context, GRACHT_MESSAGE_BLOCK);
     test_utils_receive_string_result(client, &context, &buffer[0], sizeof(buffer));
-    if (strcmp(buffer, "hello from test server!")) {
+    if (strcmp(buffer, expected)) {
         errno = EINVAL;
         return -1;
+    }
+    return 0;
+}
+
+static int __test_empty_strings(gracht_client_t* client)
+{
+    int status = __test_print(client, "");
+    if (status) {
+        return status;
+    }
+
+    status = __test_receive_string(client, "");
+    if (status) {
+        return status;
     }
     return 0;
 }
@@ -106,9 +120,15 @@ int main(int argc, char **argv)
         return status;
     }
 
-    status = __test_receive_string(client);
+    status = __test_receive_string(client, text);
     if (status) {
         fprintf(stderr, "__test_receive_string: FAILED [%s]\n", strerror(status));
+        return status;
+    }
+
+    status = __test_empty_strings(client);
+    if (status) {
+        fprintf(stderr, "__test_empty_strings: FAILED [%s]\n", strerror(status));
         return status;
     }
 

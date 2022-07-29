@@ -64,10 +64,11 @@ typedef struct gracht_client {
     struct gracht_arena* arena;
     int                  max_message_size;
     void*                send_buffer;
+    mtx_t                send_buffer_lock;
     int                  free_send_buffer;
-    gr_hashtable_t          protocols;
-    gr_hashtable_t          messages;
-    gr_hashtable_t          awaiters;
+    gr_hashtable_t       protocols;
+    gr_hashtable_t       messages;
+    gr_hashtable_t       awaiters;
     mtx_t                data_lock;
     mtx_t                wait_lock;
 } gracht_client_t;
@@ -109,7 +110,8 @@ int gracht_client_invoke(gracht_client_t* client, struct gracht_message_context*
         struct gracht_message_descriptor entry = { 0 };
         if (!context) {
             errno = EINVAL;
-            return -1;
+            status = GRACHT_MESSAGE_ERROR;
+            goto release;
         }
 
         context->message_id = GB_MSG_ID_0(message);
@@ -127,6 +129,9 @@ int gracht_client_invoke(gracht_client_t* client, struct gracht_message_context*
     if (descriptor) {
         descriptor->status = status;
     }
+
+release:
+    mtx_unlock(&client->send_buffer_lock);
     return status == GRACHT_MESSAGE_ERROR ? -1 : 0;
 }
 
@@ -216,7 +221,7 @@ int gracht_client_get_buffer(gracht_client_t* client, gracht_buffer_t* buffer)
         return -1;
     }
 
-    // @todo this buffer should be locked.
+    mtx_lock(&client->send_buffer_lock);
     buffer->data = client->send_buffer;
     buffer->index = 0;
     return 0;
@@ -445,6 +450,7 @@ int gracht_client_create(gracht_client_configuration_t* config, gracht_client_t*
     }
     
     memset(client, 0, sizeof(gracht_client_t));
+    mtx_init(&client->send_buffer_lock, mtx_plain);
     mtx_init(&client->data_lock, mtx_plain);
     mtx_init(&client->wait_lock, mtx_plain);
     gr_hashtable_construct(&client->protocols, 0, sizeof(struct gracht_protocol), protocol_hash, protocol_cmp);

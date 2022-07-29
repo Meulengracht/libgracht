@@ -3,7 +3,7 @@ macro (add_server_test)
     set (TEST_SOURCES "${ARGN}")
     list (POP_FRONT TEST_SOURCES) # target
 
-    add_executable(${ARGV0} ${TEST_SOURCES} init_server_socket.c test_utils_service_server.c)
+    add_executable(${ARGV0} ${TEST_SOURCES} test_data.c server_handlers.c init_server_socket.c test_utils_service_server.c)
     add_dependencies(${ARGV0} test_protocols)
     if (GRACHT_C_BUILD_SHARED)
         target_compile_definitions(${ARGV0} PUBLIC -DGRACHT_SHARED_LIBRARY)
@@ -25,7 +25,7 @@ macro (add_client_test)
     set (TEST_SOURCES "${ARGN}")
     list (POP_FRONT TEST_SOURCES) # target
 
-    add_executable(${ARGV0} ${TEST_SOURCES} init_client_socket.c test_utils_service_client.c)
+    add_executable(${ARGV0} ${TEST_SOURCES} test_data.c init_client_socket.c test_utils_service_client.c)
     add_dependencies(${ARGV0} test_protocols)
     if (GRACHT_C_BUILD_SHARED)
         target_compile_definitions(${ARGV0} PUBLIC -DGRACHT_SHARED_LIBRARY)

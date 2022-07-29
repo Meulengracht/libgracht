@@ -5,6 +5,36 @@
 
 namespace test
 
+struct payment {
+    uint32 id;
+    int    amount;
+}
+
+struct owner_business {
+    uint32 id;
+    string name;
+}
+
+struct owner_person {
+    uint32 id;
+    string name;
+}
+
+struct account_owner {
+    variant type {
+        owner_business b;
+        owner_person p;
+    }
+}
+
+struct account {
+    string        name;
+    uint32        id;
+    account_owner owner;
+    int           balance;
+    payment[]     payments;
+}
+
 struct transaction {
     uint32  test_id;
     string  serial;
@@ -26,6 +56,9 @@ service utils (0x1) {
     func get_event(int count) : () = 7;
     func shutdown() : () = 8;
 
-    event myevent : (int n) = 9;
-    event transfer_status : transfer_status = 10;
+    func get_account(string name) : (account result) = 9;
+    func add_payment(account account, payment payment) : (int result) = 10;
+
+    event myevent : (int n) = 11;
+    event transfer_status : transfer_status = 12;
 }
