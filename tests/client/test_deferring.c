@@ -61,6 +61,7 @@ int main(void)
     // run test
     // the test is made so if we set any number above 1000 it'll defer it
     // for x-1000 ms
+    test_transaction_init(&transaction);
     transaction.test_id = 1100;
     
     test_utils_transfer(client, &context, &transaction);
