@@ -39,12 +39,62 @@ class TOKENS(object):
     FROM = 21
     VARIANT = 22
 
+# convert token to string
+def token_to_string(token):
+    if token == TOKENS.IDENTIFIER:
+        return "IDENTIFIER"
+    elif token == TOKENS.DIGIT:
+        return "DIGIT"
+    elif token == TOKENS.LBRACKET:
+        return "LBRACKET"
+    elif token == TOKENS.RBRACKET:
+        return "RBRACKET"
+    elif token == TOKENS.LPARENTHESIS:
+        return "LPARENTHESIS"
+    elif token == TOKENS.RPARENTHESIS:
+        return "RPARENTHESIS"
+    elif token == TOKENS.LINDEX:
+        return "LINDEX"
+    elif token == TOKENS.RINDEX:
+        return "RINDEX"
+    elif token == TOKENS.EQUAL:
+        return "EQUAL"
+    elif token == TOKENS.COMMA:
+        return "COMMA"
+    elif token == TOKENS.COLON:
+        return "COLON"
+    elif token == TOKENS.SEMICOLON:
+        return "SEMICOLON"
+    elif token == TOKENS.STRUCT:
+        return "STRUCT"
+    elif token == TOKENS.ENUM:
+        return "ENUM"
+    elif token == TOKENS.SERVICE:
+        return "SERVICE"
+    elif token == TOKENS.FUNC:
+        return "FUNC"
+    elif token == TOKENS.DEFINE:
+        return "DEFINE"
+    elif token == TOKENS.NAMESPACE:
+        return "NAMESPACE"
+    elif token == TOKENS.EVENT:
+        return "EVENT"
+    elif token == TOKENS.IMPORT:
+        return "IMPORT"
+    elif token == TOKENS.QUOTE:
+        return "QUOTE"
+    elif token == TOKENS.FROM:
+        return "FROM"
+    elif token == TOKENS.VARIANT:
+        return "VARIANT"
+    return "UNKNOWN"
 
 class Token:
     def __init__(self, scanner, token_type, value=None):
         trace(f"found {str(token_type)} at line {scanner.line_no()}:{scanner.line_index()} == {value}")
         self.lineNo = scanner.line_no()
         self.lineIndex = scanner.line_index()
+        self.lineContents = scanner.line_contents()
         self.tokenType = token_type
         self.tokenValue = value
 
@@ -60,6 +110,9 @@ class Token:
     def line_index(self):
         return self.lineIndex
 
+    def line_contents(self):
+        return self.lineContents
+
     def __str__(self):
         return str(self.tokenType)
 
@@ -67,11 +120,19 @@ class Token:
         return str(self.tokenType)
 
 
-class ScanContext:
-    def __init__(self):
+class Scanner:
+    def __init__(self, data):
+        self.data = data
         self.findex = 0
         self.lineIndex = 0
         self.lineNo = 0
+        self.lineContents = self.get_line()
+
+    def current(self):
+        return self.data[self.index()]
+
+    def has_next(self):
+        return self.index() < len(self.data)
 
     def consume(self, cnt=1):
         self.findex += cnt
@@ -82,6 +143,15 @@ class ScanContext:
         self.lineNo += 1
         self.lineIndex = 0
         self.findex += 1
+        self.lineContents = self.get_line()
+
+    def get_line(self):
+        line = ""
+        i = self.index()
+        while i < len(self.data) and self.data[i] != '\n':
+            line += self.data[i]
+            i += 1
+        return line
 
     def index(self):
         return self.findex
@@ -91,6 +161,9 @@ class ScanContext:
 
     def line_no(self):
         return self.lineNo
+
+    def line_contents(self):
+        return self.lineContents
 
 
 class ParseContext:
@@ -336,21 +409,21 @@ def element_is_comment_block(data, index):
     return data[index] == '/' and next_n_char(data, index + 1) == '*'
 
 
-def skip_line(scanner, data):
-    while scanner.index() < len(data):
-        if data[scanner.index()] == '\n':
+def skip_line(scanner: Scanner):
+    while scanner.has_next():
+        if scanner.current() == '\n':
             scanner.nextline()
             break
         scanner.consume()
 
 
-def skip_until(scanner, data, marker):
-    while scanner.index() < len(data):
-        if data[scanner.index()] == '\n':
+def skip_until(scanner: Scanner, data, marker):
+    while scanner.has_next():
+        if scanner.current() == '\n':
             scanner.nextline()
             continue
 
-        if data[scanner.index()] == marker[0]:
+        if scanner.current() == marker[0]:
             found = True
             for j, el in enumerate(marker):
                 if next_n_char(data, scanner.index() + j) != el:
@@ -683,13 +756,14 @@ def parse_scope(context, tokens, allowed_syntax):
                 break
 
         if not matched:
-            error(f"unexpected token at {tokens[0].line_no()}:{tokens[0].line_index()}: {tokens[0].token_type()}")
+            print(f"unknown syntax on line {tokens[0].line_no()}: {tokens[0].line_contents()}")
+            error(f"at {tokens[0].line_index()} for token {token_to_string(tokens[0])} ({tokens[0].token_type()})")
 
 
-def parse_identifier(scanner, data):
+def parse_identifier(scanner: Scanner):
     ident = ""
-    while scanner.index() < len(data):
-        el = data[scanner.index()]
+    while scanner.has_next():
+        el = scanner.current()
         if el.isdigit() or el.isalpha() or el == '_':
             ident += el
             scanner.consume()
@@ -701,8 +775,8 @@ def parse_identifier(scanner, data):
 def parse_quoted(scanner, data):
     unquoted = ""
     scanner.consume()  # consume opening quote
-    while scanner.index() < len(data) and data[scanner.index()] != '\"':
-        unquoted += data[scanner.index()]
+    while scanner.index() < len(data) and scanner.current() != '\"':
+        unquoted += scanner.current()
         scanner.consume()
 
     if scanner.index == len(data):
@@ -716,26 +790,26 @@ def parse_digit(scanner, data):
     startIdx = scanner.index()
     if data[startIdx] == '0' and data[startIdx + 1] == 'x':
         scanner.consume(2)
-        while scanner.index() < len(data):
-            if data[scanner.index()] not in "0123456789ABCDEF":
+        while scanner.has_next():
+            if scanner.current() not in "0123456789ABCDEF":
                 break
             scanner.consume()
         return str2int(data[startIdx: scanner.index()])
 
     members = []
 
-    while data[scanner.index()] == '-':
+    while scanner.current() == '-':
         scanner.consume()
-    while data[scanner.index()].isdigit():
+    while scanner.current().isdigit():
         scanner.consume()
     return str2int(data[startIdx: scanner.index()])
 
 
 def create_tokens_from_text(data):
-    scanner = ScanContext()
+    scanner = Scanner(data)
     tokens = []
-    while scanner.index() < len(data):
-        el = data[scanner.index()]
+    while scanner.has_next():
+        el = scanner.current()
         # we want to catch newlines to keep track of context
         if el == '\n':
             scanner.nextline()
@@ -748,7 +822,7 @@ def create_tokens_from_text(data):
 
         # handle comments
         if element_is_comment_line(data, scanner.index()):
-            skip_line(scanner, data)
+            skip_line(scanner)
         elif element_is_comment_block(data, scanner.index()):
             skip_until(scanner, data, "*/")
         elif el == '{':
@@ -788,7 +862,7 @@ def create_tokens_from_text(data):
             digit = parse_digit(scanner, data)
             tokens.append(Token(scanner, TOKENS.DIGIT, digit))
         elif el.isalpha() or el == '_':
-            ident = parse_identifier(scanner, data)
+            ident = parse_identifier(scanner)
             keywords = get_keywords()
             if ident in keywords:
                 tokens.append(Token(scanner, keywords[ident]))
