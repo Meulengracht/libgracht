@@ -878,6 +878,14 @@ def write_structure(service: ServiceObject, struct, case, outfile: CodeWriter):
 
 def write_structure_variant_member_functions(service: ServiceObject, structName: str, structTypeName: str, variant: VariableVariantObject, outfile: CodeWriter):
     for i, entry in enumerate(variant.get_entries()):
+        outfile.writeln(f"static int {structName}_{variant.get_name()}_is_{entry.get_typename()}({structTypeName}* in) {{")
+        outfile.indent_inc()
+        outfile.writeln(f"return in->{variant.get_name()}_type == {i + 1};")
+        outfile.indent_dec()
+        outfile.writeln("}")
+        outfile.writeln("")
+    
+    for i, entry in enumerate(variant.get_entries()):
         param_string = get_param_typename(service, entry, CONST.TYPENAME_CASE_FUNCTION_CALL, False)
         outfile.writeln(f"static void {structName}_{variant.get_name()}_set_{entry.get_typename()}({structTypeName}* in, {param_string}) {{")
         outfile.indent_inc()
