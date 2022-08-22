@@ -320,25 +320,13 @@ def write_variable_count(members, outfile: CodeWriter):
         outfile.writeln("uint32_t __count;")
 
 
-def write_variable_iterator(service: ServiceObject, members, outfile: CodeWriter):
-    needs_iterator = False
-    for member in members:
-        if isinstance(member, VariableVariantObject):
-            continue
-        elif member.get_is_variable() and service.typename_is_struct(member.get_typename()):
-            needs_iterator = True
-
-    if needs_iterator:
-        outfile.writeln("uint32_t __i;")
-
-
 def write_variable_struct_member_serializer(service: ServiceObject, member, outfile: CodeWriter):
     name = member.get_name()
     typename = member.get_typename()
     outfile.writeln(f"serialize_uint32(buffer, in->{name}_count);")
     if service.typename_is_struct(member.get_typename()):
         struct_type = service.lookup_struct(typename)
-        outfile.writeln(f"for (__i = 0; __i < in->{name}_count; __i++) {{")
+        outfile.writeln(f"for (uint32_t __i = 0; __i < in->{name}_count; __i++) {{")
         outfile.indent_inc()
         outfile.writeln(f"serialize_{get_scoped_name(struct_type)}(buffer, &in->{name}[__i]);")
         outfile.indent_dec()
@@ -358,13 +346,13 @@ def write_variable_member_serializer(service: ServiceObject, member, outfile: Co
     outfile.writeln(f"serialize_uint32(&__buffer, {name}_count);")
     if service.typename_is_struct(typename):
         struct_type = service.lookup_struct(typename)
-        outfile.writeln(f"for (__i = 0; __i < {name}_count; __i++) {{")
+        outfile.writeln(f"for (uint32_t __i = 0; __i < {name}_count; __i++) {{")
         outfile.indent_inc()
         outfile.writeln(f"serialize_{get_scoped_name(struct_type)}(&__buffer, &{name}[__i]);")
         outfile.indent_dec()
         outfile.writeln("}")
     elif typename.lower() == "string":
-        outfile.writeln(f"for (__i = 0; __i < {name}_count; __i++) {{")
+        outfile.writeln(f"for (uint32_t __i = 0; __i < {name}_count; __i++) {{")
         outfile.indent_inc()
         outfile.writeln(f"serialize_string(&__buffer, {name}[__i]);")
         outfile.indent_dec()
@@ -379,23 +367,23 @@ def write_variable_member_serializer(service: ServiceObject, member, outfile: Co
         outfile.writeln("}")
 
 
-def write_struct_variant_serializer(service: ServiceObject, member: VariableVariantObject, outfile: CodeWriter):
+def write_struct_variant_serializer(service: ServiceObject, struct: StructureObject, member: VariableVariantObject, outfile: CodeWriter):
     outfile.writeln(f"serialize_uint8(buffer, in->{member.get_name()}_type);")
     outfile.writeln(f"switch (in->{member.get_name()}_type) {{")
     outfile.writeln(f"default: break;")
-    for i, entry in enumerate(member.get_entries()):
-        outfile.writeln(f"case {i + 1}:")
+    for entry in member.get_entries():
+        outfile.writeln(f"case {get_variant_enum_name(struct, member, entry)}:")
         outfile.indent_inc()
-        write_struct_member_serializer(service, f"{member.get_name()}.", entry, outfile)
+        write_struct_member_serializer(service, f"{member.get_name()}.", struct, entry, outfile)
         outfile.writeln("break;")
         outfile.indent_dec()
     outfile.writeln("}")
     return
 
 
-def write_struct_member_serializer(service: ServiceObject, prefix, member, outfile: CodeWriter):
+def write_struct_member_serializer(service: ServiceObject, prefix, struct, member, outfile: CodeWriter):
     if isinstance(member, VariableVariantObject):
-        write_struct_variant_serializer(service, member, outfile)
+        write_struct_variant_serializer(service, struct, member, outfile)
     elif member.get_is_variable():
         write_variable_struct_member_serializer(service, member, outfile)
     elif service.typename_is_struct(member.get_typename()):
@@ -470,7 +458,7 @@ def write_variable_member_deserializer2(service: ServiceObject, member, outfile:
     outfile.writeln("")
 
     if typename.lower() == "string" or service.typename_is_struct(typename):
-        outfile.writeln(f"for (__i = 0; __i < {name}_count; __i++) {{")
+        outfile.writeln(f"for (uint32_t __i = 0; __i < {name}_count; __i++) {{")
         outfile.indent_inc()
         if typename.lower() == "string":
             outfile.writeln(f"{name}[__i] = deserialize_string_nocopy(__buffer);")
@@ -496,7 +484,7 @@ def write_variable_member_deserializer(service: ServiceObject, member, outfile: 
     name = member.get_name()
     outfile.writeln("__count = deserialize_uint32(&__buffer);")
     if service.typename_is_struct(typename):
-        outfile.writeln(f"for (__i = 0; __i < GRMIN(__count, {name}_count); __i++) {{")
+        outfile.writeln(f"for (uint32_t __i = 0; __i < GRMIN(__count, {name}_count); __i++) {{")
         outfile.indent_inc()
         struct_type = service.lookup_struct(typename)
         struct_name = get_scoped_name(struct_type)
@@ -504,7 +492,7 @@ def write_variable_member_deserializer(service: ServiceObject, member, outfile: 
         outfile.indent_dec()
         outfile.writeln("}")
     elif typename.lower() == "string":
-        outfile.writeln(f"for (__i = 0; __i < GRMIN(__count, {name}_max_length); __i++) {{")
+        outfile.writeln(f"for (uint32_t __i = 0; __i < GRMIN(__count, {name}_max_length); __i++) {{")
         outfile.indent_inc()
         outfile.writeln(f"{name}_out[__i] = deserialize_string_nocopy(&__buffer);")
         outfile.indent_dec()
@@ -518,23 +506,23 @@ def write_variable_member_deserializer(service: ServiceObject, member, outfile: 
         outfile.writeln("}")
 
 
-def write_struct_variant_deserializer(service: ServiceObject, member, outfile: CodeWriter):
+def write_struct_variant_deserializer(service: ServiceObject, struct: StructureObject, member, outfile: CodeWriter):
     name = member.get_name()
     outfile.writeln(f"uint8_t _{name}_type = deserialize_uint8(buffer);")
     outfile.writeln(f"switch (_{name}_type) {{")
     outfile.writeln(f"default: break;")
-    for i, entry in enumerate(member.get_entries()):
-        outfile.writeln(f"case {i + 1}:")
+    for entry in member.get_entries():
+        outfile.writeln(f"case {get_variant_enum_name(struct, member, entry)}:")
         outfile.indent_inc()
-        write_struct_member_deserializer(service, f"{name}.", entry, outfile)
+        write_struct_member_deserializer(service, f"{name}.", struct, entry, outfile)
         outfile.writeln("break;")
         outfile.indent_dec()
     outfile.writeln("}")
     return
 
-def write_struct_member_deserializer(service: ServiceObject, prefix, member, outfile: CodeWriter):
+def write_struct_member_deserializer(service: ServiceObject, prefix, struct, member, outfile: CodeWriter):
     if isinstance(member, VariableVariantObject):
-        write_struct_variant_deserializer(service, member, outfile)
+        write_struct_variant_deserializer(service, struct, member, outfile)
         return
 
     name = member.get_name()
@@ -600,7 +588,6 @@ def write_member_deserializer(service: ServiceObject, member, outfile: CodeWrite
 def write_function_body_prologue(service: ServiceObject, action_id, flags, params, is_server, outfile: CodeWriter):
     outfile.writeln("gracht_buffer_t __buffer;")
     outfile.writeln("int __status;")
-    write_variable_iterator(service, params, outfile)
     outfile.writeln("")
 
     if is_server:
@@ -643,7 +630,6 @@ def define_function_body(service: ServiceObject, func: FunctionObject, outfile: 
 def write_status_body_prologue(service: ServiceObject, func: FunctionObject, outfile: CodeWriter):
     outfile.writeln("gracht_buffer_t __buffer;")
     outfile.writeln("int __status;")
-    write_variable_iterator(service, func.get_response_params(), outfile)
     write_variable_count(func.get_response_params(), outfile)
     outfile.writeln("")
 
@@ -802,20 +788,18 @@ def define_struct_serializers(service: ServiceObject, outfile: CodeWriter):
         outfile.writeln(f"#define __GRACHT_{guard_name}_DEFINED__")
         outfile.writeln(f"static void serialize_{struct_name}(gracht_buffer_t* buffer, const {struct_typename}* in) {{")
         outfile.indent_inc()
-        write_variable_iterator(service, struct.get_members(), outfile)
 
         for member in struct.get_members():
-            write_struct_member_serializer(service, "", member, outfile)
+            write_struct_member_serializer(service, "", struct, member, outfile)
         outfile.indent_dec()
         outfile.writeln("}")
         outfile.writeln("")
 
         outfile.writeln(f"static void deserialize_{struct_name}(gracht_buffer_t* buffer, {struct_typename}* out) {{")
         outfile.indent_inc()
-        write_variable_iterator(service, struct.get_members(), outfile)
 
         for member in struct.get_members():
-            write_struct_member_deserializer(service, "", member, outfile)
+            write_struct_member_deserializer(service, "", struct, member, outfile)
         outfile.indent_dec()
         outfile.writeln("}") 
         outfile.writeln(f"#endif //! __GRACHT_{guard_name}_DEFINED__")
@@ -868,6 +852,23 @@ def write_structure_members(service: ServiceObject, members, case, outfile: Code
         outfile.writeln(get_param_typename(service, member, case, False) + ";")
 
 
+def get_variant_enum_name(struct: StructureObject, member, variant):
+    return f"{get_scoped_name(struct).upper()}_{member.get_name().upper()}_{variant.get_name().upper()}"
+
+
+def write_structure_variant_enums(struct, outfile: CodeWriter):
+    for member in struct.get_members():
+        if isinstance(member, VariableVariantObject):
+            outfile.writeln(f"enum {get_scoped_name(struct)}_{member.get_name()}_type {{")
+            outfile.indent_inc()
+            outfile.writeln(f"{get_scoped_name(struct).upper()}_{member.get_name().upper()}_INVALID = 0,")
+            for value in member.get_entries():
+                outfile.writeln(f"{get_variant_enum_name(struct, member, value)},")
+            outfile.indent_dec()
+            outfile.writeln("};")
+            outfile.writeln("")
+
+
 def write_structure(service: ServiceObject, struct, case, outfile: CodeWriter):
     outfile.writeln(f"{get_scoped_typename(struct)} {{")
     outfile.indent_inc()
@@ -876,24 +877,27 @@ def write_structure(service: ServiceObject, struct, case, outfile: CodeWriter):
     outfile.writeln("};")
 
 
-def write_structure_variant_member_functions(service: ServiceObject, structName: str, structTypeName: str, variant: VariableVariantObject, outfile: CodeWriter):
+def write_structure_variant_member_functions(service: ServiceObject, struct: StructureObject, variant: VariableVariantObject, outfile: CodeWriter):
+    struct_name = get_scoped_name(struct)
+    struct_typename = get_scoped_typename(struct)
+
     for i, entry in enumerate(variant.get_entries()):
-        outfile.writeln(f"static int {structName}_{variant.get_name()}_is_{entry.get_typename()}({structTypeName}* in) {{")
+        outfile.writeln(f"static int {struct_name}_{variant.get_name()}_is_{entry.get_typename()}({struct_typename}* in) {{")
         outfile.indent_inc()
-        outfile.writeln(f"return in->{variant.get_name()}_type == {i + 1};")
+        outfile.writeln(f"return in->{variant.get_name()}_type == {get_variant_enum_name(struct, variant, entry)};")
         outfile.indent_dec()
         outfile.writeln("}")
         outfile.writeln("")
     
     for i, entry in enumerate(variant.get_entries()):
         param_string = get_param_typename(service, entry, CONST.TYPENAME_CASE_FUNCTION_CALL, False)
-        outfile.writeln(f"static void {structName}_{variant.get_name()}_set_{entry.get_typename()}({structTypeName}* in, {param_string}) {{")
+        outfile.writeln(f"static void {struct_name}_{variant.get_name()}_set_{entry.get_typename()}({struct_typename}* in, {param_string}) {{")
         outfile.indent_inc()
         if service.typename_is_struct(entry.get_typename()):
             struct_type = service.lookup_struct(entry.get_typename())
             member_name = get_scoped_name(struct_type)
             outfile.writeln(f"{member_name}_copy({entry.get_name()}, &in->{variant.get_name()}.{entry.get_name()});")
-            outfile.writeln(f"in->{variant.get_name()}_type = {i + 1};")
+            outfile.writeln(f"in->{variant.get_name()}_type = {get_variant_enum_name(struct, variant, entry)};")
         elif entry.get_typename() == "string":
             outfile.writeln(f"if ({entry.get_typename()} != NULL) {{")
             outfile.indent_inc()
@@ -907,27 +911,30 @@ def write_structure_variant_member_functions(service: ServiceObject, structName:
         outfile.writeln("")
     
     # write clear function
-    outfile.writeln(f"static void {structName}_{variant.get_name()}_clear({structTypeName}* in) {{")
+    outfile.writeln(f"static void {struct_name}_{variant.get_name()}_clear({struct_typename}* in) {{")
     outfile.indent_inc()
     outfile.writeln(f"switch (in->{variant.get_name()}_type) {{")
     outfile.writeln("default: break;")
     for i, entry in enumerate(variant.get_entries()):
-        outfile.writeln(f"case {i + 1}:")
+        outfile.writeln(f"case {get_variant_enum_name(struct, variant, entry)}:")
         outfile.indent_inc()
-        write_structure_member_destructor(service, f"in->{variant.get_name()}.", entry, outfile)
+        write_structure_member_destructor(service, f"in->{variant.get_name()}.", struct, entry, outfile)
         outfile.writeln("break;")
         outfile.indent_dec()
     outfile.writeln("}")
-    outfile.writeln(f"in->{variant.get_name()}_type = 0;")
+    outfile.writeln(f"in->{variant.get_name()}_type = {get_scoped_name(struct).upper()}_{variant.get_name().upper()}_INVALID;")
     outfile.indent_dec()
     outfile.writeln("}")
     outfile.writeln("")
 
 
-def write_structure_member_functions(service: ServiceObject, structName: str, structTypeName: str, members, outfile: CodeWriter):
-    for member in members:
+def write_structure_member_functions(service: ServiceObject, struct: StructureObject, outfile: CodeWriter):
+    struct_name = get_scoped_name(struct)
+    struct_typename = get_scoped_typename(struct)
+
+    for member in struct.get_members():
         if isinstance(member, VariableVariantObject):
-            write_structure_variant_member_functions(service, structName, structTypeName, member, outfile)
+            write_structure_variant_member_functions(service, struct, member, outfile)
         elif member.get_is_variable():
             if service.typename_is_struct(member.get_typename()):
                 struct_type = service.lookup_struct(member.get_typename())
@@ -935,7 +942,7 @@ def write_structure_member_functions(service: ServiceObject, structName: str, st
                 member_typename = get_scoped_typename(struct_type)
 
                 # write allocator
-                outfile.writeln(f"static void {structName}_{member.get_name()}_add({structTypeName}* in, uint32_t count) {{")
+                outfile.writeln(f"static void {struct_name}_{member.get_name()}_add({struct_typename}* in, uint32_t count) {{")
                 outfile.indent_inc()
                 outfile.writeln(f"if (in->{member.get_name()}) {{")
                 outfile.indent_inc()
@@ -958,11 +965,11 @@ def write_structure_member_functions(service: ServiceObject, structName: str, st
                 outfile.writeln("")
 
                 # write indexer
-                outfile.writeln(f"static {member_typename}* {structName}_{member.get_name()}_get({structTypeName}* in, uint32_t index) {{")
+                outfile.writeln(f"static {member_typename}* {struct_name}_{member.get_name()}_get({struct_typename}* in, uint32_t index) {{")
                 outfile.indent_inc()
                 outfile.writeln(f"if (index >= in->{member.get_name()}_count) {{")
                 outfile.indent_inc()
-                outfile.writeln(f"{structName}_{member.get_name()}_add(in, (index - in->{member.get_name()}_count) + 1);")
+                outfile.writeln(f"{struct_name}_{member.get_name()}_add(in, (index - in->{member.get_name()}_count) + 1);")
                 outfile.indent_dec()
                 outfile.writeln("}")
                 outfile.writeln(f"return &in->{member.get_name()}[index];")
@@ -970,15 +977,15 @@ def write_structure_member_functions(service: ServiceObject, structName: str, st
                 outfile.writeln("}")
                 outfile.writeln("")
 
-def write_structure_member_destructor(service: ServiceObject, prefix, member, outfile: CodeWriter) -> int:
+def write_structure_member_destructor(service: ServiceObject, prefix, struct: StructureObject, member, outfile: CodeWriter) -> int:
     if isinstance(member, VariableVariantObject):
         calls = 0
         outfile.writeln(f"switch ({prefix}{member.get_name()}_type) {{")
         outfile.writeln("default: break;")
         for i, entry in enumerate(member.get_entries()):
-            outfile.writeln(f"case {i + 1}:")
+            outfile.writeln(f"case {get_variant_enum_name(struct, member, entry)}:")
             outfile.indent_inc()
-            calls += write_structure_member_destructor(service, f"{prefix}{member.get_name()}.", entry, outfile)
+            calls += write_structure_member_destructor(service, f"{prefix}{member.get_name()}.", struct, entry, outfile)
             outfile.writeln("break;")
             outfile.indent_dec()
         outfile.writeln("}")
@@ -1012,15 +1019,15 @@ def write_structure_member_destructor(service: ServiceObject, prefix, member, ou
         return 1
     return 0
 
-def write_structure_copy_function_members(service: ServiceObject, prefix, member, outfile: CodeWriter):
+def write_structure_copy_function_members(service: ServiceObject, prefix, struct: StructureObject, member, outfile: CodeWriter):
     if isinstance(member, VariableVariantObject):
         outfile.writeln(f"out->{prefix}{member.get_name()}_type = in->{prefix}{member.get_name()}_type;")
         outfile.writeln(f"switch (in->{prefix}{member.get_name()}_type) {{")
         outfile.writeln("default: break;")
         for i, entry in enumerate(member.get_entries()):
-            outfile.writeln(f"case {i + 1}:")
+            outfile.writeln(f"case {get_variant_enum_name(struct, member, entry)}:")
             outfile.indent_inc()
-            write_structure_copy_function_members(service, f"{member.get_name()}.", entry, outfile)
+            write_structure_copy_function_members(service, f"{member.get_name()}.", struct, entry, outfile)
             outfile.writeln("break;")
             outfile.indent_dec()
         outfile.writeln("}")
@@ -1077,13 +1084,13 @@ def write_structure_functionality(service: ServiceObject, struct: StructureObjec
     outfile.writeln("")
 
     # write member-specific functions
-    write_structure_member_functions(service, struct_name, struct_typename, struct.get_members(), outfile)
+    write_structure_member_functions(service, struct, outfile)
 
     # write copy constructor
     outfile.writeln(f"static void {struct_name}_copy(const {struct_typename}* in, {struct_typename}* out) {{")
     outfile.indent_inc()
     for member in struct.get_members():
-        write_structure_copy_function_members(service, "", member, outfile)
+        write_structure_copy_function_members(service, "", struct, member, outfile)
     outfile.indent_dec()
     outfile.writeln("}")
     outfile.writeln("")
@@ -1093,7 +1100,7 @@ def write_structure_functionality(service: ServiceObject, struct: StructureObjec
     outfile.indent_inc()
     num_destroy_calls = 0
     for member in struct.get_members():
-        num_destroy_calls += write_structure_member_destructor(service, "in->", member, outfile)
+        num_destroy_calls += write_structure_member_destructor(service, "in->", struct, member, outfile)
     if num_destroy_calls == 0:
         outfile.writeln("(void)in;")
     outfile.indent_dec()
@@ -1106,6 +1113,7 @@ def define_structures(service: ServiceObject, outfile: CodeWriter):
         struct_name = get_scoped_name(struct)
         outfile.writeln("#ifndef __" + struct_name.upper() + "_DEFINED__")
         outfile.writeln("#define __" + struct_name.upper() + "_DEFINED__")
+        write_structure_variant_enums(struct, outfile)
         write_structure(service, struct, CONST.TYPENAME_CASE_MEMBER, outfile)
         outfile.writeln("\n")
         write_structure_functionality(service, struct, outfile)
@@ -1165,9 +1173,6 @@ def write_client_callback_array(service: ServiceObject, outfile: CodeWriter):
 
 # Shared deserializer logic subunits
 def write_deserializer_prologue(service: ServiceObject, members, outfile: CodeWriter):
-    # write pre-definition
-    write_variable_iterator(service, members, outfile)
-
     # write definitions
     for param in members:
         star_modifier = ""
@@ -1211,7 +1216,7 @@ def write_deserializer_destroy_members(service: ServiceObject, members, outfile:
             struct_name = get_scoped_name(struct_type)
             indexer = ""
             if member.get_is_variable():
-                outfile.writeln(f"for (__i = 0; __i < {member.get_name()}_count; __i++) {{")
+                outfile.writeln(f"for (uint32_t __i = 0; __i < {member.get_name()}_count; __i++) {{")
                 outfile.indent_inc()
                 indexer = "[__i]"
             outfile.writeln(f"{struct_name}_destroy(&{member.get_name()}{indexer});")
