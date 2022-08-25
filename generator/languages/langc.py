@@ -508,8 +508,8 @@ def write_variable_member_deserializer(service: ServiceObject, member, outfile: 
 
 def write_struct_variant_deserializer(service: ServiceObject, struct: StructureObject, member, outfile: CodeWriter):
     name = member.get_name()
-    outfile.writeln(f"uint8_t _{name}_type = deserialize_uint8(buffer);")
-    outfile.writeln(f"switch (_{name}_type) {{")
+    outfile.writeln(f"out->{name}_type = deserialize_uint8(buffer);")
+    outfile.writeln(f"switch (out->{name}_type) {{")
     outfile.writeln(f"default: break;")
     for entry in member.get_entries():
         outfile.writeln(f"case {get_variant_enum_name(struct, member, entry)}:")
