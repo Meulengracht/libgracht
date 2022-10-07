@@ -87,7 +87,7 @@ void gracht_link_vali_set_listen(struct gracht_link_vali* link, int listen)
     }
 }
 
-void gracht_link_vali_set_address(struct gracht_link_vali* link, struct ipmsg_addr* address)
+void gracht_link_vali_set_address(struct gracht_link_vali* link, IPCAddress_t* address)
 {
-    memcpy(&link->address, address, sizeof(struct ipmsg_addr));
+    memcpy(&link->address, address, sizeof(IPCAddress_t));
 }

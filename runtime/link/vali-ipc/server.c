@@ -26,8 +26,8 @@
 // - Stream
 
 #include <errno.h>
-#include "gracht/link/vali.h"
 #include "private.h"
+#include <ipcontext.h>
 #include <io.h>
 #include <ioset.h>
 #include <stdlib.h>
@@ -36,19 +36,19 @@
 
 struct vali_link_client {
     struct gracht_server_client base;
-    struct ipmsg_addr           address;
+    IPCAddress_t                address;
     int                         link;
 };
 
 static int vali_link_send_client(struct vali_link_client* client,
     struct gracht_buffer* data, unsigned int flags)
 {
-    int               status;
-    struct ipmsg_addr addr;
+    int          status;
+    IPCAddress_t addr;
     _CRT_UNUSED(flags);
 
-    addr.type = IPMSG_ADDRESS_HANDLE;
-    addr.data.handle = (uuid_t)client->base.handle;
+    addr.Type = IPC_ADDRESS_HANDLE;
+    addr.Data.Handle = (uuid_t)client->base.handle;
 
     // send to connection-less client (all of them)
     status = ipsend(client->link, &addr, data->data, data->index, 0);
@@ -88,8 +88,8 @@ static int vali_link_create_client(struct gracht_link_vali* link, struct gracht_
     client->base.handle = message->client;
     client->link = link->base.connection;
 
-    client->address.type = IPMSG_ADDRESS_HANDLE;
-    client->address.data.handle = message->client;
+    client->address.Type = IPC_ADDRESS_HANDLE;
+    client->address.Data.Handle = message->client;
 
     *clientOut = client;
     return 0;
@@ -124,7 +124,7 @@ static inline int get_ip_flags(unsigned int flags)
 {
     int ipFlags = 0;
     if (!(flags & GRACHT_MESSAGE_BLOCK)) {
-        ipFlags |= IPMSG_DONTWAIT;
+        ipFlags |= IPC_DONTWAIT;
     }
     return ipFlags;
 }
@@ -141,7 +141,13 @@ static int vali_link_recv(struct gracht_link_vali* link, struct gracht_message* 
         return -1;
     }
 
-    bytesRead = iprecv(link->base.connection, &context->payload[0], context->index, ipFlags, &client);
+    bytesRead = iprecv(
+            link->base.connection,
+            &context->payload[0],
+            context->index,
+            ipFlags,
+            &client
+    );
     if (bytesRead < 0) {
         return bytesRead;
     }
@@ -158,16 +164,16 @@ static int vali_link_send(struct gracht_link_vali* link,
                           struct gracht_message*   messageContext,
                           struct gracht_buffer*    data)
 {
-    int               status;
-    struct ipmsg_addr addr;
+    int          status;
+    IPCAddress_t addr;
 
     if (link->base.type != gracht_link_packet_based) {
         errno = ENOSYS;
         return -1;
     }
 
-    addr.type = IPMSG_ADDRESS_HANDLE;
-    addr.data.handle = messageContext->client;
+    addr.Type = IPC_ADDRESS_HANDLE;
+    addr.Data.Handle = messageContext->client;
 
     // send to connection-less client (all of them)
     status = ipsend(link->base.connection, &addr, data->data, data->index, 0);

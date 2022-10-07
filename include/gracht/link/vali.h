@@ -27,15 +27,15 @@
 
 #include "link.h"
 #include "../client.h"
-#include <ipcontext.h>
+#include <os/types/ipc.h>
 #include <os/osdefs.h>
 
 struct vali_link_message {
     struct gracht_message_context base;
-    struct ipmsg_addr             address;
+    IPCAddress_t                  address;
 };
 
-#define VALI_MSG_INIT_HANDLE(handle) { { 0 }, IPMSG_ADDR_INIT_HANDLE(handle) }
+#define VALI_MSG_INIT_HANDLE(handle) { { 0 }, IPC_ADDRESS_HANDLE_INIT(handle) }
 
 #ifdef __cplusplus
 extern "C" {
@@ -52,7 +52,7 @@ struct gracht_link_vali;
 
 GRACHTAPI int  gracht_link_vali_create(struct gracht_link_vali** linkOut);
 GRACHTAPI void gracht_link_vali_set_listen(struct gracht_link_vali* link, int listen);
-GRACHTAPI void gracht_link_vali_set_address(struct gracht_link_vali* link, struct ipmsg_addr*);
+GRACHTAPI void gracht_link_vali_set_address(struct gracht_link_vali* link, IPCAddress_t*);
 
 // OS API
 struct sockaddr_storage;

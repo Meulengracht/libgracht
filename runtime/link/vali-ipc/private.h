@@ -23,11 +23,12 @@
 #ifndef __GRACHT_VALI_PRIVATE_H__
 #define __GRACHT_VALI_PRIVATE_H__
 
-#include "utils.h"
+#include <gracht/link/vali.h>
+#include <utils.h>
 
 struct gracht_link_vali {
     struct gracht_link base;
-    struct ipmsg_addr  address;
+    IPCAddress_t       address;
 };
 
 #endif // !__GRACHT_VALI_PRIVATE_H__

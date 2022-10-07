@@ -26,8 +26,8 @@
 // - Stream
 
 #include <errno.h>
-#include "gracht/link/vali.h"
 #include "private.h"
+#include <ipcontext.h>
 #include <io.h>
 #include <stdlib.h>
 
@@ -65,7 +65,7 @@ static inline int get_ip_flags(unsigned int flags)
 {
     int ipFlags = 0;
     if (!(flags & GRACHT_MESSAGE_BLOCK)) {
-        ipFlags |= IPMSG_DONTWAIT;
+        ipFlags |= IPC_DONTWAIT;
     }
     return ipFlags;
 }
