@@ -251,36 +251,48 @@ static void gr_hashtable_remove_and_bump(gr_hashtable_t* hashtable, struct hasht
 {
     struct hashtable_element* previous = element;
 
-    // Remove is a little bit more extensive, we have to bump up all elements that
+    // Remove is a bit more extensive, we have to bump up all elements that
     // share the hash
     memcpy(hashtable->swap, element, hashtable->element_size);
-    element->probeCount = 0;
 
     index = (index + 1) & (hashtable->capacity - 1);
     while (1) {
         struct hashtable_element* current = GET_ELEMENT(hashtable, index);
         if (current->probeCount <= 1) {
-            // this element is the first in a new chain or a free element
+            // this element is the first in a new chain or a free element.
+            // we still need to reset the last entry to 0 in proble count
+            previous->probeCount = 0;
             break;
         }
-        
+
         // reduce the probe count and move it one up
         current->probeCount--;
         memcpy(previous, current, hashtable->element_size);
-        
+
         // store next space and move to next index
         previous = current;
         index    = (index + 1) & (hashtable->capacity - 1);
     }
-
     hashtable->element_count--;
+}
+
+static void __hashtable_clone(gr_hashtable_t* dst, gr_hashtable_t* src, void* elements, size_t capacity)
+{
+    dst->capacity      = capacity;
+    dst->element_count = 0;
+    dst->grow_count    = (capacity * HASHTABLE_LOADFACTOR_GROW) / 100;
+    dst->shrink_count  = (capacity * HASHTABLE_LOADFACTOR_SHRINK) / 100;
+    dst->element_size  = src->element_size;
+    dst->elements      = elements;
+    dst->swap          = src->swap;
+    dst->hash          = src->hash;
+    dst->cmp           = src->cmp;
 }
 
 static int hashtable_resize(gr_hashtable_t* hashtable, size_t newCapacity)
 {
-    size_t updatedIndex;
-    void*  resizedStorage;
-    size_t i;
+    gr_hashtable_t temporaryTable;
+    void*          resizedStorage;
 
     // potentially there can be a too big resize - but practically very unlikely...
     if (newCapacity < HASHTABLE_MINIMUM_CAPACITY) {
@@ -289,45 +301,31 @@ static int hashtable_resize(gr_hashtable_t* hashtable, size_t newCapacity)
 
     resizedStorage = malloc(newCapacity * hashtable->element_size);
     if (!resizedStorage) {
-        errno = ENOMEM;
         return -1;
     }
-    
-    // transfer objects and reset their probeCount
     memset(resizedStorage, 0, newCapacity * hashtable->element_size);
-    for (i = 0; i < hashtable->capacity; i++) {
-        struct hashtable_element* current = GET_ELEMENT(hashtable, i);
-        struct hashtable_element* newCurrent;
-        if (current->probeCount) {
-            current->probeCount = 1;
-            updatedIndex        = current->hash & (newCapacity - 1);
-            
-            while (1) {
-                newCurrent = GET_ELEMENT_ARRAY(hashtable, resizedStorage, updatedIndex);
-                if (!newCurrent->probeCount) {
-                    memcpy(newCurrent, current, hashtable->element_size);
-                    break;
-                }
-                else {
-                    if (newCurrent->probeCount < current->probeCount) {
-                        memcpy(hashtable->swap, newCurrent, hashtable->element_size);
-                        memcpy(newCurrent, current, hashtable->element_size);
-                        memcpy(current, hashtable->swap, hashtable->element_size);
-                    }
-                }
 
-                current->probeCount++;
-                updatedIndex = (updatedIndex + 1) & (newCapacity - 1);
-            }
+    // initialize the temporary hashtable we'll use to rebuild storage with
+    // the new storage and capacity
+    __hashtable_clone(&temporaryTable, hashtable, resizedStorage, newCapacity);
+
+    // transfer objects and reset their probeCount
+    for (size_t i = 0; i < hashtable->capacity; i++) {
+        struct hashtable_element* current = GET_ELEMENT(hashtable, i);
+        if (!current->probeCount) {
+            continue;
         }
+        gr_hashtable_set(&temporaryTable, &current->payload[0]);
     }
 
+    // free the original storage, we are done with that now
     free(hashtable->elements);
 
-    hashtable->elements      = resizedStorage;
-    hashtable->capacity      = newCapacity;
-    hashtable->grow_count    = (newCapacity * HASHTABLE_LOADFACTOR_GROW) / 100;
-    hashtable->shrink_count  = (newCapacity * HASHTABLE_LOADFACTOR_SHRINK) / 100;
-
+    // transfer the relevant data from the temporary hashtable to
+    // the original one, we are now done
+    hashtable->elements      = temporaryTable.elements;
+    hashtable->capacity      = temporaryTable.capacity;
+    hashtable->grow_count    = temporaryTable.grow_count;
+    hashtable->shrink_count  = temporaryTable.shrink_count;
     return 0;
 }
