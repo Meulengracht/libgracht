@@ -35,7 +35,7 @@ typedef struct ioset_event gracht_aio_event_t;
 #define GRACHT_AIO_EVENT_DISCONNECT IOSETCTL
 
 #define gracht_aio_create()                ioset(0)
-#define gracht_io_wait(aio, events, count) ioset_wait(aio, events, count, 0)
+#define gracht_io_wait(aio, events, count) ioset_wait(aio, events, count, NULL)
 #define gracht_aio_destroy(aio)            close(aio)
 
 #define gracht_aio_event_handle(event)    (event)->data.iod
