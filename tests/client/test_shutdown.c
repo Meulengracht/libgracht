@@ -71,7 +71,7 @@ int main(void)
 #ifdef _WIN32
     Sleep(1000);
 #elif defined(MOLLENOS)
-    thrd_sleepex(1000);
+    thrd_sleep2(1000);
 #else
     usleep(1000);
 #endif
