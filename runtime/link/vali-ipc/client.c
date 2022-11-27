@@ -53,7 +53,7 @@ static int vali_link_send(struct gracht_link_vali* link,
 {
     int status;
 
-    status = ipsend(link->base.connection, &context->address, message->data, message->index, 0);
+    status = ipsend(link->base.connection, &context->address, message->data, message->index, NULL);
     if (status) {
         errno = (EPIPE);
         return GRACHT_MESSAGE_ERROR;

@@ -51,7 +51,7 @@ static int vali_link_send_client(struct vali_link_client* client,
     addr.Data.Handle = (uuid_t)client->base.handle;
 
     // send to connection-less client (all of them)
-    status = ipsend(client->link, &addr, data->data, data->index, 0);
+    status = ipsend(client->link, &addr, data->data, data->index, NULL);
     if (status) {
         return status;
     }
@@ -176,7 +176,7 @@ static int vali_link_send(struct gracht_link_vali* link,
     addr.Data.Handle = messageContext->client;
 
     // send to connection-less client (all of them)
-    status = ipsend(link->base.connection, &addr, data->data, data->index, 0);
+    status = ipsend(link->base.connection, &addr, data->data, data->index, NULL);
     if (status) {
         return status;
     }
