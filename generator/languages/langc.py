@@ -653,7 +653,7 @@ def write_status_body_epilogue(service: ServiceObject, func: FunctionObject, out
 
 def define_status_body(service: ServiceObject, func: FunctionObject, outfile: CodeWriter):
     write_status_body_prologue(service, func, outfile)
-    outfile.write("__status = gracht_client_status_finalize(client, context);\n")
+    outfile.write("__status = gracht_client_status_finalize(client, &__buffer);\n")
     write_status_body_epilogue(service, func, outfile)
 
 
@@ -1125,7 +1125,7 @@ def write_client_api(service: ServiceObject, outfile: CodeWriter):
     outfile.writeln("""
 GRACHTAPI int gracht_client_get_buffer(gracht_client_t*, gracht_buffer_t*);
 GRACHTAPI int gracht_client_get_status_buffer(gracht_client_t*, struct gracht_message_context*, gracht_buffer_t*);
-GRACHTAPI int gracht_client_status_finalize(gracht_client_t*, struct gracht_message_context*);
+GRACHTAPI int gracht_client_status_finalize(gracht_client_t*, struct gracht_buffer*);
 GRACHTAPI int gracht_client_invoke(gracht_client_t*, struct gracht_message_context*, gracht_buffer_t*);
 """)
 

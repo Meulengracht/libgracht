@@ -56,9 +56,9 @@ static int vali_link_send(struct gracht_link_vali* link,
     status = ipsend(link->base.connection, &context->address, message->data, message->index, NULL);
     if (status) {
         errno = (EPIPE);
-        return GRACHT_MESSAGE_ERROR;
+        return -1;
     }
-    return GRACHT_MESSAGE_INPROGRESS;
+    return 0;
 }
 
 static inline int get_ip_flags(unsigned int flags)

@@ -24,6 +24,7 @@
  */
 
 #include <errno.h>
+#include "thread_api.h"
 #include "logging.h"
 #include "server_private.h"
 #include <stdint.h>
@@ -38,6 +39,7 @@ struct gracht_header {
 };
 
 struct gracht_arena {
+    mtx_t                 mutex;
     struct gracht_header* base;
     size_t                length;
 };
@@ -74,6 +76,7 @@ int gracht_arena_create(size_t size, struct gracht_arena** arenaOut)
         return -1;
     }
 
+    mtx_init(&arena->mutex, mtx_recursive);
     arena->base = base;
     arena->length = size;
 
@@ -92,6 +95,7 @@ void gracht_arena_destroy(struct gracht_arena* arena)
         return;
     }
 
+    mtx_destroy(&arena->mutex);
     free(arena->base);
     free(arena);
 }
@@ -145,6 +149,7 @@ void* gracht_arena_allocate(struct gracht_arena* arena, void* allocation, size_t
         return NULL;
     }
 
+    mtx_lock(&arena->mutex);
     if (allocation) {
         struct gracht_header* header     = GET_HEADER(allocation);
         struct gracht_header* nextHeader = GET_NEXT_HEADER(header);
@@ -156,7 +161,7 @@ void* gracht_arena_allocate(struct gracht_arena* arena, void* allocation, size_t
             allocHeader = find_free_header(arena, correctedSize);
             memcpy(&allocHeader->payload[0], &header->payload[0], header->length);
 
-            // What consequences could this call have
+            // what consequences could this call have
             gracht_arena_free(arena, allocation, header->length);
         }
         else {
@@ -164,6 +169,7 @@ void* gracht_arena_allocate(struct gracht_arena* arena, void* allocation, size_t
             header->length += correctedSize;
             nextHeader->length -= correctedSize;
             move_header(nextHeader, (long)correctedSize);
+            mtx_unlock(&arena->mutex);
             return &header->payload[0];
         }
     }
@@ -172,6 +178,7 @@ void* gracht_arena_allocate(struct gracht_arena* arena, void* allocation, size_t
     }
     
     if (!allocHeader) {
+        mtx_unlock(&arena->mutex);
         return NULL;
     }
 
@@ -190,6 +197,7 @@ void* gracht_arena_allocate(struct gracht_arena* arena, void* allocation, size_t
     allocHeader->allocated = 1;
     allocHeader->length = (uint32_t)(correctedSize & 0x00FFFFFF);
     GRTRACE(GRSTR("gracht_arena_allocate returns=%p"), &allocHeader->payload[0]);
+    mtx_unlock(&arena->mutex);
     return &allocHeader->payload[0];
 }
 
@@ -204,6 +212,7 @@ void gracht_arena_free(struct gracht_arena* arena, void* memory, size_t size)
         return;
     }
 
+    mtx_lock(&arena->mutex);
     header     = GET_HEADER(memory);
     nextHeader = GET_NEXT_HEADER(header);
 
@@ -212,6 +221,7 @@ void gracht_arena_free(struct gracht_arena* arena, void* memory, size_t size)
     if (allocLength != 0 && header->length != allocLength) {
         // must free atleast enough, otherwise skip partial-free operation
         if (allocLength < sizeof(struct gracht_header)) {
+            mtx_unlock(&arena->mutex);
             return;
         }
 
@@ -229,8 +239,7 @@ void gracht_arena_free(struct gracht_arena* arena, void* memory, size_t size)
             GRTRACE(GRSTR("%p=increasing length by %u bytes to %u bytes"), nextHeader, allocLength, nextHeader->length);
             nextHeader->length += allocLength;
             move_header(nextHeader, negated);
-        }
-        else {
+        } else {
             // it was allocated, we must create a new header with the size that was freed
             create_header(GET_NEXT_HEADER(header), allocLength);
         }
@@ -241,6 +250,7 @@ void gracht_arena_free(struct gracht_arena* arena, void* memory, size_t size)
             header->length += nextHeader->length + HEADER_SIZE;
         }
     }
+    mtx_unlock(&arena->mutex);
 }
 
 //#define __TEST

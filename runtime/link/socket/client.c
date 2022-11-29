@@ -39,9 +39,9 @@ static int socket_link_send_stream(struct gracht_link_socket* link,
         GRERROR(GRSTR("link_client: failed to send message, bytes sent: %li, expected: %u (%i)"),
               byteCount, message->index, errno);
         errno = (EPIPE);
-        return GRACHT_MESSAGE_ERROR;
+        return -1;
     }
-    return GRACHT_MESSAGE_INPROGRESS;
+    return 0;
 }
 
 static int socket_link_recv_stream(struct gracht_link_socket* link,
@@ -90,9 +90,9 @@ static int socket_link_send_packet(struct gracht_link_socket* link, struct grach
         GRERROR(GRSTR("link_client: failed to send message, bytes sent: %u, expected: %u"),
               (uint32_t)byteCount, message->index);
         errno = (EPIPE);
-        return GRACHT_MESSAGE_ERROR;
+        return -1;
     }
-    return GRACHT_MESSAGE_INPROGRESS;
+    return 0;
 }
 
 static int socket_link_recv_packet(struct gracht_link_socket* link, struct gracht_buffer* message, unsigned int flags)

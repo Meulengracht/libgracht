@@ -20,12 +20,10 @@
  *   and functionality, refer to the individual things for descriptions
  */
 
-#include <assert.h>
 #include <errno.h>
 #include "gracht/client.h"
 #include "client_private.h"
 #include "arena.h"
-#include "crc.h"
 #include "hashtable.h"
 #include "logging.h"
 #include "thread_api.h"
@@ -44,8 +42,14 @@ struct gracht_message_awaiter {
     uint32_t      id;
     unsigned int  flags;
     cnd_t         event;
+    mtx_t         mutex;
     int           current_count;
     int           count;
+};
+
+struct gracht_message_awaiter_entry {
+    uint32_t                       id;
+    struct gracht_message_awaiter* awaiter;
 };
 
 // descriptor | message | params
@@ -68,8 +72,9 @@ typedef struct gracht_client {
     int                  free_send_buffer;
     gr_hashtable_t       protocols;
     gr_hashtable_t       messages;
+    mtx_t                messages_lock;
     gr_hashtable_t       awaiters;
-    mtx_t                data_lock;
+    mtx_t                awaiters_lock;
     mtx_t                wait_lock;
 } gracht_client_t;
 
@@ -78,23 +83,62 @@ typedef struct gracht_client {
 // api we export to generated files
 GRACHTAPI int gracht_client_get_buffer(gracht_client_t*, gracht_buffer_t*);
 GRACHTAPI int gracht_client_get_status_buffer(gracht_client_t*, struct gracht_message_context*, gracht_buffer_t*);
-GRACHTAPI int gracht_client_status_finalize(gracht_client_t*, struct gracht_message_context*);
+GRACHTAPI int gracht_client_status_finalize(gracht_client_t* client, struct gracht_buffer*);
 GRACHTAPI int gracht_client_invoke(gracht_client_t*, struct gracht_message_context*, gracht_buffer_t*);
 
 // static methods
 static uint32_t get_message_id(gracht_client_t*);
 static uint32_t get_awaiter_id(gracht_client_t*);
-static void     mark_awaiters(gracht_client_t*, struct gracht_message_descriptor*);
+static void     mark_awaiters(gracht_client_t*, uint32_t);
 static uint64_t message_hash(const void* element);
 static int      message_cmp(const void* element1, const void* element2);
 static uint64_t awaiter_hash(const void* element);
 static int      awaiter_cmp(const void* element1, const void* element2);
 
-// allocated => list_header, message_id, output_buffer
-int gracht_client_invoke(gracht_client_t* client, struct gracht_message_context* context, struct gracht_buffer* message)
+static int __add_message(
+        gracht_client_t*                   client,
+        struct gracht_message_context*     context)
 {
-    struct gracht_message_descriptor* descriptor = NULL;
-    int status;
+    struct gracht_message_descriptor entry = { 0 };
+    if (context == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    entry.id = context->message_id;
+    entry.status = GRACHT_MESSAGE_INPROGRESS;
+
+    mtx_lock(&client->messages_lock);
+    gr_hashtable_set(&client->messages, &entry);
+    mtx_unlock(&client->messages_lock);
+    return 0;
+}
+
+static void __remove_message(
+        gracht_client_t*                   client,
+        struct gracht_message_context*     context)
+{
+    if (context == NULL) {
+        return;
+    }
+
+    mtx_lock(&client->messages_lock);
+    gr_hashtable_remove(&client->messages,
+                     &(struct gracht_message_descriptor) {
+        .id = context->message_id
+    });
+    mtx_unlock(&client->messages_lock);
+}
+
+// allocated => list_header, message_id, output_buffer
+int gracht_client_invoke(
+        gracht_client_t*               client,
+        struct gracht_message_context* context,
+        struct gracht_buffer*          message)
+{
+    uint32_t messageID;
+    int      status;
+    GRTRACE(GRSTR("gracht_client_invoke()"));
     
     if (!client || !message) {
         errno = (EINVAL);
@@ -102,203 +146,39 @@ int gracht_client_invoke(gracht_client_t* client, struct gracht_message_context*
     }
     
     // fill in some message details
-    GB_MSG_ID_0(message)  = get_message_id(client);
+    messageID = get_message_id(client);
+    GB_MSG_ID_0(message)  = messageID;
     GB_MSG_LEN_0(message) = message->index;
+
+    // store a copy of the message id if the context was provided.
+    if (context) {
+        context->message_id = messageID;
+    }
     
     // require intermediate buffer for sync operations
     if (MESSAGE_FLAG_TYPE(GB_MSG_FLG_0(message)) == MESSAGE_FLAG_SYNC) {
-        struct gracht_message_descriptor entry = { 0 };
-        if (!context) {
-            errno = EINVAL;
-            status = GRACHT_MESSAGE_ERROR;
+        status = __add_message(client, context);
+        if (status) {
             goto release;
         }
-
-        context->message_id = GB_MSG_ID_0(message);
-
-        entry.id = GB_MSG_ID_0(message);
-        entry.status = GRACHT_MESSAGE_CREATED;
-        
-        mtx_lock(&client->data_lock);
-        gr_hashtable_set(&client->messages, &entry);
-        descriptor = gr_hashtable_get(&client->messages, &entry);
-        mtx_unlock(&client->data_lock);
     }
-    
+
     status = client->link->ops.client.send(client->link, message, context);
-    if (descriptor) {
-        descriptor->status = status;
+    if (status) {
+        __remove_message(client, context);
     }
 
 release:
     mtx_unlock(&client->send_buffer_lock);
-    return status == GRACHT_MESSAGE_ERROR ? -1 : 0;
-}
-
-int gracht_client_await_multiple(gracht_client_t* client,
-    struct gracht_message_context** contexts, int contextCount, unsigned int flags)
-{
-    struct gracht_message_awaiter awaiter;
-    int                           i;
-    
-    if (!client || !contexts || !contextCount) {
-        errno = (EINVAL);
-        return -1;
-    }
-    
-    // delay init of condition
-    awaiter.id            = get_awaiter_id(client);
-    awaiter.flags         = flags;
-    awaiter.count         = contextCount;
-    awaiter.current_count = 0;
-
-    // register the awaiter
-    mtx_lock(&client->data_lock);
-    for (i = 0; i < contextCount; i++) {
-        struct gracht_message_descriptor* descriptor = gr_hashtable_get(&client->messages,
-            &(struct gracht_message_descriptor) { .id = contexts[i]->message_id });
-        if (descriptor) {
-            descriptor->awaiter_id = awaiter.id;
-            if (MESSAGE_STATUS_EXECUTED(descriptor->status)) {
-                awaiter.current_count++;
-            }
-        }
-    }
-
-    if ((!(flags & GRACHT_AWAIT_ALL) && awaiter.current_count > 0) ||
-        awaiter.current_count == awaiter.count) {
-        // all requested messages were already executed
-        mtx_unlock(&client->data_lock);
-        return 0;
-    }
-    
-    // in async wait mode we expect another thread to do the event pumping
-    // and thus we should just use the awaiter
-    if (flags & GRACHT_AWAIT_ASYNC) {
-        struct gracht_message_awaiter* sharedAwaiter;
-        cnd_init(&awaiter.event);
-        gr_hashtable_set(&client->awaiters, &awaiter);
-        sharedAwaiter = gr_hashtable_get(&client->awaiters, &awaiter);
-        cnd_wait(&sharedAwaiter->event, &client->data_lock);
-        sharedAwaiter = gr_hashtable_remove(&client->awaiters, &awaiter);
-        cnd_destroy(&sharedAwaiter->event);
-        mtx_unlock(&client->data_lock);
-    }
-    else {
-        mtx_unlock(&client->data_lock);
-
-        // otherwise we a single threaded application (maybe) and we should also
-        // handle the pumping of messages.
-        while (awaiter.current_count < awaiter.count) {
-            gracht_client_wait_message(client, NULL, GRACHT_MESSAGE_BLOCK);
-
-            // update status
-            mtx_lock(&client->data_lock);
-            awaiter.current_count = 0;
-            for (i = 0; i < contextCount; i++) {
-                struct gracht_message_descriptor* descriptor = gr_hashtable_get(&client->messages,
-                    &(struct gracht_message_descriptor) { .id = contexts[i]->message_id });
-                if (descriptor) {
-                    if (MESSAGE_STATUS_EXECUTED(descriptor->status)) {
-                        awaiter.current_count++;
-                    }
-                }
-            }
-            mtx_unlock(&client->data_lock);
-        }
-    }
-    return 0;
-}
-
-int gracht_client_await(gracht_client_t* client, struct gracht_message_context* context, unsigned int flags)
-{
-    return gracht_client_await_multiple(client, &context, 1, flags);
-}
-
-int gracht_client_get_buffer(gracht_client_t* client, gracht_buffer_t* buffer)
-{
-    if (!client) {
-        return -1;
-    }
-
-    mtx_lock(&client->send_buffer_lock);
-    buffer->data = client->send_buffer;
-    buffer->index = 0;
-    return 0;
-}
-
-int gracht_client_get_status_buffer(gracht_client_t* client, struct gracht_message_context* context,
-    struct gracht_buffer* buffer)
-{
-    struct gracht_message_descriptor* descriptor;
-    int                               status;
-    GRTRACE(GRSTR("[gracht] [client] get status from context"));
-    
-    if (!client || !context || !buffer) {
-        errno = (EINVAL);
-        return -1;
-    }
-    
-    // guard against already checked
-    mtx_lock(&client->data_lock);
-    descriptor = (struct gracht_message_descriptor*)gr_hashtable_get(&client->messages, 
-        &(struct gracht_message_descriptor) { .id = context->message_id });
-    if (!descriptor) {
-        mtx_unlock(&client->data_lock);
-
-        GRERROR(GRSTR("[gracht] [client] descriptor for message was not found"));
-        errno = (EALREADY);
-        return -1;
-    }
-    
-    status = descriptor->status;
-    if (descriptor->status == GRACHT_MESSAGE_ERROR) {
-        if (descriptor->buffer.data) {
-            gracht_arena_free(client->arena, descriptor->buffer.data, 0);
-        }
-        gr_hashtable_remove(&client->messages, &(struct gracht_message_descriptor) { .id = context->message_id });
-    }
-    mtx_unlock(&client->data_lock);
-
-    if (status == GRACHT_MESSAGE_COMPLETED) {
-        buffer->data  = descriptor->buffer.data;
-        buffer->index = descriptor->buffer.index;
-    }
     return status;
 }
 
-int gracht_client_status_finalize(gracht_client_t* client, struct gracht_message_context* context)
-{
-    struct gracht_message_descriptor* descriptor;
-    GRTRACE(GRSTR("gracht_client_status_finalize()"));
-    
-    if (!client || !context) {
-        errno = (EINVAL);
-        return -1;
-    }
-    
-    // guard against already checked
-    mtx_lock(&client->data_lock);
-    descriptor = (struct gracht_message_descriptor*)gr_hashtable_remove(&client->messages, 
-            &(struct gracht_message_descriptor) { .id = context->message_id }
-        );
-    if (descriptor && descriptor->buffer.data) {
-        gracht_arena_free(client->arena, descriptor->buffer.data, 0);
-    }
-    mtx_unlock(&client->data_lock);
-    if (!descriptor) {
-        GRERROR(GRSTR("gracht_client_status_finalize descriptor for message was not found"));
-        errno = (EALREADY);
-        return -1;
-    }
-    return 0;
-}
-
-int client_invoke_action(gracht_client_t* client, struct gracht_buffer* message)
+static int __invoke_action(gracht_client_t* client, struct gracht_buffer* message)
 {
     gracht_protocol_function_t* function;
     uint8_t protocol = GB_MSG_SID(message);
     uint8_t action   = GB_MSG_AID(message);
+    GRTRACE(GRSTR("__invoke_action()"));
 
     function = get_protocol_action(&client->protocols, protocol, action);
     if (!function) {
@@ -307,6 +187,40 @@ int client_invoke_action(gracht_client_t* client, struct gracht_buffer* message)
 
     message->index += GRACHT_MESSAGE_HEADER_SIZE;
     ((client_invoke_t)function->address)(client, message);
+    return 0;
+}
+
+static int __handle_response(
+        gracht_client_t*      client,
+        struct gracht_buffer* buffer)
+{
+    struct gracht_message_descriptor* descriptor;
+    uint32_t                          awaiterID;
+    GRTRACE(GRSTR("__handle_response()"));
+
+    mtx_lock(&client->messages_lock);
+    descriptor = gr_hashtable_get(
+            &client->messages,
+            &(struct gracht_message_descriptor) {
+                .id = GB_MSG_ID(buffer)
+            }
+    );
+    if (!descriptor) {
+        mtx_unlock(&client->messages_lock);
+        // what the heck?
+        GRERROR(GRSTR("[gracht_client_wait_message] no-one was listening for message %u"), GB_MSG_ID(buffer));
+        return -1;
+    }
+
+    // copy data over to message, but increase index, so it skips the meta-data
+    descriptor->buffer.data  = buffer->data;
+    descriptor->buffer.index = buffer->index + GRACHT_MESSAGE_HEADER_SIZE;
+    descriptor->status = GRACHT_MESSAGE_COMPLETED;
+    awaiterID = descriptor->awaiter_id;
+    mtx_unlock(&client->messages_lock);
+
+    // iterate awaiters and mark those that contain this message
+    mark_awaiters(client, awaiterID);
     return 0;
 }
 
@@ -319,7 +233,8 @@ int gracht_client_wait_message(
     uint32_t             messageId = 0;
     uint8_t              messageFlags;
     int                  status;
-    
+    GRTRACE(GRSTR("gracht_client_wait_message()"));
+
     if (!client) {
         errno = (EINVAL);
         return -1;
@@ -331,15 +246,25 @@ int gracht_client_wait_message(
 listenForMessage:
     // check message status
     if (context) {
-        struct gracht_message_descriptor* descriptor = gr_hashtable_get(&client->messages, 
-            &(struct gracht_message_descriptor) { .id = context->message_id });
+        struct gracht_message_descriptor* descriptor;
+
+        mtx_lock(&client->messages_lock);
+        descriptor = gr_hashtable_get(
+                &client->messages,
+                &(struct gracht_message_descriptor) {
+                        .id = context->message_id
+                }
+        );
         if (!descriptor) {
+            mtx_unlock(&client->messages_lock);
             errno = ENOENT;
             return -1;
         }
         if (descriptor->status != GRACHT_MESSAGE_INPROGRESS) {
+            mtx_unlock(&client->messages_lock);
             return 0;
         }
+        mtx_unlock(&client->messages_lock);
     }
 
     if (mtx_trylock(&client->wait_lock) != thrd_success) {
@@ -354,9 +279,7 @@ listenForMessage:
     }
 
     // initialize buffer, after this point NO returning, only jump to listenOrExit
-    mtx_lock(&client->data_lock);
     buffer.data = gracht_arena_allocate(client->arena, NULL, client->max_message_size);
-    mtx_unlock(&client->data_lock);
     buffer.index = client->max_message_size;
 
     if (!buffer.data) {
@@ -373,39 +296,24 @@ listenForMessage:
         // In case of any recieving errors we must exit immediately
         goto listenOrExit;
     }
-    
+
     messageFlags = GB_MSG_FLG(&buffer);
-    
+
     // If the message is not an event, then do not invoke any actions. In any case if a context is provided
-    // we expect the caller to wanting to listen for that specific message. That means any incoming event and/or
+    // we expect the caller wanting to listen for that specific message. That means any incoming event and/or
     // response we recieve should be for that, or we should keep waiting.
     GRTRACE(GRSTR("[gracht] [client] message received %u - %u:%u"),
-        messageFlags, GB_MSG_SID(&buffer), GB_MSG_AID(&buffer));
+            messageFlags, GB_MSG_SID(&buffer), GB_MSG_AID(&buffer));
     if (MESSAGE_FLAG_TYPE(messageFlags) == MESSAGE_FLAG_EVENT) {
-        status = client_invoke_action(client, &buffer);
-    }
-    else if (MESSAGE_FLAG_TYPE(messageFlags) == MESSAGE_FLAG_RESPONSE) {
-        struct gracht_message_descriptor* descriptor = gr_hashtable_get(&client->messages, 
-            &(struct gracht_message_descriptor) { .id = GB_MSG_ID(&buffer) });
-        if (!descriptor) {
-            // what the heck?
-            GRERROR(GRSTR("[gracht_client_wait_message] no-one was listening for message %u"), GB_MSG_ID(&buffer));
-            status = -1;
-            goto listenOrExit;
+        status = __invoke_action(client, &buffer);
+    } else if (MESSAGE_FLAG_TYPE(messageFlags) == MESSAGE_FLAG_RESPONSE) {
+        status = __handle_response(client, &buffer);
+        if (status) {
+            goto listenForMessage;
         }
-        
+
         // set message id handled
         messageId = GB_MSG_ID(&buffer);
-        
-        // copy data over to message, but increase index so it skips the meta-data
-        descriptor->buffer.data  = buffer.data;
-        descriptor->buffer.index = buffer.index + GRACHT_MESSAGE_HEADER_SIZE;
-        descriptor->status = GRACHT_MESSAGE_COMPLETED;
-
-        // iterate awaiters and mark those that contain this message
-        mtx_lock(&client->data_lock);
-        mark_awaiters(client, descriptor);
-        mtx_unlock(&client->data_lock);
 
         // zero the buffer pointer, so it does not get freed, freeing is now handled by
         // the awaiter
@@ -414,9 +322,7 @@ listenForMessage:
 
 listenOrExit:
     if (buffer.data) {
-        mtx_lock(&client->data_lock);
         gracht_arena_free(client->arena, buffer.data, 0);
-        mtx_unlock(&client->data_lock);
     }
 
     if (context) {
@@ -428,6 +334,231 @@ listenOrExit:
         }
     }
     return status;
+}
+
+static struct gracht_message_awaiter* __awaiter_new(
+        gracht_client_t* client,
+        unsigned int     flags,
+        int              contextCount)
+{
+    struct gracht_message_awaiter* awaiter;
+
+    awaiter = malloc(sizeof(struct gracht_message_awaiter));
+    if (!awaiter) {
+        return NULL;
+    }
+
+    awaiter->id            = get_awaiter_id(client);
+    awaiter->flags         = flags;
+    awaiter->count         = contextCount;
+    awaiter->current_count = 0;
+    cnd_init(&awaiter->event);
+    mtx_init(&awaiter->mutex, mtx_plain);
+    return awaiter;
+}
+
+static inline void __await_add(
+        gracht_client_t*               client,
+        struct gracht_message_awaiter* awaiter)
+{
+    mtx_lock(&client->awaiters_lock);
+    gr_hashtable_set(&client->awaiters, &(struct gracht_message_awaiter_entry) {
+        .id = awaiter->id,
+        .awaiter = awaiter
+    });
+    mtx_unlock(&client->awaiters_lock);
+}
+
+static inline void __await_remove(
+        gracht_client_t*               client,
+        struct gracht_message_awaiter* awaiter)
+{
+    mtx_lock(&client->awaiters_lock);
+    gr_hashtable_remove(&client->awaiters, &(struct gracht_message_awaiter_entry) {
+            .id = awaiter->id
+    });
+    mtx_unlock(&client->awaiters_lock);
+}
+
+static inline void __await_loop(
+        gracht_client_t*                client,
+        struct gracht_message_context** contexts,
+        struct gracht_message_awaiter*  awaiter)
+{
+    while (awaiter->current_count < awaiter->count) {
+        gracht_client_wait_message(client, NULL, GRACHT_MESSAGE_BLOCK);
+
+        // update status
+        mtx_lock(&client->messages_lock);
+        awaiter->current_count = 0;
+        for (int i = 0; i < awaiter->count; i++) {
+            struct gracht_message_descriptor* descriptor = gr_hashtable_get(
+                    &client->messages,
+                    &(struct gracht_message_descriptor) {
+                            .id = contexts[i]->message_id
+                    }
+            );
+            if (descriptor == NULL || MESSAGE_STATUS_EXECUTED(descriptor->status)) {
+                awaiter->current_count++;
+            }
+        }
+        mtx_unlock(&client->messages_lock);
+    }
+}
+
+int gracht_client_await_multiple(
+        gracht_client_t*                client,
+        struct gracht_message_context** contexts,
+        int                             contextCount,
+        unsigned int                    flags)
+{
+    struct gracht_message_awaiter* awaiter;
+    int                            i;
+    bool                           bail;
+    GRTRACE(GRSTR("gracht_client_await_multiple()"));
+    
+    if (!client || !contexts || !contextCount) {
+        errno = (EINVAL);
+        return -1;
+    }
+
+    // create the awaiter
+    awaiter = __awaiter_new(client, flags, contextCount);
+    if (awaiter == NULL) {
+        return -1;
+    }
+
+    // first step is to get a status of all messages we are awaiting
+    mtx_lock(&client->messages_lock);
+    for (i = 0; i < contextCount; i++) {
+        struct gracht_message_descriptor* descriptor = gr_hashtable_get(
+                &client->messages,
+                &(struct gracht_message_descriptor) {
+                    .id = contexts[i]->message_id
+                }
+        );
+        if (!descriptor) {
+            // we were waiting for a non-existant message, in theory it could
+            // have dissappeared?
+            awaiter->current_count++;
+            continue;
+        }
+
+        descriptor->awaiter_id = awaiter->id;
+        if (MESSAGE_STATUS_EXECUTED(descriptor->status)) {
+            awaiter->current_count++;
+        }
+    }
+
+    // calculate here whether we can bail early, so we can skip time
+    // not adding the awaiter
+    bail = (!(flags & GRACHT_AWAIT_ALL) && awaiter->current_count > 0) || awaiter->current_count == awaiter->count;
+
+    // add the awaiter while we hold the message lock to avoid a data-race
+    // between those
+    if (!bail) {
+        __await_add(client, awaiter);
+    }
+    mtx_unlock(&client->messages_lock);
+
+    // early bail?
+    if (bail) {
+        goto cleanup;
+    }
+    
+    // in async bail mode we expect another thread to do the event pumping,
+    // and thus we should just use the awaiter
+    if (flags & GRACHT_AWAIT_ASYNC) {
+        mtx_lock(&awaiter->mutex);
+        cnd_wait(&awaiter->event, &awaiter->mutex);
+        mtx_unlock(&awaiter->mutex);
+    } else {
+        // otherwise we are a single threaded application (maybe) and we should also
+        // handle the pumping of messages.
+        __await_loop(client, contexts, awaiter);
+    }
+    __await_remove(client, awaiter);
+
+cleanup:
+    // cleanup the awaiter
+    free(awaiter);
+    return 0;
+}
+
+int gracht_client_await(gracht_client_t* client, struct gracht_message_context* context, unsigned int flags)
+{
+    GRTRACE(GRSTR("gracht_client_await()"));
+    return gracht_client_await_multiple(client, &context, 1, flags);
+}
+
+int gracht_client_get_buffer(gracht_client_t* client, gracht_buffer_t* buffer)
+{
+    GRTRACE(GRSTR("gracht_client_get_buffer()"));
+    if (!client) {
+        return -1;
+    }
+
+    mtx_lock(&client->send_buffer_lock);
+    buffer->data = client->send_buffer;
+    buffer->index = 0;
+    return 0;
+}
+
+int gracht_client_get_status_buffer(
+        gracht_client_t*               client,
+        struct gracht_message_context* context,
+        struct gracht_buffer*          buffer)
+{
+    struct gracht_message_descriptor* descriptor;
+    int                               status;
+    GRTRACE(GRSTR("gracht_client_get_status_buffer()"));
+    
+    if (!client || !context || !buffer) {
+        errno = (EINVAL);
+        return -1;
+    }
+    
+    // guard against already checked
+    mtx_lock(&client->messages_lock);
+    descriptor = gr_hashtable_remove(
+            &client->messages,
+            &(struct gracht_message_descriptor) {
+                    .id = context->message_id
+            }
+    );
+    if (!descriptor) {
+        mtx_unlock(&client->messages_lock);
+        errno = (ENOENT);
+        return -1;
+    }
+    
+    status = descriptor->status;
+    buffer->data = descriptor->buffer.data;
+    buffer->index = descriptor->buffer.index;
+    mtx_unlock(&client->messages_lock);
+
+    // immediately cleanup the buffer if an error has ocurred
+    if (descriptor->status == GRACHT_MESSAGE_ERROR) {
+        if (descriptor->buffer.data) {
+            gracht_arena_free(client->arena, descriptor->buffer.data, 0);
+        }
+    }
+    return status;
+}
+
+int gracht_client_status_finalize(gracht_client_t* client, struct gracht_buffer* buffer)
+{
+    GRTRACE(GRSTR("gracht_client_status_finalize()"));
+    
+    if (!client) {
+        errno = (EINVAL);
+        return -1;
+    }
+
+    if (buffer->data) {
+        gracht_arena_free(client->arena, buffer->data, 0);
+    }
+    return 0;
 }
 
 int gracht_client_create(gracht_client_configuration_t* config, gracht_client_t** clientOut)
@@ -451,11 +582,12 @@ int gracht_client_create(gracht_client_configuration_t* config, gracht_client_t*
     
     memset(client, 0, sizeof(gracht_client_t));
     mtx_init(&client->send_buffer_lock, mtx_plain);
-    mtx_init(&client->data_lock, mtx_plain);
     mtx_init(&client->wait_lock, mtx_plain);
+    mtx_init(&client->messages_lock, mtx_plain);
+    mtx_init(&client->awaiters_lock, mtx_plain);
     gr_hashtable_construct(&client->protocols, 0, sizeof(struct gracht_protocol), protocol_hash, protocol_cmp);
     gr_hashtable_construct(&client->messages, 0, sizeof(struct gracht_message_descriptor), message_hash, message_cmp);
-    gr_hashtable_construct(&client->awaiters, 0, sizeof(struct gracht_message_awaiter), awaiter_hash, awaiter_cmp);
+    gr_hashtable_construct(&client->awaiters, 0, sizeof(struct gracht_message_awaiter_entry), awaiter_hash, awaiter_cmp);
 
     client->link = config->link;
     client->iod = GRACHT_CONN_INVALID;
@@ -547,8 +679,10 @@ void gracht_client_shutdown(gracht_client_t* client)
     gr_hashtable_destroy(&client->awaiters);
     gr_hashtable_destroy(&client->messages);
     gr_hashtable_destroy(&client->protocols);
-    mtx_destroy(&client->data_lock);
     mtx_destroy(&client->wait_lock);
+    mtx_destroy(&client->send_buffer_lock);
+    mtx_destroy(&client->messages_lock);
+    mtx_destroy(&client->awaiters_lock);
     free(client);
 }
 
@@ -582,23 +716,29 @@ void gracht_client_unregister_protocol(gracht_client_t* client, gracht_protocol_
     gr_hashtable_remove(&client->protocols, protocol);
 }
 
-static void mark_awaiters(gracht_client_t* client, struct gracht_message_descriptor* descriptor)
+static void mark_awaiters(gracht_client_t* client, uint32_t awaiterID)
 {
-    struct gracht_message_awaiter* awaiter = gr_hashtable_get(
-                &client->awaiters,
-                &(struct gracht_message_awaiter) { .id = descriptor->awaiter_id }
-            );
-    if (!awaiter) {
+    struct gracht_message_awaiter_entry* entry;
+    struct gracht_message_awaiter*       awaiter;
+
+    mtx_lock(&client->awaiters_lock);
+    entry = gr_hashtable_get(
+            &client->awaiters,
+            &(struct gracht_message_awaiter_entry) { .id = awaiterID }
+    );
+    if (!entry) {
+        mtx_unlock(&client->awaiters_lock);
         return;
     }
+    awaiter = entry->awaiter;
+    mtx_unlock(&client->awaiters_lock);
 
     awaiter->current_count++;
     if (awaiter->flags & GRACHT_AWAIT_ALL) {
         if (awaiter->current_count == awaiter->count) {
             cnd_signal(&awaiter->event);
         }
-    }
-    else {
+    } else {
         cnd_signal(&awaiter->event);
     }
 }
@@ -615,11 +755,19 @@ static uint32_t get_awaiter_id(gracht_client_t* client)
 
 void gracht_control_error_invocation(gracht_client_t* client, const uint32_t messageId, const int errorCode)
 {
-    struct gracht_message_descriptor* descriptor = 
-        gr_hashtable_get(&client->messages, &(struct gracht_message_descriptor) { .id = messageId });
+    struct gracht_message_descriptor* descriptor;
+    uint32_t                          awaiterID;
     (void)errorCode;
 
+    mtx_lock(&client->messages_lock);
+    descriptor = gr_hashtable_get(
+            &client->messages,
+            &(struct gracht_message_descriptor) {
+                .id = messageId
+            }
+    );
     if (!descriptor) {
+        mtx_unlock(&client->messages_lock);
         // what the heck?
         GRERROR(GRSTR("gracht_control_error_invocation no-one was listening for message %u"), messageId);
         return;
@@ -627,11 +775,11 @@ void gracht_control_error_invocation(gracht_client_t* client, const uint32_t mes
     
     // set status
     descriptor->status = GRACHT_MESSAGE_ERROR;
+    awaiterID = descriptor->awaiter_id;
+    mtx_unlock(&client->messages_lock);
     
     // iterate awaiters and mark those that contain this message
-    mtx_lock(&client->data_lock);
-    mark_awaiters(client, descriptor);
-    mtx_unlock(&client->data_lock);
+    mark_awaiters(client, awaiterID);
 }
 
 static uint64_t message_hash(const void* element)
@@ -649,13 +797,13 @@ static int message_cmp(const void* element1, const void* element2)
 
 static uint64_t awaiter_hash(const void* element)
 {
-    const struct gracht_message_awaiter* awaiter = element;
+    const struct gracht_message_awaiter_entry* awaiter = element;
     return awaiter->id;
 }
 
 static int awaiter_cmp(const void* element1, const void* element2)
 {
-    const struct gracht_message_awaiter* awaiter1 = element1;
-    const struct gracht_message_awaiter* awaiter2 = element2;
+    const struct gracht_message_awaiter_entry* awaiter1 = element1;
+    const struct gracht_message_awaiter_entry* awaiter2 = element2;
     return awaiter1->id == awaiter2->id ? 0 : 1;
 }

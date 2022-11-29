@@ -77,10 +77,9 @@ typedef int gracht_conn_t;
  * refers to a specific message. Error indiciates a transmission error
  * or a protocol error.
  */
-#define GRACHT_MESSAGE_ERROR      -1
-#define GRACHT_MESSAGE_CREATED    0
-#define GRACHT_MESSAGE_INPROGRESS 1
-#define GRACHT_MESSAGE_COMPLETED  2
+#define GRACHT_MESSAGE_ERROR      ((int)-1)
+#define GRACHT_MESSAGE_INPROGRESS 0
+#define GRACHT_MESSAGE_COMPLETED  1
 
 /**
  * Await flags used to configure the waiting mode when calling the clients

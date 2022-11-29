@@ -25,7 +25,6 @@
 #include "arena.h"
 #include "logging.h"
 #include "gracht/server.h"
-#include "gracht/link/link.h"
 #include "thread_api.h"
 #include "rwlock.h"
 #include "utils.h"
@@ -80,10 +79,9 @@ typedef struct gracht_server {
     gracht_handle_t                set_handle;
     int                            set_handle_provided;
     struct gracht_arena*           arena;
-    mtx_t                          arena_lock;
-    gr_hashtable_t                    protocols;
+    gr_hashtable_t                 protocols;
     struct rwlock                  protocols_lock;
-    gr_hashtable_t                    clients;
+    gr_hashtable_t                 clients;
     struct rwlock                  clients_lock;
     struct link_table              link_table;
 } gracht_server_t;
@@ -153,14 +151,13 @@ int gracht_server_create(gracht_server_configuration_t* config, gracht_server_t*
     }
 
     // initialize static members of the instance
-    mtx_init(&server->arena_lock, mtx_plain);
     rwlock_init(&server->protocols_lock);
     rwlock_init(&server->clients_lock);
     gr_hashtable_construct(&server->protocols, 0, sizeof(struct gracht_protocol), protocol_hash, protocol_cmp);
     gr_hashtable_construct(&server->clients, 0, sizeof(struct client_wrapper), client_hash, client_cmp);
     stack_construct(&server->bufferStack, 8);
 
-    // everything is setup - update state before registering control protocol
+    // everything is set up - update state before registering control protocol
     server->state = RUNNING;
 
     gracht_server_register_protocol(server, &gracht_control_server_protocol);
@@ -249,7 +246,7 @@ int gracht_server_add_link(gracht_server_t* server, struct gracht_link* link)
         }
     }
 
-    if (tableIndex == GRACHT_SERVER_MAX_LINKS) {
+    if (tableIndex >= GRACHT_SERVER_MAX_LINKS) {
         GRERROR(GRSTR("gracht_server_add_link: the maximum link count was reached"));
         errno = ENOENT;
         return -1;
@@ -329,10 +326,8 @@ static void dispatch_mt(struct gracht_server* server, struct gracht_message* mes
     else {
         uint32_t messageLength  = *((uint32_t*)&message->payload[message->index + MSG_INDEX_LEN]);
         uint32_t metaDatalength = sizeof(struct gracht_message) + message->index;
-        
-        mtx_lock(&server->arena_lock);
+
         gracht_arena_free(server->arena, message, server->allocationSize - messageLength - metaDatalength);
-        mtx_unlock(&server->arena_lock);
         gracht_worker_pool_dispatch(server->worker_pool, message);
     }
 }
@@ -340,9 +335,7 @@ static void dispatch_mt(struct gracht_server* server, struct gracht_message* mes
 static struct gracht_message* get_in_buffer_mt(struct gracht_server* server)
 {
     struct gracht_message* message;
-    mtx_lock(&server->arena_lock);
     message = gracht_arena_allocate(server->arena, NULL, server->allocationSize);
-    mtx_unlock(&server->arena_lock);
     message->server = server;
     message->index  = server->allocationSize;
     return message;
@@ -350,9 +343,7 @@ static struct gracht_message* get_in_buffer_mt(struct gracht_server* server)
 
 static void put_message_mt(struct gracht_server* server, struct gracht_message* message)
 {
-    mtx_lock(&server->arena_lock);
     gracht_arena_free(server->arena, message, server->allocationSize);
-    mtx_unlock(&server->arena_lock);
 }
 
 static int handle_packet(struct gracht_server* server, struct gracht_link* link)
@@ -491,7 +482,6 @@ static int gracht_server_shutdown(gracht_server_t* server)
     stack_destroy(&server->bufferStack);
     gr_hashtable_destroy(&server->protocols);
     gr_hashtable_destroy(&server->clients);
-    mtx_destroy(&server->arena_lock);
     rwlock_destroy(&server->protocols_lock);
     rwlock_destroy(&server->clients_lock);
     free(server);
@@ -545,10 +535,7 @@ void server_cleanup_message(struct gracht_server* server, struct gracht_message*
     if (!server || !recvMessage) {
         return;
     }
-
-    mtx_lock(&server->arena_lock);
     gracht_arena_free(server->arena, recvMessage, 0);
-    mtx_unlock(&server->arena_lock);
 }
 
 int gracht_server_handle_event(gracht_server_t* server, gracht_conn_t handle, unsigned int events)
@@ -853,6 +840,7 @@ static int client_is_subscribed(struct gracht_server_client* client, uint8_t id)
 void gracht_control_subscribe_invocation(const struct gracht_message* message, const uint8_t protocol)
 {
     struct client_wrapper* entry;
+    struct client_wrapper  newEntry;
     
     // When dealing with connectionless clients, they aren't really created in the client register. To deal
     // with this, we actually create a record for them, so we can support connection-less events. This means
@@ -862,11 +850,9 @@ void gracht_control_subscribe_invocation(const struct gracht_message* message, c
     rwlock_r_lock(&message->server->clients_lock);
     entry = gr_hashtable_get(&message->server->clients, &(struct client_wrapper){ .handle = message->client });
     if (!entry) {
-        struct client_wrapper newEntry;
-
         // So, client did not have a record, at this point we then know this message was received on a 
         // connection-less stream, meaning we do not currently hold another _read_lock on this thread, thus we can
-        // release our reader lock and acqurie the write
+        // release our reader lock and acqurie the write-lock
         rwlock_r_unlock(&message->server->clients_lock);
 
         // lookup the connection as the client wasn't recorded on a specific link
@@ -894,8 +880,7 @@ void gracht_control_subscribe_invocation(const struct gracht_message* message, c
         
         // set the entry pointer
         entry = &newEntry;
-    }
-    else {
+    } else {
         // make sure if they were marked cleanup that we remove that
         entry->client->flags &= ~(GRACHT_CLIENT_FLAG_CLEANUP);
     }
@@ -929,8 +914,8 @@ void gracht_control_unsubscribe_invocation(const struct gracht_message* message,
     rwlock_r_unlock(&message->server->clients_lock);
 
     // when receiving unsubscribe events on connection-less links we must check
-    // after handling messages whether or not a client has been marked for cleanup
-    // in this case we do not hold the lock and can therefore actually take the write lock
+    // after handling messages whether a client has been marked for cleanup
+    // in this case we do not hold the lock and can therefore actually take the write-lock
     if (cleanup) {
         client_destroy(message->server, message->client);
     }
