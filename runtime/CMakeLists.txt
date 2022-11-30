@@ -18,11 +18,13 @@ macro (add_sources)
     endforeach()
 endmacro()
 
-# Configure include paths
-include_directories(
-        ${CMAKE_CURRENT_BINARY_DIR}/../
-        ../include
-)
+macro (add_vali_link_targets)
+    if (VALI_BUILD)
+        target_link_libraries(${ARGV0} libc-api libos-api libddk)
+    else ()
+        target_link_libraries(${ARGV0} ValiDDK::libddk)
+    endif ()
+endmacro ()
 
 # On Vali builds we would like to also include some paths, but
 # not during kernel builds, we need to get rid of this dependency at some
@@ -49,22 +51,51 @@ endif()
 if (UNIX OR MOLLENOS)
     add_definitions(${WARNING_COMPILE_FLAGS})
 endif ()
-
 add_definitions(-DGRACHT_BUILD)
 
-add_sources(client.c client_config.c crc.c server.c server_config.c shared.c stack.c queue.c arena.c dispatch.c hashtable.c control.c)
+# add all the generic sources that are required
+add_sources(
+        client.c
+        client_config.c
+        crc.c
+        server.c
+        server_config.c
+        shared.c
+        stack.c
+        queue.c
+        arena.c
+        hashtable.c
+        control.c
+)
+
+# determine which worker dispatch we should use, vali is using green threads
+# and thus don't need a seperate system, as we can just use the builtin runtime
+# system.
+if (MOLLENOS)
+    add_sources(dispatch_vali.c)
+else ()
+    add_sources(dispatch_generic.c)
+endif ()
 
 if (GRACHT_C_BUILD_STATIC)
     add_library(gracht_static STATIC ${SRCS})
-    target_include_directories(gracht_static PUBLIC ../include)
-    if (MOLLENOS AND NOT VALI_BUILD)
-        target_link_libraries(gracht_static ValiDDK::libddk)
+    target_include_directories(
+            gracht_static PUBLIC
+            ${CMAKE_CURRENT_BINARY_DIR}/../
+            ../include
+    )
+    if (MOLLENOS)
+        add_vali_link_targets(gracht_static)
     endif ()
 endif ()
 
 if (GRACHT_C_BUILD_SHARED)
     add_library(gracht SHARED ${SRCS})
-    target_include_directories(gracht PUBLIC ../include)
+    target_include_directories(
+            gracht PUBLIC
+            ${CMAKE_CURRENT_BINARY_DIR}/../
+            ../include
+    )
     target_compile_definitions(gracht PUBLIC -DGRACHT_SHARED_LIBRARY)
     if (UNIX)
         target_link_libraries(gracht -lrt -lc)
@@ -74,43 +105,26 @@ if (GRACHT_C_BUILD_SHARED)
     elseif (WIN32)
         target_link_libraries(gracht ws2_32 wsock32)
     elseif (MOLLENOS)
+        add_vali_link_targets(gracht)
         if (VALI_BUILD)
-            target_link_libraries(gracht c libddk librt)
+            target_link_libraries(gracht c librt)
             deploy_target_to_initrd(gracht)
-        else ()
-            target_link_libraries(gracht ValiDDK::libddk)
         endif ()
     endif ()
 endif ()
 
-if (VALI_BUILD)
-    install(TARGETS gracht
+install(
+        TARGETS gracht
         ARCHIVE DESTINATION lib
         LIBRARY DESTINATION lib
         RUNTIME DESTINATION bin
-    )
-    install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/gracht/ DESTINATION include/gracht)
-    install(
-        DIRECTORY ${PROJECT_SOURCE_DIR}/generator/ 
-        DESTINATION share/vali
-        FILES_MATCHING
-        PATTERN "*.py"
-        PATTERN "__init__.py" EXCLUDE
-        PATTERN "__pycache__" EXCLUDE
-    )
-else ()
-    install(TARGETS gracht
-        ARCHIVE DESTINATION lib
-        LIBRARY DESTINATION lib
-        RUNTIME DESTINATION bin
-    )
-    install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/gracht/ DESTINATION include/gracht)
-    install(
-        DIRECTORY ${PROJECT_SOURCE_DIR}/generator/ 
+)
+install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/gracht/ DESTINATION include/gracht)
+install(
+        DIRECTORY ${PROJECT_SOURCE_DIR}/generator/
         DESTINATION share/gracht
         FILES_MATCHING
         PATTERN "*.py"
         PATTERN "__init__.py" EXCLUDE
         PATTERN "__pycache__" EXCLUDE
-    )
-endif ()
+)

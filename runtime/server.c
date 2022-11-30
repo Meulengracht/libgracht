@@ -178,8 +178,7 @@ static int configure_server(struct gracht_server* server, gracht_server_configur
     if (configuration->set_descriptor_provided) {
         server->set_handle          = configuration->set_descriptor;
         server->set_handle_provided = 1;
-    }
-    else {
+    } else {
         server->set_handle = gracht_aio_create();
         if (server->set_handle == GRACHT_HANDLE_INVALID) {
             GRERROR(GRSTR("gracht_server: failed to create aio handle"));
@@ -200,8 +199,7 @@ static int configure_server(struct gracht_server* server, gracht_server_configur
             return -1;
         }
         server->ops = &g_mtOperations;
-    }
-    else {
+    } else {
         server->ops = &g_stOperations;
     }
 
@@ -213,15 +211,13 @@ static int configure_server(struct gracht_server* server, gracht_server_configur
             GRERROR(GRSTR("configure_server: failed to create the memory pool"));
             return -1;
         }
-    }
-    else {
+    } else {
         server->recvBuffer = malloc(server->allocationSize);
         if (!server->recvBuffer) {
             GRERROR(GRSTR("configure_server: failed to allocate memory for incoming messages"));
             return -1;
         }
     }
-
     return 0;
 }
 

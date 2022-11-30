@@ -9,18 +9,6 @@ include (CheckIncludeFiles)
 check_include_files (threads.h HAVE_C11_THREADS)
 check_include_files (pthread.h HAVE_PTHREAD)
 
-if (VALI_BUILD)
-    set (HAVE_C11_THREADS ON)
-    include_directories (
-            ${CMAKE_CURRENT_BINARY_DIR}
-            ../libds/include
-            ../libddk/include
-            ../libos/include
-            ../libc/include
-            ../include
-    )
-endif ()
-
 configure_file(config.h.in config.h @ONLY)
 
 add_subdirectory(runtime)

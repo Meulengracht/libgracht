@@ -33,7 +33,7 @@
 #define __TLS_VAR __declspec(thread)
 #endif
 
-#if defined(HAVE_C11_THREADS)
+#if defined(HAVE_C11_THREADS) || defined(__VALI__)
 #include <threads.h>
 #elif defined(HAVE_PTHREAD)
 #include <pthread.h>

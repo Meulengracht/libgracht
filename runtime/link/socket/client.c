@@ -35,7 +35,7 @@ static int socket_link_send_stream(struct gracht_link_socket* link,
     long byteCount;
     
     byteCount = (long)send(link->base.connection, &message->data[0], message->index, 0);
-    if (byteCount != message->index) {
+    if ((uint32_t)byteCount != message->index) {
         GRERROR(GRSTR("link_client: failed to send message, bytes sent: %li, expected: %u (%i)"),
               byteCount, message->index, errno);
         errno = (EPIPE);

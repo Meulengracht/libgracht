@@ -33,11 +33,11 @@ enum gracht_worker_state {
 };
 
 struct gracht_worker {
-    thrd_t         id;
+    thrd_t          id;
     mtx_t           sync_object;
     struct gr_queue job_queue;
     cnd_t           signal;
-    int            state;
+    int             state;
 };
 
 struct gracht_worker_context {
