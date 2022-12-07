@@ -71,7 +71,7 @@ int main(void)
 #ifdef _WIN32
     Sleep(1000);
 #elif defined(MOLLENOS)
-    thrd_sleep2(1000);
+    thrd_sleep(&(struct timespec) { .tv_sec = 1 }, NULL);
 #else
     usleep(1000);
 #endif
