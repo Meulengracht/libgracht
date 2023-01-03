@@ -63,7 +63,6 @@ typedef intptr_t atomic_intmax_t;
 typedef intptr_t atomic_uintmax_t;
 
 #define ATOMIC_FLAG_INIT 0
-#define ATOMIC_VAR_INIT(value) (value)
 #define atomic_load(object) \
 (MemoryBarrier(), *(object))
 #define atomic_store(object, desired)   \

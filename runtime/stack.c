@@ -43,8 +43,8 @@ int stack_construct(struct stack* stack, size_t initialCount)
         return -1;
     }
 
-    stack->elements = ATOMIC_VAR_INIT(space);
-    stack->index    = ATOMIC_VAR_INIT(0);
+    stack->elements = space;
+    stack->index    = 0;
     stack->count    = initialCount;
     return 0;
 }
