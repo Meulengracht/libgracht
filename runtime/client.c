@@ -29,6 +29,7 @@
 #include "thread_api.h"
 #include "control.h"
 #include "utils.h"
+#include <stdbool.h>
 #include <string.h>
 #include <stdlib.h>
 
