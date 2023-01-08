@@ -22,6 +22,7 @@
  *   and functionality, refer to the individual things for descriptions
  */
 
+#include <errno.h>
 #include "gracht/link/vali.h"
 #include "private.h"
 #include <inet/socket.h>
