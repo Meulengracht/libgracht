@@ -33,17 +33,17 @@ recipes:
         - -G
         - '"Unix Makefiles"'
         - -DGRACHT_C_LINK_VALI=ON
-        - -DCMAKE_TOOLCHAIN_FILE=${{ PROJECT_PATH }}/chef/Vali.cmake
+        - -DCMAKE_TOOLCHAIN_FILE=$[[ PROJECT_PATH ]]/chef/Vali.cmake
       env:
-        CROSS: ${{ TOOLCHAIN_PREFIX }}/usr/local
-        VALI_ARCH: ${{ CHEF_TARGET_ARCHITECTURE }}
-        VALI_SDK_PATH: ${{ INGREDIENTS_PREFIX }}
+        CROSS: $[[ TOOLCHAIN_PREFIX ]]/usr/local
+        VALI_ARCH: $[[ CHEF_TARGET_ARCHITECTURE ]]
+        VALI_SDK_PATH: $[[ INGREDIENTS_PREFIX ]]
     - name: build
       type: build
       depends: [config]
       system: make
       env:
-        VALI_SDK_PATH: ${{ INGREDIENTS_PREFIX }}
+        VALI_SDK_PATH: $[[ INGREDIENTS_PREFIX ]]
 
 packs:
 - name: libgracht
