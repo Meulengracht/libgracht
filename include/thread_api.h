@@ -71,6 +71,7 @@ typedef HANDLE thrd_t;
 #define thrd_error   -1
 
 #define mtx_plain NULL
+#define mtx_recursive NULL
 
 static inline int mtx_init(mtx_t* mtx, void* unused) {
     InitializeCriticalSection(mtx);
