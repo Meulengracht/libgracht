@@ -103,8 +103,14 @@ void gracht_link_socket_set_domain(struct gracht_link_socket* link, int socketDo
     link->domain = socketDomain;
 }
 
-void gracht_link_socket_set_address(struct gracht_link_socket* link, const struct sockaddr_storage* address, socklen_t length)
+void gracht_link_socket_set_bind_address(struct gracht_link_socket* link, const struct sockaddr_storage* address, socklen_t length)
 {
-    memcpy(&link->address, address, length);
-    link->address_length = length;
+    memcpy(&link->bind_address, address, length);
+    link->bind_address_length = length;
+}
+
+void gracht_link_socket_set_connect_address(struct gracht_link_socket* link, const struct sockaddr_storage* address, socklen_t length)
+{
+    memcpy(&link->connect_address, address, length);
+    link->connect_address_length = length;
 }

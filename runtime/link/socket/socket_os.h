@@ -148,8 +148,10 @@ struct gracht_link_socket {
     struct gracht_link      base;
     int                     listen;
     int                     domain;
-    struct sockaddr_storage address;
-    socklen_t               address_length;
+    struct sockaddr_storage bind_address;
+    socklen_t               bind_address_length;
+    struct sockaddr_storage connect_address;
+    socklen_t               connect_address_length;
 #ifdef _WIN32
     WSABUF                  waitbuf;
     DWORD                   recvFlags;

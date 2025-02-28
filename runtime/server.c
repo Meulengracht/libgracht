@@ -350,7 +350,7 @@ static int handle_packet(struct gracht_server* server, struct gracht_link* link)
     while (1) {
         struct gracht_message* message = server->ops->get_incoming_buffer(server);
 
-        status = link->ops.server.recv(link, message, 0);
+        status = link->ops.server.recv(link, message, GRACHT_MESSAGE_BLOCK);
         if (status) {
             if (errno != ENODATA) {
                 GRERROR(GRSTR("handle_packet link->ops.server.recv returned %i"), errno);

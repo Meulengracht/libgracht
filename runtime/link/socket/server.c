@@ -72,7 +72,7 @@ static int queue_accept(struct gracht_link_socket* link, gracht_handle_t iocp_ha
     client->waitbuf.len = GRACHT_MESSAGE_HEADER_SIZE;
 
     status = AcceptEx(link->base.connection, client->socket, &link->buffer[0], 0, 
-        link->address_length + 16, link->address_length + 16,
+        link->bind_address_length + 16, link->bind_address_length + 16,
         NULL, &client->overlapped);
     if (!status) {
         DWORD reason = WSAGetLastError();
@@ -221,7 +221,7 @@ static int socket_link_create_client(struct gracht_link_socket* link, struct gra
     client->streaming   = 0;
 
     address = (struct sockaddr_storage*)&message->payload[0];
-    memcpy(&client->address, address, (size_t)link->address_length);
+    memcpy(&client->address, address, (size_t)link->bind_address_length);
     
     *clientOut = client;
     return 0;
@@ -265,7 +265,8 @@ static gracht_conn_t socket_link_setup(struct gracht_link_socket* link, gracht_h
         }
 
         status = bind(link->base.connection,
-            (const struct sockaddr*)&link->address, link->address_length);
+            (const struct sockaddr*)&link->bind_address,
+            link->bind_address_length);
         if (status) {
             return GRACHT_CONN_INVALID;
         }
@@ -279,7 +280,7 @@ static gracht_conn_t socket_link_setup(struct gracht_link_socket* link, gracht_h
         // initialize the waitbuf
         link->waitbuf.buf = &link->buffer[0];
         link->waitbuf.len = GRACHT_MESSAGE_HEADER_SIZE;
-        link->recvLength  = (int)link->address_length;
+        link->recvLength  = (int)link->bind_address_length;
 
         // queue up the first read
         status = WSARecvFrom(link->base.connection, &link->waitbuf, 1, NULL, &link->recvFlags,
@@ -304,7 +305,7 @@ static gracht_conn_t socket_link_setup(struct gracht_link_socket* link, gracht_h
         }
         
         status = bind(link->base.connection,
-            (const struct sockaddr*)&link->address, link->address_length);
+            (const struct sockaddr*)&link->bind_address, link->bind_address_length);
         if (status) {
             return GRACHT_CONN_INVALID;
         }
@@ -340,7 +341,7 @@ static int socket_link_accept(
     struct gracht_server_client** clientOut)
 {
     struct socket_link_client* client         = link->pending;
-    socklen_t                  address_length = link->address_length;
+    socklen_t                  address_length = link->bind_address_length;
     struct sockaddr*           remote         = NULL;
     int                        remote_length  = 0;
     struct sockaddr*           local          = NULL;
@@ -389,7 +390,7 @@ static int socket_link_accept(
     struct gracht_server_client** clientOut)
 {
     struct socket_link_client* client;
-    socklen_t                  address_length = link->address_length;
+    socklen_t                  address_length = link->bind_address_length;
     int                        status;
     GRTRACE(GRSTR("socket_link_accept"));
 
@@ -429,7 +430,7 @@ static int socket_link_accept(
 static int socket_link_recv_packet(struct gracht_link_socket* link, 
     struct gracht_message* context, unsigned int flags)
 {
-    socklen_t    addrlen     = link->address_length;
+    socklen_t    addrlen     = link->bind_address_length;
     char*        base        = (char*)&context->payload[addrlen];
     size_t       len         = context->index - addrlen;
     unsigned int socketFlags = get_socket_flags(flags);
@@ -456,7 +457,7 @@ static int socket_link_recv_packet(struct gracht_link_socket* link,
     // store initial bytes received (header) and store the address
     memcpy(base, &link->buffer[0], overlappedLength);
     memcpy(&context->payload[0], &link->buffer[GRACHT_MESSAGE_HEADER_SIZE], link->recvLength);
-    // link->recvLength should == link->address_length
+    // link->recvLength should == link->bind_address_length
 
     // read the rest of the message
     GRTRACE(GRSTR("socket_link_recv_packet reading rest of message"));
@@ -480,9 +481,15 @@ static int socket_link_recv_packet(struct gracht_link_socket* link,
     }
 #endif
 
+    if (addrlen == 0) {
+        GRERROR(GRSTR("socket_link_recv_packet no return address specified for client"));
+        errno = ENOLINK;
+        return -1;
+    }
+
     addressCrc = crc32_generate((const unsigned char*)&context->payload[0], (size_t)addrlen);
     GRTRACE(GRSTR("socket_link_recv_packet read [%u/%u] addr bytes, %p"),
-            addrlen, link->address_length, &context->payload[0]);
+            addrlen, link->bind_address_length, &context->payload[0]);
     GRTRACE(GRSTR("socket_link_recv_packet read %lu bytes"), bytesRead);
 
     // ->server is set by server

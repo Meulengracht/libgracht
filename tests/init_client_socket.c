@@ -42,7 +42,7 @@ static void init_socket_config(struct gracht_link_socket* link)
     addr.sun_path[sizeof(addr.sun_path) - 1] = '\0';
 
     gracht_link_socket_set_type(link, gracht_link_stream_based);
-    gracht_link_socket_set_address(link, (const struct sockaddr_storage*)&addr, sizeof(struct sockaddr_un));
+    gracht_link_socket_set_connect_address(link, (const struct sockaddr_storage*)&addr, sizeof(struct sockaddr_un));
     gracht_link_socket_set_domain(link, AF_LOCAL);
 }
 
@@ -62,7 +62,7 @@ static void init_socket_config(struct gracht_link_socket* link)
     addr.sin_port = htons(55555);
 
     gracht_link_socket_set_type(link, gracht_link_stream_based);
-    gracht_link_socket_set_address(link, (const struct sockaddr_storage*)&addr, sizeof(struct sockaddr_in));
+    gracht_link_socket_set_connect_address(link, (const struct sockaddr_storage*)&addr, sizeof(struct sockaddr_in));
 }
 #endif
 

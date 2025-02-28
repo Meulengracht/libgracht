@@ -97,7 +97,9 @@ static int socket_link_send_packet(struct gracht_link_socket* link, struct grach
 
 static int socket_link_recv_packet(struct gracht_link_socket* link, struct gracht_buffer* message, unsigned int flags)
 {
-    socklen_t addrlen = link->address_length;
+    // important to use the address we receive from (i.e 
+    // the length of the address we connect to)
+    socklen_t addrlen = link->connect_address_length;
     char*     base    = &message->data[addrlen];
     size_t    len     = message->index - addrlen;
     long      bytes_read;
@@ -124,6 +126,7 @@ static int socket_link_recv_packet(struct gracht_link_socket* link, struct grach
 static gracht_conn_t socket_link_connect(struct gracht_link_socket* link)
 {
     int type = link->base.type == gracht_link_stream_based ? SOCK_STREAM : SOCK_DGRAM;
+    int status;
     
     link->base.connection = socket(link->domain, type, 0);
     if (link->base.connection < 0) {
@@ -131,9 +134,21 @@ static gracht_conn_t socket_link_connect(struct gracht_link_socket* link)
         return -1;
     }
     
-    int status = connect(link->base.connection, 
-        (const struct sockaddr*)&link->address,
-        link->address_length);
+    if (link->bind_address_length > 0) {
+        status = bind(link->base.connection, 
+            (const struct sockaddr*)&link->bind_address, 
+            link->bind_address_length);
+        if (status) {
+            GRERROR(GRSTR("client_link: failed to bind socket to local address"));
+            close(link->base.connection);
+            link->base.connection = GRACHT_CONN_INVALID;
+            return status;
+        }
+    }
+
+    status = connect(link->base.connection, 
+        (const struct sockaddr*)&link->connect_address,
+        link->connect_address_length);
     if (status) {
         GRERROR(GRSTR("client_link: failed to connect to socket"));
         close(link->base.connection);
