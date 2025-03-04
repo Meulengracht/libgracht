@@ -837,6 +837,7 @@ void gracht_control_subscribe_invocation(const struct gracht_message* message, c
 {
     struct client_wrapper* entry;
     struct client_wrapper  newEntry;
+    GRTRACE(GRSTR("gracht_control_subscribe_invocation(protocol=%u, client=%i)"), protocol, message->client);
     
     // When dealing with connectionless clients, they aren't really created in the client register. To deal
     // with this, we actually create a record for them, so we can support connection-less events. This means

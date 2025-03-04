@@ -495,8 +495,8 @@ static int socket_link_recv_packet(struct gracht_link_socket* link,
     // ->server is set by server
     context->link   = link->base.connection;
     context->client = (int)addressCrc;
-    context->index  = addrlen;
-    context->size   = (uint32_t)bytesRead + (uint32_t)addrlen;
+    context->index  = link->bind_address_length;
+    context->size   = (uint32_t)bytesRead + (uint32_t)link->bind_address_length;
 
 #ifdef _WIN32
     // queue up another read
@@ -523,7 +523,10 @@ static int socket_link_send_packet(struct gracht_link_socket* link,
         return -1;
     }
     
-    bytesWritten = (long)send(link->base.connection, &message->data[0], message->index, MSG_WAITALL);
+    bytesWritten = (long)sendto(link->base.connection,
+        &message->data[0], message->index, MSG_WAITALL,
+        (const struct sockaddr*)&messageContext->payload[0],
+        link->bind_address_length);
     if (bytesWritten != message->index) {
         GRERROR(GRSTR("link_server: failed to respond [%li/%i]"), bytesWritten, message->index);
         if (bytesWritten == -1) {
