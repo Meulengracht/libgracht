@@ -344,25 +344,23 @@ static void put_message_mt(struct gracht_server* server, struct gracht_message* 
 
 static int handle_packet(struct gracht_server* server, struct gracht_link* link)
 {
-    int status;
-    GRTRACE(GRSTR("handle_packet"));
-    
-    while (1) {
-        struct gracht_message* message = server->ops->get_incoming_buffer(server);
+    struct gracht_message* message;
+    int                    status;
+    GRTRACE(GRSTR("handle_packet(conn=%i)"), link->connection);
 
-        status = link->ops.server.recv(link, message, GRACHT_MESSAGE_BLOCK);
-        if (status) {
-            if (errno != ENODATA) {
-                GRERROR(GRSTR("handle_packet link->ops.server.recv returned %i"), errno);
-            }
-            server->ops->put_message(server, message);
-            break;
+    message = server->ops->get_incoming_buffer(server);
+
+    status = link->ops.server.recv(link, message, GRACHT_MESSAGE_BLOCK);
+    if (status) {
+        if (errno != ENODATA) {
+            GRERROR(GRSTR("handle_packet link->ops.server.recv returned %i"), errno);
         }
-
-        server->ops->dispatch(server, message);
+        server->ops->put_message(server, message);
+        return status;
     }
-    
-    return status;
+
+    server->ops->dispatch(server, message);
+    return 0;
 }
 
 static struct gracht_link* get_link_by_conn(struct gracht_server* server, gracht_conn_t connection)
@@ -583,6 +581,7 @@ int gracht_server_main_loop(gracht_server_t* server)
 
     GRTRACE(GRSTR("gracht_server: started..."));
     while (server->state == RUNNING) {
+        GRTRACE(GRSTR("gracht_server: waiting for events..."));
         int num_events = gracht_io_wait(server->set_handle, &events[0], 32);
         GRTRACE(GRSTR("gracht_server: %i events received!"), num_events);
         for (i = 0; i < num_events; i++) {
@@ -627,6 +626,7 @@ int gracht_server_respond(struct gracht_message* messageContext, gracht_buffer_t
 {
     struct client_wrapper* entry;
     int                    status;
+    GRTRACE(GRSTR("gracht_server_respond()"));
 
     if (!messageContext || !message) {
         GRERROR(GRSTR("gracht_server: null message or context"));
@@ -665,6 +665,7 @@ int gracht_server_send_event(gracht_server_t* server, gracht_conn_t client, grac
 {
     struct client_wrapper* clientEntry;
     int                    status;
+    GRTRACE(GRSTR("gracht_server_send_event()"));
 
     if (!server || !message) {
         errno = EINVAL;
@@ -936,6 +937,7 @@ static void client_enum_broadcast(int index, const void* element, void* userCont
     const struct client_wrapper* entry   = element;
     struct broadcast_context*    context = userContext;
     uint8_t                      protocol = GB_MSG_SID_0(context->message);
+    GRTRACE(GRSTR("client_enum_broadcast()"));
     (void)index;
 
     if (client_is_subscribed(entry->client, protocol)) {

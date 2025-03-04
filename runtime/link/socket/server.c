@@ -104,12 +104,12 @@ static int socket_link_send_client(struct socket_link_client* client,
 {
     unsigned int socketFlags = get_socket_flags(flags);
     intmax_t     bytesWritten;
+    GRTRACE(GRSTR("socket_link_send_client(fd=%i, len=%u, flags=0x%x)"), client->base.handle, message->index, socketFlags);
 
 #ifdef _WIN32
     __set_nonblocking_if_needed(client->base.handle, flags);
 #endif
 
-    GRTRACE(GRSTR("[socket_link_send] sending message"));
     bytesWritten = send(client->base.handle, &message->data[0], message->index, socketFlags);
     if (bytesWritten != message->index) {
         return -1;
