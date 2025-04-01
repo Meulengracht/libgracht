@@ -665,7 +665,7 @@ void gracht_client_shutdown(gracht_client_t* client)
         return;
     }
     
-    if (client->iod != GRACHT_CONN_INVALID) {
+    if (client->link != NULL && client->link->ops.client.destroy != NULL) {
         client->link->ops.client.destroy(client->link);
     }
 
