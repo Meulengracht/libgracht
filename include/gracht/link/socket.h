@@ -70,7 +70,23 @@ GRACHTAPI int  gracht_link_socket_create(struct gracht_link_socket** linkOut);
 GRACHTAPI void gracht_link_socket_set_type(struct gracht_link_socket* link, enum gracht_link_type type);
 GRACHTAPI void gracht_link_socket_set_listen(struct gracht_link_socket* link, int listen);
 GRACHTAPI void gracht_link_socket_set_domain(struct gracht_link_socket* link, int socketDomain);
+
+/**
+ * @brief Sets the bind address for the socket link.
+ * 
+ * @param link The socket link to configure.
+ * @param address The address to bind to, this is a sockaddr_storage structure.
+ * @param length The length of the address structure.
+ */
 GRACHTAPI void gracht_link_socket_set_bind_address(struct gracht_link_socket* link, const struct sockaddr_storage* address, socklen_t length);
+
+/**
+ * @brief Sets the connect address for the socket link.
+ * 
+ * @param link The socket link to configure.
+ * @param address The address to connect to, this is a sockaddr_storage structure.
+ * @param length The length of the address structure.
+ */
 GRACHTAPI void gracht_link_socket_set_connect_address(struct gracht_link_socket* link, const struct sockaddr_storage* address, socklen_t length);
 
 #ifdef __cplusplus
