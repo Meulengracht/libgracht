@@ -113,6 +113,7 @@ struct gracht_message {
     gracht_conn_t    link;    // link message is received on
     gracht_conn_t    client;  // client context on the link
     uint32_t         size;    // size of the payload
+    uint32_t         rsize;  // the number of bytes that are reserved in the payload
     uint32_t         index;   // used internally for payload storage
     uint8_t          payload[]; // payload follows this message header
 };

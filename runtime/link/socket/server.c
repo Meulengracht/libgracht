@@ -34,6 +34,7 @@
 struct socket_link_client {
     struct gracht_server_client base;
     struct sockaddr_storage     address;
+    uint32_t                    address_length;
     gracht_conn_t               socket;
     gracht_conn_t               link;
     int                         streaming;
@@ -183,6 +184,7 @@ static int socket_link_recv_client(struct socket_link_client* client,
     context->link   = client->link;
     context->client = client->socket;
     context->index  = 0;
+    context->rsize  = 0;
     context->size   = *((uint32_t*)&context->payload[4]);
 
 #ifdef _WIN32
@@ -221,7 +223,7 @@ static int socket_link_create_client(struct gracht_link_socket* link, struct gra
     client->streaming   = 0;
 
     address = (struct sockaddr_storage*)&message->payload[0];
-    memcpy(&client->address, address, (size_t)link->bind_address_length);
+    memcpy(&client->address, address, (size_t)message->rsize);
     
     *clientOut = client;
     return 0;
@@ -390,7 +392,7 @@ static int socket_link_accept(
     struct gracht_server_client** clientOut)
 {
     struct socket_link_client* client;
-    socklen_t                  address_length = link->bind_address_length;
+    socklen_t                  address_length = sizeof(struct sockaddr_storage);
     int                        status;
     GRTRACE(GRSTR("socket_link_accept"));
 
@@ -414,8 +416,9 @@ static int socket_link_accept(
         free(client);
         return -1;
     }
-    client->base.handle = client->socket;
-    client->streaming   = 1;
+    client->base.handle    = client->socket;
+    client->streaming      = 1;
+    client->address_length = address_length;
     
     status = socket_aio_add(set_handle, client->socket);
     if (status) {
@@ -430,7 +433,7 @@ static int socket_link_accept(
 static int socket_link_recv_packet(struct gracht_link_socket* link, 
     struct gracht_message* context, unsigned int flags)
 {
-    socklen_t    addrlen     = link->bind_address_length;
+    socklen_t    addrlen     = sizeof(struct sockaddr_storage);
     char*        base        = (char*)&context->payload[addrlen];
     size_t       len         = context->index - addrlen;
     unsigned int socketFlags = get_socket_flags(flags);
@@ -489,14 +492,15 @@ static int socket_link_recv_packet(struct gracht_link_socket* link,
 
     addressCrc = crc32_generate((const unsigned char*)&context->payload[0], (size_t)addrlen);
     GRTRACE(GRSTR("socket_link_recv_packet read [%u/%u] addr bytes, %p"),
-            addrlen, link->bind_address_length, &context->payload[0]);
+            addrlen, sizeof(struct sockaddr_storage), &context->payload[0]);
     GRTRACE(GRSTR("socket_link_recv_packet read %lu bytes"), bytesRead);
 
     // ->server is set by server
     context->link   = link->base.connection;
     context->client = (int)addressCrc;
-    context->index  = link->bind_address_length;
-    context->size   = (uint32_t)bytesRead + (uint32_t)link->bind_address_length;
+    context->index  = sizeof(struct sockaddr_storage);
+    context->rsize  = (uint32_t)addrlen;
+    context->size   = (uint32_t)bytesRead + (uint32_t)sizeof(struct sockaddr_storage);
 
 #ifdef _WIN32
     // queue up another read
@@ -522,11 +526,11 @@ static int socket_link_send_packet(struct gracht_link_socket* link,
         errno = ENOSYS;
         return -1;
     }
-    
+
     bytesWritten = (long)sendto(link->base.connection,
         &message->data[0], message->index, MSG_WAITALL,
         (const struct sockaddr*)&messageContext->payload[0],
-        link->bind_address_length);
+        messageContext->rsize);
     if (bytesWritten != message->index) {
         GRERROR(GRSTR("link_server: failed to respond [%li/%i]"), bytesWritten, message->index);
         if (bytesWritten == -1) {
