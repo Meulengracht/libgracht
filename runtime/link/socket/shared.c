@@ -105,7 +105,7 @@ void gracht_link_socket_set_domain(struct gracht_link_socket* link, int socketDo
 
 void gracht_link_socket_set_bind_address(struct gracht_link_socket* link, const struct sockaddr_storage* address, socklen_t length)
 {
-    memcpy(&link->bind_address, address, length);
+    memcpy(&link->bind_address, address, sizeof(struct sockaddr_storage));
     link->bind_address_length = length;
 }
 

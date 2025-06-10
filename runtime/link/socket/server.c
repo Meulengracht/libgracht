@@ -491,7 +491,7 @@ static int socket_link_recv_packet(struct gracht_link_socket* link,
     }
 
     addressCrc = crc32_generate((const unsigned char*)&context->payload[0], (size_t)addrlen);
-    GRTRACE(GRSTR("socket_link_recv_packet read [%u/%u] addr bytes, %p"),
+    GRTRACE(GRSTR("socket_link_recv_packet read [%u/%lu] addr bytes, %p"),
             addrlen, sizeof(struct sockaddr_storage), &context->payload[0]);
     GRTRACE(GRSTR("socket_link_recv_packet read %lu bytes"), bytesRead);
 
