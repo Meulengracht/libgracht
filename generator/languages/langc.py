@@ -1584,7 +1584,7 @@ class CGenerator:
             cout = CodeWriter(f)
             write_header(cout)
             write_header_guard_start(file_name, cout)
-            define_headers(["<assert.h>", "<gracht/types.h>", "<stdint.h>", "<stdlib.h>", "<string.h>"], cout)
+            define_headers(["<assert.h>", "<stdint.h>", "<stdlib.h>", "<string.h>", "<gracht/types.h>", "<gracht/platform.h>"], cout)
             define_service_headers(service, cout)
             define_shared_ids(service, cout)
             define_shared_serializers(service, cout)
