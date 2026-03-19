@@ -84,6 +84,7 @@ typedef struct gracht_server {
     gr_hashtable_t                 clients;
     struct rwlock                  clients_lock;
     struct link_table              link_table;
+    struct gracht_capabilities     local_capabilities; // server's own capabilities
 } gracht_server_t;
 
 // api we export to generated files
@@ -218,6 +219,20 @@ static int configure_server(struct gracht_server* server, gracht_server_configur
             return -1;
         }
     }
+
+    // initialize the server's own capabilities based on its configuration
+    server->local_capabilities.protocol_version        = GRACHT_PROTOCOL_VERSION;
+    server->local_capabilities.max_message_size        = (uint32_t)configuration->max_message_size;
+    server->local_capabilities.stream_support          = 0;
+    server->local_capabilities.reliable_stream_support = 0;
+    server->local_capabilities.live_stream_support     = 0;
+    server->local_capabilities.max_concurrent_streams  = 0;
+    server->local_capabilities.max_reliable_chunk_size = 0;
+    server->local_capabilities.max_live_unit_size      = 0;
+    server->local_capabilities.default_recv_window     = 0;
+    server->local_capabilities.supported_checksums     = GRACHT_CHECKSUM_NONE;
+    server->local_capabilities.max_stream_metadata_size = 0;
+    server->local_capabilities.max_resume_token_size   = 0;
     return 0;
 }
 
@@ -917,6 +932,79 @@ void gracht_control_unsubscribe_invocation(const struct gracht_message* message,
     if (cleanup) {
         client_destroy(message->server, message->client);
     }
+}
+
+void gracht_control_negotiate_invocation(const struct gracht_message* message, const struct gracht_capabilities* clientCaps)
+{
+    const struct gracht_capabilities* serverCaps = &message->server->local_capabilities;
+    struct gracht_capabilities        effective;
+    struct client_wrapper*            entry;
+    GRTRACE(GRSTR("gracht_control_negotiate_invocation(client=%i, proto_ver=%u)"),
+            message->client, clientCaps->protocol_version);
+
+    // compute the effective (intersected) capabilities
+    effective.protocol_version        = serverCaps->protocol_version;
+    effective.max_message_size        = clientCaps->max_message_size < serverCaps->max_message_size
+                                            ? clientCaps->max_message_size
+                                            : serverCaps->max_message_size;
+    effective.stream_support          = clientCaps->stream_support          & serverCaps->stream_support;
+    effective.reliable_stream_support = clientCaps->reliable_stream_support & serverCaps->reliable_stream_support;
+    effective.live_stream_support     = clientCaps->live_stream_support     & serverCaps->live_stream_support;
+    effective.max_concurrent_streams  = clientCaps->max_concurrent_streams < serverCaps->max_concurrent_streams
+                                            ? clientCaps->max_concurrent_streams
+                                            : serverCaps->max_concurrent_streams;
+    effective.max_reliable_chunk_size = clientCaps->max_reliable_chunk_size < serverCaps->max_reliable_chunk_size
+                                            ? clientCaps->max_reliable_chunk_size
+                                            : serverCaps->max_reliable_chunk_size;
+    effective.max_live_unit_size      = clientCaps->max_live_unit_size < serverCaps->max_live_unit_size
+                                            ? clientCaps->max_live_unit_size
+                                            : serverCaps->max_live_unit_size;
+    effective.default_recv_window     = clientCaps->default_recv_window < serverCaps->default_recv_window
+                                            ? clientCaps->default_recv_window
+                                            : serverCaps->default_recv_window;
+    effective.supported_checksums     = clientCaps->supported_checksums & serverCaps->supported_checksums;
+    effective.max_stream_metadata_size = clientCaps->max_stream_metadata_size < serverCaps->max_stream_metadata_size
+                                            ? clientCaps->max_stream_metadata_size
+                                            : serverCaps->max_stream_metadata_size;
+    effective.max_resume_token_size   = clientCaps->max_resume_token_size < serverCaps->max_resume_token_size
+                                            ? clientCaps->max_resume_token_size
+                                            : serverCaps->max_resume_token_size;
+
+    // store the effective capabilities in the per-client record
+    rwlock_r_lock(&message->server->clients_lock);
+    entry = gr_hashtable_get(&message->server->clients, &(struct client_wrapper){ .handle = message->client });
+    if (entry) {
+        entry->client->negotiated = effective;
+    } else {
+        GRWARNING(GRSTR("gracht_control_negotiate_invocation: client %i not found, capabilities not persisted"),
+                  message->client);
+    }
+    rwlock_r_unlock(&message->server->clients_lock);
+
+    // send the effective capabilities back to the client regardless of whether
+    // the per-client record was found, so that the client is not left waiting.
+    gracht_control_negotiate_response_event(message->server, message->client, &effective);
+}
+
+int gracht_server_get_client_capabilities(gracht_server_t* server, gracht_conn_t client, struct gracht_capabilities* capsOut)
+{
+    struct client_wrapper* entry;
+
+    if (!server || !capsOut) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    rwlock_r_lock(&server->clients_lock);
+    entry = gr_hashtable_get(&server->clients, &(struct client_wrapper){ .handle = client });
+    if (!entry) {
+        rwlock_r_unlock(&server->clients_lock);
+        errno = ENOENT;
+        return -1;
+    }
+    *capsOut = entry->client->negotiated;
+    rwlock_r_unlock(&server->clients_lock);
+    return 0;
 }
 
 static uint64_t client_hash(const void* element)

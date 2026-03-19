@@ -43,25 +43,64 @@ DESERIALIZE_VALUE(uint32_t, uint32_t)
 SERIALIZE_VALUE(int, int)
 DESERIALIZE_VALUE(int, int)
 
+static inline void serialize_capabilities(gracht_buffer_t* buffer, const struct gracht_capabilities* caps)
+{
+    serialize_uint32_t(buffer, caps->protocol_version);
+    serialize_uint32_t(buffer, caps->max_message_size);
+    serialize_uint8_t(buffer, caps->stream_support);
+    serialize_uint8_t(buffer, caps->reliable_stream_support);
+    serialize_uint8_t(buffer, caps->live_stream_support);
+    serialize_uint32_t(buffer, caps->max_concurrent_streams);
+    serialize_uint32_t(buffer, caps->max_reliable_chunk_size);
+    serialize_uint32_t(buffer, caps->max_live_unit_size);
+    serialize_uint32_t(buffer, caps->default_recv_window);
+    serialize_uint32_t(buffer, caps->supported_checksums);
+    serialize_uint32_t(buffer, caps->max_stream_metadata_size);
+    serialize_uint32_t(buffer, caps->max_resume_token_size);
+}
+
+static inline void deserialize_capabilities(gracht_buffer_t* buffer, struct gracht_capabilities* caps)
+{
+    caps->protocol_version        = deserialize_uint32_t(buffer);
+    caps->max_message_size        = deserialize_uint32_t(buffer);
+    caps->stream_support          = deserialize_uint8_t(buffer);
+    caps->reliable_stream_support = deserialize_uint8_t(buffer);
+    caps->live_stream_support     = deserialize_uint8_t(buffer);
+    caps->max_concurrent_streams  = deserialize_uint32_t(buffer);
+    caps->max_reliable_chunk_size = deserialize_uint32_t(buffer);
+    caps->max_live_unit_size      = deserialize_uint32_t(buffer);
+    caps->default_recv_window     = deserialize_uint32_t(buffer);
+    caps->supported_checksums     = deserialize_uint32_t(buffer);
+    caps->max_stream_metadata_size = deserialize_uint32_t(buffer);
+    caps->max_resume_token_size   = deserialize_uint32_t(buffer);
+}
+
 void __gracht_subscribe_internal(struct gracht_message* __message, gracht_buffer_t* __buffer);
 void __gracht_unsubscribe_internal(struct gracht_message* __message, gracht_buffer_t* __buffer);
+void __gracht_negotiate_internal(struct gracht_message* __message, gracht_buffer_t* __buffer);
 void __gracht_error_internal(gracht_client_t* __client, gracht_buffer_t* __buffer);
+void __gracht_negotiate_response_internal(gracht_client_t* __client, gracht_buffer_t* __buffer);
 
-static gracht_protocol_function_t client_control_callbacks[1] = {
-    { SERVICE_GRACHT_CONTROL_EVENT_ERROR_ID, __gracht_error_internal },
+static gracht_protocol_function_t client_control_callbacks[2] = {
+    { SERVICE_GRACHT_CONTROL_EVENT_ERROR_ID,              __gracht_error_internal },
+    { SERVICE_GRACHT_CONTROL_EVENT_NEGOTIATE_RESPONSE_ID, __gracht_negotiate_response_internal },
 };
 
-static gracht_protocol_function_t server_control_callbacks[2] = {
-    { SERVICE_GRACHT_CONTROL_SUBSCRIBE_ID, __gracht_subscribe_internal },
+static gracht_protocol_function_t server_control_callbacks[3] = {
+    { SERVICE_GRACHT_CONTROL_SUBSCRIBE_ID,   __gracht_subscribe_internal },
     { SERVICE_GRACHT_CONTROL_UNSUBSCRIBE_ID, __gracht_unsubscribe_internal },
+    { SERVICE_GRACHT_CONTROL_NEGOTIATE_ID,   __gracht_negotiate_internal },
 };
 
-gracht_protocol_t gracht_control_client_protocol = GRACHT_PROTOCOL_INIT(0, "gracht_control", 1, client_control_callbacks);
-gracht_protocol_t gracht_control_server_protocol = GRACHT_PROTOCOL_INIT(0, "gracht_control", 2, server_control_callbacks);
+gracht_protocol_t gracht_control_client_protocol = GRACHT_PROTOCOL_INIT(0, "gracht_control", 2, client_control_callbacks);
+gracht_protocol_t gracht_control_server_protocol = GRACHT_PROTOCOL_INIT(0, "gracht_control", 3, server_control_callbacks);
 
 extern int gracht_server_get_buffer(gracht_server_t*, gracht_buffer_t*);
 extern int gracht_server_send_event(gracht_server_t*, gracht_conn_t client, gracht_buffer_t*, unsigned int flags);
 extern int gracht_server_broadcast_event(gracht_server_t*, gracht_buffer_t*, unsigned int flags);
+
+extern int gracht_client_get_buffer(gracht_client_t*, gracht_buffer_t*);
+extern int gracht_client_invoke(gracht_client_t*, struct gracht_message_context*, gracht_buffer_t*);
 
 void __gracht_error_internal(gracht_client_t* __client, gracht_buffer_t* __buffer)
 {
@@ -70,6 +109,13 @@ void __gracht_error_internal(gracht_client_t* __client, gracht_buffer_t* __buffe
     __messageId = deserialize_uint32_t(__buffer);
     __errorCode = deserialize_int(__buffer);
     gracht_control_error_invocation(__client, __messageId, __errorCode);
+}
+
+void __gracht_negotiate_response_internal(gracht_client_t* __client, gracht_buffer_t* __buffer)
+{
+    struct gracht_capabilities __caps;
+    deserialize_capabilities(__buffer, &__caps);
+    gracht_client_store_capabilities(__client, &__caps);
 }
 
 void __gracht_subscribe_internal(struct gracht_message* __message, gracht_buffer_t* __buffer)
@@ -84,6 +130,13 @@ void __gracht_unsubscribe_internal(struct gracht_message* __message, gracht_buff
     uint8_t __protocol;
     __protocol = deserialize_uint8_t(__buffer);
     gracht_control_unsubscribe_invocation(__message, __protocol);
+}
+
+void __gracht_negotiate_internal(struct gracht_message* __message, gracht_buffer_t* __buffer)
+{
+    struct gracht_capabilities __clientCaps;
+    deserialize_capabilities(__buffer, &__clientCaps);
+    gracht_control_negotiate_invocation(__message, &__clientCaps);
 }
 
 int gracht_control_event_error_single(gracht_server_t* server, const gracht_conn_t client, const uint32_t messageId, const int errorCode)
@@ -127,3 +180,48 @@ int gracht_control_event_error_all(gracht_server_t* server, const uint32_t messa
     __status = gracht_server_broadcast_event(server, &__buffer, 0);
     return __status;
 }
+
+int gracht_control_negotiate_response_event(gracht_server_t* server, gracht_conn_t client, const struct gracht_capabilities* caps)
+{
+    gracht_buffer_t __buffer;
+    int             __status;
+
+    __status = gracht_server_get_buffer(server, &__buffer);
+    if (__status) {
+        return __status;
+    }
+
+    serialize_uint32_t(&__buffer, 0);
+    serialize_uint32_t(&__buffer, 0);
+    serialize_uint8_t(&__buffer, 0);
+    serialize_uint8_t(&__buffer, SERVICE_GRACHT_CONTROL_EVENT_NEGOTIATE_RESPONSE_ID);
+    serialize_uint8_t(&__buffer, MESSAGE_FLAG_EVENT);
+    serialize_capabilities(&__buffer, caps);
+    __status = gracht_server_send_event(server, client, &__buffer, 0);
+    return __status;
+}
+
+int gracht_control_negotiate(gracht_client_t* client)
+{
+    gracht_buffer_t            __buffer;
+    struct gracht_capabilities __local;
+    int                        __status;
+
+    __status = gracht_client_get_buffer(client, &__buffer);
+    if (__status) {
+        return __status;
+    }
+
+    serialize_uint32_t(&__buffer, 0);
+    serialize_uint32_t(&__buffer, 0);
+    serialize_uint8_t(&__buffer, 0);
+    serialize_uint8_t(&__buffer, SERVICE_GRACHT_CONTROL_NEGOTIATE_ID);
+    serialize_uint8_t(&__buffer, MESSAGE_FLAG_ASYNC);
+
+    // populate local (client) capabilities
+    gracht_client_get_capabilities(client, &__local);
+    serialize_capabilities(&__buffer, &__local);
+
+    return gracht_client_invoke(client, NULL, &__buffer);
+}
+

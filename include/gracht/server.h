@@ -24,6 +24,7 @@
 #define __GRACHT_SERVER_H__
 
 #include "types.h"
+#include "capability.h"
 #include "link/link.h"
 
 struct gracht_server_callbacks {
@@ -152,6 +153,18 @@ GRACHTAPI gracht_handle_t gracht_server_get_aio_handle(gracht_server_t* server);
  * 
  */
 GRACHTAPI void gracht_server_defer_message(struct gracht_message* in, struct gracht_message* out);
+
+/**
+ * Retrieves the effective capabilities that were negotiated with a connected client.
+ * The result reflects the intersection of what this server and the specified client
+ * support, as determined during the negotiation phase.
+ *
+ * @param server  A pointer to a previously created gracht server.
+ * @param client  The connection handle of the client whose capabilities are queried.
+ * @param capsOut Storage for the negotiated capability values.
+ * @return int    Returns 0 on success, or -1 if the server is NULL or the client is not found.
+ */
+GRACHTAPI int gracht_server_get_client_capabilities(gracht_server_t* server, gracht_conn_t client, struct gracht_capabilities* capsOut);
 
 #ifdef __cplusplus
 }

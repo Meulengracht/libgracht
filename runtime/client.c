@@ -62,21 +62,23 @@ struct gracht_message_descriptor {
 };
 
 typedef struct gracht_client {
-    gracht_conn_t        iod;
-    uint32_t             current_message_id;
-    uint32_t             current_awaiter_id;
-    struct gracht_link*  link;
-    struct gracht_arena* arena;
-    int                  max_message_size;
-    void*                send_buffer;
-    mtx_t                send_buffer_lock;
-    int                  free_send_buffer;
-    gr_hashtable_t       protocols;
-    gr_hashtable_t       messages;
-    mtx_t                messages_lock;
-    gr_hashtable_t       awaiters;
-    mtx_t                awaiters_lock;
-    mtx_t                wait_lock;
+    gracht_conn_t              iod;
+    uint32_t                   current_message_id;
+    uint32_t                   current_awaiter_id;
+    struct gracht_link*        link;
+    struct gracht_arena*       arena;
+    int                        max_message_size;
+    void*                      send_buffer;
+    mtx_t                      send_buffer_lock;
+    int                        free_send_buffer;
+    gr_hashtable_t             protocols;
+    gr_hashtable_t             messages;
+    mtx_t                      messages_lock;
+    gr_hashtable_t             awaiters;
+    mtx_t                      awaiters_lock;
+    mtx_t                      wait_lock;
+    struct gracht_capabilities negotiated;       // effective negotiated capabilities
+    int                        negotiate_done;   // set to 1 once negotiate_response is received
 } gracht_client_t;
 
 #define MESSAGE_STATUS_EXECUTED(status) (status == GRACHT_MESSAGE_ERROR || status == GRACHT_MESSAGE_COMPLETED)
@@ -627,6 +629,23 @@ int gracht_client_create(gracht_client_configuration_t* config, gracht_client_t*
 
     // register the control protocol
     gracht_client_register_protocol(client, &gracht_control_client_protocol);
+
+    // initialize negotiated capabilities with local defaults; these will be
+    // updated to the effective intersection after a successful negotiate.
+    client->negotiated.protocol_version        = GRACHT_PROTOCOL_VERSION;
+    client->negotiated.max_message_size        = (uint32_t)client->max_message_size;
+    client->negotiated.stream_support          = 0;
+    client->negotiated.reliable_stream_support = 0;
+    client->negotiated.live_stream_support     = 0;
+    client->negotiated.max_concurrent_streams  = 0;
+    client->negotiated.max_reliable_chunk_size = 0;
+    client->negotiated.max_live_unit_size      = 0;
+    client->negotiated.default_recv_window     = 0;
+    client->negotiated.supported_checksums     = GRACHT_CHECKSUM_NONE;
+    client->negotiated.max_stream_metadata_size = 0;
+    client->negotiated.max_resume_token_size   = 0;
+    client->negotiate_done = 0;
+
     *clientOut = client;
     goto exit;
     
@@ -640,6 +659,8 @@ exit:
 
 int gracht_client_connect(gracht_client_t* client)
 {
+    int status;
+
     if (!client) {
         errno = EINVAL;
         return -1;
@@ -654,6 +675,33 @@ int gracht_client_connect(gracht_client_t* client)
     if (client->iod == GRACHT_CONN_INVALID) {
         GRERROR(GRSTR("gracht_client: failed to connect client"));
         return -1;
+    }
+
+    // send our local capabilities to the server and wait for the effective
+    // (intersected) capabilities to come back as a negotiate_response event.
+    // We allow a bounded number of non-negotiate messages to arrive before
+    // declaring the negotiation failed.
+    client->negotiate_done = 0;
+    status = gracht_control_negotiate(client);
+    if (status) {
+        GRERROR(GRSTR("gracht_client: failed to send capability negotiation"));
+        return status;
+    }
+
+    {
+        int remaining = 64;
+        while (!client->negotiate_done && remaining-- > 0) {
+            status = gracht_client_wait_message(client, NULL, GRACHT_MESSAGE_BLOCK);
+            if (status) {
+                GRERROR(GRSTR("gracht_client: error while waiting for negotiate_response"));
+                return status;
+            }
+        }
+        if (!client->negotiate_done) {
+            GRERROR(GRSTR("gracht_client: negotiate_response not received, negotiation failed"));
+            errno = EPROTO;
+            return -1;
+        }
     }
     return 0;
 }
@@ -807,4 +855,23 @@ static int awaiter_cmp(const void* element1, const void* element2)
     const struct gracht_message_awaiter_entry* awaiter1 = element1;
     const struct gracht_message_awaiter_entry* awaiter2 = element2;
     return awaiter1->id == awaiter2->id ? 0 : 1;
+}
+
+int gracht_client_get_capabilities(gracht_client_t* client, struct gracht_capabilities* capsOut)
+{
+    if (!client || !capsOut) {
+        errno = EINVAL;
+        return -1;
+    }
+    *capsOut = client->negotiated;
+    return 0;
+}
+
+void gracht_client_store_capabilities(gracht_client_t* client, const struct gracht_capabilities* caps)
+{
+    if (!client || !caps) {
+        return;
+    }
+    client->negotiated   = *caps;
+    client->negotiate_done = 1;
 }
