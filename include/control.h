@@ -26,14 +26,17 @@
 #include "gracht/types.h"
 #include "gracht/server.h"
 #include "gracht/client.h"
+#include "gracht/capability.h"
 
 #define SERVICE_GRACHT_CONTROL_ID 0
-#define SERVICE_GRACHT_CONTROL_FUNCTION_COUNT 2
+#define SERVICE_GRACHT_CONTROL_FUNCTION_COUNT 3
 
-#define SERVICE_GRACHT_CONTROL_SUBSCRIBE_ID 0
+#define SERVICE_GRACHT_CONTROL_SUBSCRIBE_ID   0
 #define SERVICE_GRACHT_CONTROL_UNSUBSCRIBE_ID 1
+#define SERVICE_GRACHT_CONTROL_NEGOTIATE_ID   2
 
-#define SERVICE_GRACHT_CONTROL_EVENT_ERROR_ID 2
+#define SERVICE_GRACHT_CONTROL_EVENT_ERROR_ID              2
+#define SERVICE_GRACHT_CONTROL_EVENT_NEGOTIATE_RESPONSE_ID 3
 
 // Server part of the internal control protocol
 struct gracht_transfer_complete_event {
@@ -42,12 +45,36 @@ struct gracht_transfer_complete_event {
 
 void gracht_control_subscribe_invocation(const struct gracht_message* message, const uint8_t protocol);
 void gracht_control_unsubscribe_invocation(const struct gracht_message* message, const uint8_t protocol);
+void gracht_control_negotiate_invocation(const struct gracht_message* message, const struct gracht_capabilities* clientCaps);
 
 int gracht_control_event_error_single(gracht_server_t* server, const gracht_conn_t client, const uint32_t messageId, const int errorCode);
 int gracht_control_event_error_all(gracht_server_t* server, const uint32_t messageId, const int errorCode);
+int gracht_control_negotiate_response_event(gracht_server_t* server, gracht_conn_t client, const struct gracht_capabilities* caps);
 
 // Client part of the internal control protocol
 void gracht_control_error_invocation(gracht_client_t* client, const uint32_t messageId, const int errorCode);
+
+/**
+ * Sends the local capabilities to the server as part of connection negotiation.
+ * Called internally by gracht_client_connect(). The client must wait for the
+ * corresponding negotiate_response event before the effective capabilities are
+ * available via gracht_client_get_capabilities().
+ *
+ * @param client A pointer to the client instance.
+ * @return int Returns 0 on success, or -1 on error.
+ */
+int gracht_control_negotiate(gracht_client_t* client);
+
+/**
+ * Internal helper called by the control protocol handler once the
+ * negotiate_response event has been received and decoded. Stores the
+ * effective capabilities into the client and signals that negotiation
+ * is complete.
+ *
+ * @param client  A pointer to the client instance.
+ * @param caps    A pointer to the effective capabilities from the server.
+ */
+void gracht_client_store_capabilities(gracht_client_t* client, const struct gracht_capabilities* caps);
 
 extern gracht_protocol_t gracht_control_server_protocol;
 extern gracht_protocol_t gracht_control_client_protocol;

@@ -24,6 +24,7 @@
 #define __GRACHT_CLIENT_H__
 
 #include "types.h"
+#include "capability.h"
 #include "link/link.h"
 
 typedef struct gracht_client_configuration {
@@ -150,6 +151,17 @@ GRACHTAPI int gracht_client_await(gracht_client_t* client, struct gracht_message
  * @return int Status of the wait. Only returns -1 if there was any connection issues.
  */
 GRACHTAPI int gracht_client_await_multiple(gracht_client_t* client, struct gracht_message_context** contexts, int count, unsigned int flags);
+
+/**
+ * Retrieves the effective capabilities that were negotiated with the server during
+ * gracht_client_connect(). The result reflects the intersection of what both this
+ * client and the server support.
+ *
+ * @param client  A pointer to a previously connected gracht client.
+ * @param capsOut Storage for the negotiated capability values.
+ * @return int    Returns 0 on success, or -1 if client is NULL or not yet connected.
+ */
+GRACHTAPI int gracht_client_get_capabilities(gracht_client_t* client, struct gracht_capabilities* capsOut);
 
 #ifdef __cplusplus
 }
