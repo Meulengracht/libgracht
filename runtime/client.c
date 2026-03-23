@@ -23,7 +23,7 @@
 #include <errno.h>
 #include "gracht/client.h"
 #include "client_private.h"
-#include "arena.h"
+#include "buffer_pool.h"
 #include "hashtable.h"
 #include "logging.h"
 #include "thread_api.h"
@@ -66,7 +66,7 @@ typedef struct gracht_client {
     uint32_t             current_message_id;
     uint32_t             current_awaiter_id;
     struct gracht_link*  link;
-    struct gracht_arena* arena;
+    struct gracht_buffer_pool* recv_pool;
     int                  max_message_size;
     void*                send_buffer;
     mtx_t                send_buffer_lock;
@@ -280,7 +280,7 @@ listenForMessage:
     }
 
     // initialize buffer, after this point NO returning, only jump to listenOrExit
-    buffer.data = gracht_arena_allocate(client->arena, NULL, client->max_message_size);
+    buffer.data = gracht_buffer_pool_acquire(client->recv_pool);
     buffer.index = client->max_message_size;
 
     if (!buffer.data) {
@@ -323,7 +323,7 @@ listenForMessage:
 
 listenOrExit:
     if (buffer.data) {
-        gracht_arena_free(client->arena, buffer.data, 0);
+        gracht_buffer_pool_release(client->recv_pool, buffer.data);
     }
 
     if (context) {
@@ -541,7 +541,7 @@ int gracht_client_get_status_buffer(
     // immediately cleanup the buffer if an error has ocurred
     if (descriptor->status == GRACHT_MESSAGE_ERROR) {
         if (descriptor->buffer.data) {
-            gracht_arena_free(client->arena, descriptor->buffer.data, 0);
+            gracht_buffer_pool_release(client->recv_pool, descriptor->buffer.data);
         }
     }
     return status;
@@ -557,7 +557,7 @@ int gracht_client_status_finalize(gracht_client_t* client, struct gracht_buffer*
     }
 
     if (buffer->data) {
-        gracht_arena_free(client->arena, buffer->data, 0);
+        gracht_buffer_pool_release(client->recv_pool, buffer->data);
     }
     return 0;
 }
@@ -566,7 +566,8 @@ int gracht_client_create(gracht_client_configuration_t* config, gracht_client_t*
 {
     gracht_client_t* client;
     int              status;
-    int              arenaSize;
+    int              poolSize;
+    size_t           bufferCount;
     
     if (!config || !config->link || !clientOut) {
         GRERROR(GRSTR("[gracht] [client] config or config link was null"));
@@ -601,9 +602,19 @@ int gracht_client_create(gracht_client_configuration_t* config, gracht_client_t*
         client->max_message_size = GRACHT_DEFAULT_MESSAGE_SIZE;
     }
     
-    arenaSize = config->recv_buffer_size;
-    if (arenaSize < (client->max_message_size * 2)) {
-        arenaSize = client->max_message_size * 2;
+    poolSize = config->recv_buffer_size;
+    if (config->recv_buffer) {
+        bufferCount = (size_t)(poolSize / client->max_message_size);
+        if (!bufferCount) {
+            GRERROR(GRSTR("gracht_client: recv_buffer_size must fit at least one message"));
+            errno = EINVAL;
+            goto error;
+        }
+    } else {
+        if (poolSize < (client->max_message_size * 2)) {
+            poolSize = client->max_message_size * 2;
+        }
+        bufferCount = (size_t)(poolSize / client->max_message_size);
     }
 
     // handle send buffer configuration
@@ -618,9 +629,20 @@ int gracht_client_create(gracht_client_configuration_t* config, gracht_client_t*
         client->free_send_buffer = 1;
     }
     
-    status = gracht_arena_create((size_t)arenaSize, &client->arena);
+    if (config->recv_buffer) {
+        status = gracht_buffer_pool_create_with_storage(
+                (size_t)client->max_message_size,
+                bufferCount,
+                config->recv_buffer,
+                &client->recv_pool);
+    } else {
+        status = gracht_buffer_pool_create(
+                (size_t)client->max_message_size,
+                bufferCount,
+                &client->recv_pool);
+    }
     if (status) {
-        GRERROR(GRSTR("gracht_client: failed to create the memory pool"));
+        GRERROR(GRSTR("gracht_client: failed to create the receive buffer pool"));
         errno = (ENOMEM);
         goto error;
     }
@@ -673,8 +695,8 @@ void gracht_client_shutdown(gracht_client_t* client)
         free(client->send_buffer);
     }
 
-    if (client->arena) { 
-        gracht_arena_destroy(client->arena);
+    if (client->recv_pool) {
+        gracht_buffer_pool_destroy(client->recv_pool);
     }
     
     gr_hashtable_destroy(&client->awaiters);

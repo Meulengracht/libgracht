@@ -57,6 +57,7 @@ add_definitions(-DGRACHT_BUILD)
 add_sources(
         client.c
         client_config.c
+        buffer_pool.c
         crc.c
         server.c
         server_config.c

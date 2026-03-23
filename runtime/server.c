@@ -22,7 +22,7 @@
 
 #include <errno.h>
 #include "aio.h"
-#include "arena.h"
+#include "buffer_pool.h"
 #include "logging.h"
 #include "gracht/server.h"
 #include "thread_api.h"
@@ -76,9 +76,9 @@ typedef struct gracht_server {
     struct stack                   bufferStack;
     size_t                         allocationSize;
     void*                          recvBuffer;
+    struct gracht_buffer_pool*     recvPool;
     gracht_handle_t                set_handle;
     int                            set_handle_provided;
-    struct gracht_arena*           arena;
     gr_hashtable_t                 protocols;
     struct rwlock                  protocols_lock;
     gr_hashtable_t                 clients;
@@ -168,7 +168,7 @@ int gracht_server_create(gracht_server_configuration_t* config, gracht_server_t*
 
 static int configure_server(struct gracht_server* server, gracht_server_configuration_t* configuration)
 {
-    size_t arenaSize;
+    size_t bufferCount;
     int    status;
 
     // set the configuration params that are just transfer
@@ -205,10 +205,10 @@ static int configure_server(struct gracht_server* server, gracht_server_configur
 
     // handle the max message size override, otherwise we default to our default value.
     if (configuration->server_workers > 1) {
-        arenaSize = configuration->server_workers * server->allocationSize * 32;
-        status    = gracht_arena_create(arenaSize, &server->arena);
+        bufferCount = (size_t)configuration->server_workers * 32;
+        status      = gracht_buffer_pool_create(server->allocationSize, bufferCount, &server->recvPool);
         if (status) {
-            GRERROR(GRSTR("configure_server: failed to create the memory pool"));
+            GRERROR(GRSTR("configure_server: failed to create the receive buffer pool"));
             return -1;
         }
     } else {
@@ -320,10 +320,6 @@ static void dispatch_mt(struct gracht_server* server, struct gracht_message* mes
         server_cleanup_message(server, message);
     }
     else {
-        uint32_t messageLength  = *((uint32_t*)&message->payload[message->index + MSG_INDEX_LEN]);
-        uint32_t metaDatalength = sizeof(struct gracht_message) + message->index;
-
-        gracht_arena_free(server->arena, message, server->allocationSize - messageLength - metaDatalength);
         gracht_worker_pool_dispatch(server->worker_pool, message);
     }
 }
@@ -331,7 +327,10 @@ static void dispatch_mt(struct gracht_server* server, struct gracht_message* mes
 static struct gracht_message* get_in_buffer_mt(struct gracht_server* server)
 {
     struct gracht_message* message;
-    message = gracht_arena_allocate(server->arena, NULL, server->allocationSize);
+    message = gracht_buffer_pool_acquire(server->recvPool);
+    if (!message) {
+        return NULL;
+    }
     message->server = server;
     message->index  = server->allocationSize;
     return message;
@@ -339,7 +338,7 @@ static struct gracht_message* get_in_buffer_mt(struct gracht_server* server)
 
 static void put_message_mt(struct gracht_server* server, struct gracht_message* message)
 {
-    gracht_arena_free(server->arena, message, server->allocationSize);
+    gracht_buffer_pool_release(server->recvPool, message);
 }
 
 static int handle_packet(struct gracht_server* server, struct gracht_link* link)
@@ -349,6 +348,11 @@ static int handle_packet(struct gracht_server* server, struct gracht_link* link)
     GRTRACE(GRSTR("handle_packet(conn=%i)"), link->connection);
 
     message = server->ops->get_incoming_buffer(server);
+    if (!message) {
+        GRERROR(GRSTR("handle_packet ran out of receiving buffers"));
+        errno = ENOMEM;
+        return -1;
+    }
 
     status = link->ops.server.recv(link, message, GRACHT_MESSAGE_BLOCK);
     if (status) {
@@ -377,7 +381,7 @@ static int handle_client_event(struct gracht_server* server, gracht_conn_t handl
 {
     int status;
     GRTRACE(GRSTR("handle_client_event %" F_CONN_T ", 0x%x"), handle, events);
-    
+
     // Check for control event. On non-passive sockets, control event is the
     // disconnect event.
     if (events & GRACHT_AIO_EVENT_DISCONNECT) {
@@ -385,7 +389,7 @@ static int handle_client_event(struct gracht_server* server, gracht_conn_t handl
     }
     else if ((events & GRACHT_AIO_EVENT_IN) || !events) {
         struct client_wrapper* entry;
-        
+
         rwlock_r_lock(&server->clients_lock);
         entry = gr_hashtable_get(&server->clients, &(struct client_wrapper){ .handle = handle });
         while (entry) {
@@ -465,8 +469,8 @@ static int gracht_server_shutdown(gracht_server_t* server)
     }
 
     // destroy all our allocated resources
-    if (server->arena) {
-        gracht_arena_destroy(server->arena);
+    if (server->recvPool) {
+        gracht_buffer_pool_destroy(server->recvPool);
     }
     
     if (server->recvBuffer) {
@@ -529,7 +533,10 @@ void server_cleanup_message(struct gracht_server* server, struct gracht_message*
     if (!server || !recvMessage) {
         return;
     }
-    gracht_arena_free(server->arena, recvMessage, 0);
+
+    if (server->recvPool) {
+        gracht_buffer_pool_release(server->recvPool, recvMessage);
+    }
 }
 
 int gracht_server_handle_event(gracht_server_t* server, gracht_conn_t handle, unsigned int events)
