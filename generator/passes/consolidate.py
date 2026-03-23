@@ -12,7 +12,7 @@ def consolidate_struct_member(service: ServiceObject, done: list, struct: Struct
         if struct_target is None:
             raise ValueError(f"Type {typename} cannot be resolved")
         if not struct_target in done:
-            consolidate_struct(struct_target)
+            consolidate_struct(service, done, struct_target)
         
         mems = struct.get_members()
         index = mems.index(member)
