@@ -27,6 +27,8 @@ struct gracht_buffer_pool {
     struct stack free_buffers;
     void*        storage;
     int          owns_storage;
+    size_t       buffer_size;
+    size_t       buffer_count;
 };
 
 static int gracht_buffer_pool_create_internal(
@@ -52,6 +54,8 @@ static int gracht_buffer_pool_create_internal(
 
     pool->storage = storage;
     pool->owns_storage = ownsStorage;
+    pool->buffer_size = bufferSize;
+    pool->buffer_count = bufferCount;
     if (!pool->storage) {
         pool->storage = malloc(bufferSize * bufferCount);
         if (!pool->storage) {
@@ -124,4 +128,20 @@ void gracht_buffer_pool_release(struct gracht_buffer_pool* pool, void* buffer)
         return;
     }
     stack_push(&pool->free_buffers, buffer);
+}
+
+int gracht_buffer_pool_owns(struct gracht_buffer_pool* pool, void* buffer)
+{
+    uint8_t* start;
+    uint8_t* end;
+    uint8_t* ptr;
+
+    if (!pool || !buffer || !pool->storage) {
+        return 0;
+    }
+
+    start = pool->storage;
+    end = start + (pool->buffer_size * pool->buffer_count);
+    ptr = buffer;
+    return ptr >= start && ptr < end;
 }

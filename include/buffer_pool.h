@@ -29,5 +29,6 @@ int   gracht_buffer_pool_create_with_storage(size_t bufferSize, size_t bufferCou
 void  gracht_buffer_pool_destroy(struct gracht_buffer_pool* pool);
 void* gracht_buffer_pool_acquire(struct gracht_buffer_pool* pool);
 void  gracht_buffer_pool_release(struct gracht_buffer_pool* pool, void* buffer);
+int   gracht_buffer_pool_owns(struct gracht_buffer_pool* pool, void* buffer);
 
 #endif //! __GRACHT_BUFFER_POOL_H__
