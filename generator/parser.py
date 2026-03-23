@@ -7,6 +7,7 @@ from languages.langc import CGenerator
 from common.shared import *
 
 # import all the passes
+from passes.synthesize import pass_synthesize
 from passes.validate import pass_validate
 from passes.consolidate import pass_consolidate
 
@@ -38,6 +39,7 @@ class TOKENS(object):
     QUOTE = 20
     FROM = 21
     VARIANT = 22
+    OPTION = 23
 
 # convert token to string
 def token_to_string(token):
@@ -87,6 +89,8 @@ def token_to_string(token):
         return "FROM"
     elif token == TOKENS.VARIANT:
         return "VARIANT"
+    elif token == TOKENS.OPTION:
+        return "OPTION"
     return "UNKNOWN"
 
 class Token:
@@ -179,6 +183,8 @@ class ParseContext:
         # per service arrays
         self.funcs = []
         self.events = []
+        self.service_kind = SERVICE_KIND_MESSAGE
+        self.service_options = {}
 
         # temporary arrays
         self.members = []
@@ -189,13 +195,24 @@ class ParseContext:
         self.stored_namespaces = []
         self.stored_sources = []
 
-    def create_service(self, service_id, name):
+    def create_service(self, service_id, name, kind=SERVICE_KIND_MESSAGE):
         self.services.append(ServiceObject(self.namespace, service_id, name, self.types.copy(),
                                            self.enums.copy(), self.structs.copy(), self.funcs.copy(),
-                                           self.events.copy()))
+                                           self.events.copy(), kind, self.service_options.copy()))
         self.funcs = []
         self.events = []
+        self.service_kind = SERVICE_KIND_MESSAGE
+        self.service_options = {}
         return
+
+    def set_service_kind(self, kind):
+        self.service_kind = kind
+
+    def get_service_kind(self):
+        return self.service_kind
+
+    def set_service_option(self, key, value):
+        self.service_options[key] = value
 
     def create_function(self, function_id, name, request_params, response_params):
         self.funcs.append(FunctionObject(name, function_id, request_params, response_params))
@@ -285,9 +302,13 @@ def get_global_scope_syntax():
         # struct <identifier> { EXPRESSION }
         ("struct", handle_struct): [TOKENS.STRUCT, TOKENS.IDENTIFIER, TOKENS.LBRACKET, -1, TOKENS.RBRACKET],
 
-        # service <identifer> (<digit>) {
-        ("service", handle_service): [TOKENS.SERVICE, TOKENS.IDENTIFIER, TOKENS.LPARENTHESIS, TOKENS.DIGIT,
-                                      TOKENS.RPARENTHESIS, TOKENS.LBRACKET]
+        # service <identifier> (<digit>) {
+        ("service_legacy", handle_service): [TOKENS.SERVICE, TOKENS.IDENTIFIER, TOKENS.LPARENTHESIS, TOKENS.DIGIT,
+                              TOKENS.RPARENTHESIS, TOKENS.LBRACKET],
+
+        # service <identifier> : <identifier> {
+        ("service_kind", handle_service): [TOKENS.SERVICE, TOKENS.IDENTIFIER, TOKENS.COLON, TOKENS.IDENTIFIER,
+                            TOKENS.LBRACKET]
     }
     return syntax
 
@@ -306,6 +327,17 @@ def get_service_scope_syntax():
         # event <identifier> : <identifier> = <DIGIT>;
         ("event", handle_event): [TOKENS.EVENT, TOKENS.IDENTIFIER, TOKENS.COLON, TOKENS.IDENTIFIER,
                                   TOKENS.EQUAL, TOKENS.DIGIT, TOKENS.SEMICOLON],
+    }
+    return syntax
+
+
+def get_stream_scope_syntax():
+    syntax = {
+        # option <identifier> = <identifier>|<digit>;
+        ("option_ident", handle_option): [TOKENS.OPTION, TOKENS.IDENTIFIER, TOKENS.EQUAL, TOKENS.IDENTIFIER,
+                                           TOKENS.SEMICOLON],
+        ("option_digit", handle_option): [TOKENS.OPTION, TOKENS.IDENTIFIER, TOKENS.EQUAL, TOKENS.DIGIT,
+                                           TOKENS.SEMICOLON]
     }
     return syntax
 
@@ -364,7 +396,8 @@ def get_keywords():
         "func": TOKENS.FUNC,
         "event": TOKENS.EVENT,
         "from": TOKENS.FROM,
-        "variant": TOKENS.VARIANT
+        "variant": TOKENS.VARIANT,
+        "option": TOKENS.OPTION
     }
     return keywords
 
@@ -472,25 +505,50 @@ def handle_define(context, tokens):
 
 def handle_service(context, tokens):
     name = tokens[1].value()
-    service_id = tokens[3].value()
-    trace(f"parsing service {name} ({service_id})")
-
     tokens.pop(0)  # consume SERVICE
     tokens.pop(0)  # consume IDENTIFIER
-    tokens.pop(0)  # consume LPARENTHESIS
-    tokens.pop(0)  # consume DIGIT
-    tokens.pop(0)  # consume RPARENTHESIS
+
+    service_id = None
+    service_kind = SERVICE_KIND_MESSAGE
+    if tokens[0].token_type() == TOKENS.LPARENTHESIS:
+        tokens.pop(0)  # consume LPARENTHESIS
+        service_id = tokens[0].value()
+        tokens.pop(0)  # consume DIGIT
+        tokens.pop(0)  # consume RPARENTHESIS
+    else:
+        tokens.pop(0)  # consume COLON
+        service_kind = tokens[0].value().lower()
+        tokens.pop(0)  # consume IDENTIFIER
+
+    trace(f"parsing service {name} ({service_id}) as {service_kind}")
+    context.set_service_kind(service_kind)
     tokens.pop(0)  # consume LBRACKET
 
     if tokens[0].token_type() != TOKENS.RBRACKET:
         rbracket = get_matching_rbracket(tokens)
         if rbracket is None:
             error("expected '}' at end of struct")
-        parse_scope(context, tokens[:rbracket], get_service_scope_syntax())
+        if service_kind == SERVICE_KIND_MESSAGE:
+            parse_scope(context, tokens[:rbracket], get_service_scope_syntax())
+        elif service_kind == SERVICE_KIND_STREAM:
+            parse_scope(context, tokens[:rbracket], get_stream_scope_syntax())
+        else:
+            error(f"unknown service kind {service_kind}")
         del tokens[:rbracket]
 
     tokens.pop(0)  # consume RBRACKET
-    context.create_service(service_id, name)
+    context.create_service(service_id, name, service_kind)
+
+
+def handle_option(context, tokens):
+    tokens.pop(0)  # consume OPTION
+    key = tokens[0].value()
+    tokens.pop(0)  # consume IDENTIFIER
+    tokens.pop(0)  # consume EQUAL
+    value = tokens[0].value()
+    tokens.pop(0)  # consume IDENTIFIER|DIGIT
+    tokens.pop(0)  # consume SEMICOLON
+    context.set_service_option(key, value)
 
 
 def handle_param(context, tokens):
@@ -520,13 +578,18 @@ def handle_func(context, tokens):
 
     trace("parsing function parameters")
     if tokens[0].token_type() != TOKENS.RPARENTHESIS:
-        # create sublist
-        rparen = next((x for x in tokens if x.token_type() == TOKENS.RPARENTHESIS), None)
-        if rparen is None:
-            error("expected ')' at end of parameter list")
-        endOfStruct = tokens.index(rparen) + 1
-        parse_scope(context, tokens[:endOfStruct], get_param_scope_syntax())
-        del tokens[:endOfStruct]
+        if len(tokens) > 1 and tokens[0].token_type() == TOKENS.IDENTIFIER and tokens[1].token_type() == TOKENS.RPARENTHESIS:
+            context.create_member(tokens[0].value(), tokens[0].value(), False)
+            tokens.pop(0)  # consume IDENTIFIER
+            tokens.pop(0)  # consume RPARENTHESIS
+        else:
+            # create sublist
+            rparen = next((x for x in tokens if x.token_type() == TOKENS.RPARENTHESIS), None)
+            if rparen is None:
+                error("expected ')' at end of parameter list")
+            endOfStruct = tokens.index(rparen) + 1
+            parse_scope(context, tokens[:endOfStruct], get_param_scope_syntax())
+            del tokens[:endOfStruct]
     else:
         tokens.pop(0)  # consume RPARENTHESIS
     requestMembers = context.finish_members()
@@ -536,13 +599,18 @@ def handle_func(context, tokens):
 
     trace("parsing function return values")
     if tokens[0].token_type() != TOKENS.RPARENTHESIS:
-        # create sublist
-        rparen = next((x for x in tokens if x.token_type() == TOKENS.RPARENTHESIS), None)
-        if rparen is None:
-            error("expected ')' at end of parameter list")
-        endOfStruct = tokens.index(rparen) + 1
-        parse_scope(context, tokens[:endOfStruct], get_param_scope_syntax())
-        del tokens[:endOfStruct]
+        if len(tokens) > 1 and tokens[0].token_type() == TOKENS.IDENTIFIER and tokens[1].token_type() == TOKENS.RPARENTHESIS:
+            context.create_member(tokens[0].value(), tokens[0].value(), False)
+            tokens.pop(0)  # consume IDENTIFIER
+            tokens.pop(0)  # consume RPARENTHESIS
+        else:
+            # create sublist
+            rparen = next((x for x in tokens if x.token_type() == TOKENS.RPARENTHESIS), None)
+            if rparen is None:
+                error("expected ')' at end of parameter list")
+            endOfStruct = tokens.index(rparen) + 1
+            parse_scope(context, tokens[:endOfStruct], get_param_scope_syntax())
+            del tokens[:endOfStruct]
     else:
         tokens.pop(0)  # consume RPARENTHESIS
 
@@ -796,13 +864,26 @@ def parse_digit(scanner, data):
             scanner.consume()
         return str2int(data[startIdx: scanner.index()])
 
-    members = []
-
     while scanner.current() == '-':
         scanner.consume()
     while scanner.current().isdigit():
         scanner.consume()
-    return str2int(data[startIdx: scanner.index()])
+
+    value = str2int(data[startIdx: scanner.index()])
+    if value is None:
+        return None
+
+    suffix = scanner.current().upper() if scanner.has_next() else '\0'
+    if suffix == 'K':
+        scanner.consume()
+        return value * 1024
+    if suffix == 'M':
+        scanner.consume()
+        return value * 1024 * 1024
+    if suffix == 'G':
+        scanner.consume()
+        return value * 1024 * 1024 * 1024
+    return value
 
 
 def create_tokens_from_text(data):
@@ -901,8 +982,10 @@ def main(args):
     generator = None
 
     for service in services:
-        pass_validate(service)
+        pass_synthesize(service)
         pass_consolidate(service)
+
+    pass_validate(services)
 
     if args.include:
         include_services = args.include.split(',')

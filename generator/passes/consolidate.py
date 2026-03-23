@@ -24,7 +24,7 @@ def consolidate_struct_member(service: ServiceObject, done: list, struct: Struct
 
 def consolidate_struct(service: ServiceObject, done: list, struct: StructureObject):
     if struct in done:
-        return
+        return done
     
     for member in struct.get_members():
         consolidate_struct_member(service, done, struct, member)
