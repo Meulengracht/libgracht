@@ -100,6 +100,10 @@ class GeneratorTests(unittest.TestCase):
 
             upload_header = (out_root / "gracht_upload_service.h").read_text()
             video_header = (out_root / "gracht_video_service.h").read_text()
+            upload_client = (out_root / "gracht_upload_service_client.c").read_text()
+            upload_server = (out_root / "gracht_upload_service_server.c").read_text()
+            calculator_client = (out_root / "gracht_calculator_service_client.c").read_text()
+            video_client = (out_root / "gracht_video_service_client.c").read_text()
 
             self.assertIn("#define SERVICE_GRACHT_UPLOAD_ID", upload_header)
             self.assertIn("#define SERVICE_GRACHT_UPLOAD_OPEN_ID 1", upload_header)
@@ -107,6 +111,17 @@ class GeneratorTests(unittest.TestCase):
             self.assertIn("#define SERVICE_GRACHT_UPLOAD_FINISH_ID 3", upload_header)
             self.assertIn("#define SERVICE_GRACHT_UPLOAD_CLOSE_ID 4", upload_header)
             self.assertIn("#define SERVICE_GRACHT_VIDEO_EVENT_CHUNK_ID 5", video_header)
+            self.assertIn("gracht_client_get_stream_buffer", upload_client)
+            self.assertIn("gracht_client_invoke_stream", upload_client)
+            self.assertIn("gracht_server_get_stream_buffer", upload_server)
+            self.assertIn("gracht_server_respond_stream", upload_server)
+            self.assertIn("GRACHT_PROTOCOL_FLAG_STREAM", upload_server)
+            self.assertIn("gracht_client_get_stream_buffer", video_client)
+            self.assertIn("gracht_client_invoke_stream", video_client)
+            self.assertIn("GRACHT_PROTOCOL_FLAG_STREAM", video_client)
+            self.assertIn("gracht_client_get_buffer", calculator_client)
+            self.assertIn("gracht_client_invoke", calculator_client)
+            self.assertIn("GRACHT_PROTOCOL_INIT", calculator_client)
 
 
 if __name__ == "__main__":

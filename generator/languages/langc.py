@@ -121,6 +121,12 @@ def get_message_flags_func(func):
     return "MESSAGE_FLAG_SYNC"
 
 
+def get_protocol_flags(service: ServiceObject):
+    if service.is_stream():
+        return "GRACHT_PROTOCOL_FLAG_STREAM"
+    return "0"
+
+
 def define_headers(headers, outfile: CodeWriter):
     for header in headers:
         outfile.writeln(f"#include {header}")
@@ -592,11 +598,20 @@ def write_function_body_prologue(service: ServiceObject, action_id, flags, param
 
     if is_server:
         if "MESSAGE_FLAG_RESPONSE" in flags:
-            outfile.writeln("__status = gracht_server_get_buffer(message->server, &__buffer);")
+            if service.is_stream():
+                outfile.writeln("__status = gracht_server_get_stream_buffer(message->server, &__buffer);")
+            else:
+                outfile.writeln("__status = gracht_server_get_buffer(message->server, &__buffer);")
         else:
-            outfile.writeln("__status = gracht_server_get_buffer(server, &__buffer);")
+            if service.is_stream():
+                outfile.writeln("__status = gracht_server_get_stream_buffer(server, &__buffer);")
+            else:
+                outfile.writeln("__status = gracht_server_get_buffer(server, &__buffer);")
     else:
-        outfile.writeln("__status = gracht_client_get_buffer(client, &__buffer);")
+        if service.is_stream():
+            outfile.writeln("__status = gracht_client_get_stream_buffer(client, &__buffer);")
+        else:
+            outfile.writeln("__status = gracht_client_get_buffer(client, &__buffer);")
     outfile.writeln("if (__status) {")
     outfile.writeln("    return __status;")
     outfile.writeln("}")
@@ -622,7 +637,10 @@ def write_function_body_epilogue(service: ServiceObject, func: FunctionObject, o
 def define_function_body(service: ServiceObject, func: FunctionObject, outfile: CodeWriter):
     flags = get_message_flags_func(func)
     write_function_body_prologue(service, func.get_id(), flags, func.get_request_params(), False, outfile)
-    outfile.write("__status = gracht_client_invoke(client, context, &__buffer);\n")
+    if service.is_stream():
+        outfile.write("__status = gracht_client_invoke_stream(client, context, &__buffer);\n")
+    else:
+        outfile.write("__status = gracht_client_invoke(client, context, &__buffer);\n")
     write_function_body_epilogue(service, func, outfile)
     return
 
@@ -660,21 +678,30 @@ def define_status_body(service: ServiceObject, func: FunctionObject, outfile: Co
 def define_event_body_single(service: ServiceObject, evt, outfile: CodeWriter):
     flags = "MESSAGE_FLAG_EVENT"
     write_function_body_prologue(service, evt.get_id(), flags, evt.get_params(), True, outfile)
-    outfile.write("__status = gracht_server_send_event(server, client, &__buffer, 0);\n")
+    if service.is_stream():
+        outfile.write("__status = gracht_server_send_stream_event(server, client, &__buffer, 0);\n")
+    else:
+        outfile.write("__status = gracht_server_send_event(server, client, &__buffer, 0);\n")
     write_function_body_epilogue(service, evt, outfile)
 
 
 def define_event_body_all(service: ServiceObject, evt, outfile: CodeWriter):
     flags = "MESSAGE_FLAG_EVENT"
     write_function_body_prologue(service, evt.get_id(), flags, evt.get_params(), True, outfile)
-    outfile.write("__status = gracht_server_broadcast_event(server, &__buffer, 0);\n")
+    if service.is_stream():
+        outfile.write("__status = gracht_server_broadcast_stream_event(server, &__buffer, 0);\n")
+    else:
+        outfile.write("__status = gracht_server_broadcast_event(server, &__buffer, 0);\n")
     write_function_body_epilogue(service, evt, outfile)
 
 
 def define_response_body(service: ServiceObject, func, flags, outfile: CodeWriter):
     flags = "MESSAGE_FLAG_RESPONSE"
     write_function_body_prologue(service, func.get_id(), flags, func.get_response_params(), True, outfile)
-    outfile.write("__status = gracht_server_respond(message, &__buffer);\n")
+    if service.is_stream():
+        outfile.write("__status = gracht_server_respond_stream(message, &__buffer);\n")
+    else:
+        outfile.write("__status = gracht_server_respond(message, &__buffer);\n")
     write_function_body_epilogue(service, func, outfile)
 
 
@@ -1124,18 +1151,24 @@ def define_structures(service: ServiceObject, outfile: CodeWriter):
 def write_client_api(service: ServiceObject, outfile: CodeWriter):
     outfile.writeln("""
 GRACHTAPI int gracht_client_get_buffer(gracht_client_t*, gracht_buffer_t*);
+GRACHTAPI int gracht_client_get_stream_buffer(gracht_client_t*, gracht_buffer_t*);
 GRACHTAPI int gracht_client_get_status_buffer(gracht_client_t*, struct gracht_message_context*, gracht_buffer_t*);
 GRACHTAPI int gracht_client_status_finalize(gracht_client_t*, struct gracht_buffer*);
 GRACHTAPI int gracht_client_invoke(gracht_client_t*, struct gracht_message_context*, gracht_buffer_t*);
+GRACHTAPI int gracht_client_invoke_stream(gracht_client_t*, struct gracht_message_context*, gracht_buffer_t*);
 """)
 
 
 def write_server_api(service: ServiceObject, outfile: CodeWriter):
     outfile.writeln("""
 GRACHTAPI int gracht_server_get_buffer(gracht_server_t*, gracht_buffer_t*);
+GRACHTAPI int gracht_server_get_stream_buffer(gracht_server_t*, gracht_buffer_t*);
 GRACHTAPI int gracht_server_respond(struct gracht_message*, gracht_buffer_t*);
+GRACHTAPI int gracht_server_respond_stream(struct gracht_message*, gracht_buffer_t*);
 GRACHTAPI int gracht_server_send_event(gracht_server_t*, gracht_conn_t client, gracht_buffer_t*, unsigned int flags);
+GRACHTAPI int gracht_server_send_stream_event(gracht_server_t*, gracht_conn_t client, gracht_buffer_t*, unsigned int flags);
 GRACHTAPI int gracht_server_broadcast_event(gracht_server_t*, gracht_buffer_t*, unsigned int flags);
+GRACHTAPI int gracht_server_broadcast_stream_event(gracht_server_t*, gracht_buffer_t*, unsigned int flags);
 """)
 
 
@@ -1166,9 +1199,9 @@ def write_client_callback_array(service: ServiceObject, outfile: CodeWriter):
     outfile.write("};\n\n")
 
     outfile.write(f"gracht_protocol_t {service.get_namespace()}_{service.get_name()}_client_protocol = ")
-    outfile.write(f"GRACHT_PROTOCOL_INIT({str(service.get_id())}, \""
+    outfile.write(f"GRACHT_PROTOCOL_INIT_FLAGS({str(service.get_id())}, \""
                   + f"{service.get_namespace().lower()}_{service.get_name().lower()}"
-                  + f"\", {callback_array_size}, {callback_array_name});\n\n")
+                  + f"\", {get_protocol_flags(service)}, {callback_array_size}, {callback_array_name});\n\n")
 
 
 # Shared deserializer logic subunits
@@ -1297,9 +1330,9 @@ def write_server_callback_array(service: ServiceObject, outfile):
     outfile.write("};\n\n")
 
     outfile.write(f"gracht_protocol_t {service.get_namespace()}_{service.get_name()}_server_protocol = ")
-    outfile.write("GRACHT_PROTOCOL_INIT(" + str(service.get_id()) + ", \""
+    outfile.write("GRACHT_PROTOCOL_INIT_FLAGS(" + str(service.get_id()) + ", \""
                   + service.get_namespace().lower() + "_" + service.get_name().lower()
-                  + f"\", {callback_array_size}, {callback_array_name});\n\n")
+                  + f"\", {get_protocol_flags(service)}, {callback_array_size}, {callback_array_name});\n\n")
 
 
 # Define the server deserializers. These are builtin callbacks that will
