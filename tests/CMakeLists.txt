@@ -3,7 +3,7 @@ macro (add_server_test)
     set (TEST_SOURCES "${ARGN}")
     list (POP_FRONT TEST_SOURCES) # target
 
-    add_executable(${ARGV0} ${TEST_SOURCES} test_data.c server_handlers.c init_server_socket.c test_utils_service_server.c)
+    add_executable(${ARGV0} ${TEST_SOURCES} test_data.c server_handlers.c init_server_socket.c test_utils_service_server.c test_small_upload_service_server.c test_large_download_service_server.c)
     add_dependencies(${ARGV0} test_protocols)
     if (GRACHT_C_BUILD_SHARED)
         target_compile_definitions(${ARGV0} PUBLIC -DGRACHT_SHARED_LIBRARY)
@@ -25,7 +25,7 @@ macro (add_client_test)
     set (TEST_SOURCES "${ARGN}")
     list (POP_FRONT TEST_SOURCES) # target
 
-    add_executable(${ARGV0} ${TEST_SOURCES} test_data.c init_client_socket.c test_utils_service_client.c)
+    add_executable(${ARGV0} ${TEST_SOURCES} test_data.c init_client_socket.c test_utils_service_client.c test_small_upload_service_client.c test_large_download_service_client.c)
     add_dependencies(${ARGV0} test_protocols)
     if (GRACHT_C_BUILD_SHARED)
         target_compile_definitions(${ARGV0} PUBLIC -DGRACHT_SHARED_LIBRARY)
@@ -46,13 +46,13 @@ endmacro()
 include_directories(${CMAKE_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR} ../include)
 
 add_custom_command(
-    OUTPUT  test_utils_service_server.c test_utils_service_server.h test_utils_service_client.c test_utils_service_client.h test_utils_service.h
+    OUTPUT  test_utils_service_server.c test_utils_service_server.h test_utils_service_client.c test_utils_service_client.h test_utils_service.h test_small_upload_service_server.c test_small_upload_service_server.h test_small_upload_service_client.c test_small_upload_service_client.h test_small_upload_service.h test_large_download_service_server.c test_large_download_service_server.h test_large_download_service_client.c test_large_download_service_client.h test_large_download_service.h
     COMMAND python3 ${CMAKE_SOURCE_DIR}/generator/parser.py --service ${CMAKE_CURRENT_SOURCE_DIR}/protocols/test_service.gr --out ${CMAKE_CURRENT_BINARY_DIR} --lang-c --server --client
     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/protocols/test_service.gr
 )
 add_custom_target(
     test_protocols
-    DEPENDS test_utils_service_server.c test_utils_service_client.c
+    DEPENDS test_utils_service_server.c test_utils_service_client.c test_small_upload_service_server.c test_small_upload_service_client.c test_large_download_service_server.c test_large_download_service_client.c
 )
 
 configure_file(run-tests.sh ${CMAKE_BINARY_DIR}/run-tests.sh COPYONLY)
@@ -68,7 +68,8 @@ add_client_test(gclient_2 client/test_events.c)
 add_client_test(gclient_3 client/test_variable.c)
 add_client_test(gclient_4 client/test_deferring.c)
 add_client_test(gclient_5 client/test_multiple.c)
-add_client_test(gclient_6 client/test_shutdown.c)
+add_client_test(gclient_6 client/test_streams.c)
+add_client_test(gclient_7 client/test_shutdown.c)
 
 # Server test applications
 add_server_test(gserver server/main.c)

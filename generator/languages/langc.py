@@ -121,6 +121,49 @@ def get_message_flags_func(func):
     return "MESSAGE_FLAG_SYNC"
 
 
+def get_protocol_flags(service: ServiceObject):
+    if service.is_stream():
+        return "GRACHT_PROTOCOL_FLAG_STREAM"
+    return "0"
+
+
+def get_serialized_member_size_expression(service: ServiceObject, member, names_in_scope=True):
+    typename = member.get_typename()
+    value = member.get_name()
+
+    if member.get_fixed():
+        value = member.get_default_value()
+
+    if member.get_is_variable():
+        if service.typename_is_struct(typename) or typename.lower() == "string":
+            return None
+        if not names_in_scope:
+            return None
+        c_typename = get_c_typename(service, typename)
+        return f"(sizeof(uint32_t) + ((uint32_t)sizeof({c_typename}) * {value}_count))"
+
+    if typename.lower() == "string":
+        if not names_in_scope:
+            return None
+        return f"(sizeof(uint32_t) + ({value} != NULL ? (uint32_t)strlen({value}) : 0) + 1)"
+    if service.typename_is_struct(typename):
+        return None
+    if service.typename_is_enum(typename):
+        return "sizeof(int)"
+    return f"sizeof({get_c_typename(service, typename)})"
+
+
+def get_serialized_params_size_expression(service: ServiceObject, params, names_in_scope=True):
+    expressions = ["GRACHT_MESSAGE_HEADER_SIZE"]
+
+    for param in params:
+        member_expression = get_serialized_member_size_expression(service, param, names_in_scope)
+        if member_expression is None:
+            return None
+        expressions.append(member_expression)
+    return " + ".join(expressions)
+
+
 def define_headers(headers, outfile: CodeWriter):
     for header in headers:
         outfile.writeln(f"#include {header}")
@@ -326,7 +369,7 @@ def write_variable_struct_member_serializer(service: ServiceObject, member, outf
     outfile.writeln(f"serialize_uint32(buffer, in->{name}_count);")
     if service.typename_is_struct(member.get_typename()):
         struct_type = service.lookup_struct(typename)
-        outfile.writeln(f"for (uint32_t __i = 0; __i < in->{name}_count; __i++) {{")
+        outfile.writeln(f"for (uint32_t __i = 0; __i < (uint32_t)in->{name}_count; __i++) {{")
         outfile.indent_inc()
         outfile.writeln(f"serialize_{get_scoped_name(struct_type)}(buffer, &in->{name}[__i]);")
         outfile.indent_dec()
@@ -346,13 +389,13 @@ def write_variable_member_serializer(service: ServiceObject, member, outfile: Co
     outfile.writeln(f"serialize_uint32(&__buffer, {name}_count);")
     if service.typename_is_struct(typename):
         struct_type = service.lookup_struct(typename)
-        outfile.writeln(f"for (uint32_t __i = 0; __i < {name}_count; __i++) {{")
+        outfile.writeln(f"for (uint32_t __i = 0; __i < (uint32_t){name}_count; __i++) {{")
         outfile.indent_inc()
         outfile.writeln(f"serialize_{get_scoped_name(struct_type)}(&__buffer, &{name}[__i]);")
         outfile.indent_dec()
         outfile.writeln("}")
     elif typename.lower() == "string":
-        outfile.writeln(f"for (uint32_t __i = 0; __i < {name}_count; __i++) {{")
+        outfile.writeln(f"for (uint32_t __i = 0; __i < (uint32_t){name}_count; __i++) {{")
         outfile.indent_inc()
         outfile.writeln(f"serialize_string(&__buffer, {name}[__i]);")
         outfile.indent_dec()
@@ -458,7 +501,7 @@ def write_variable_member_deserializer2(service: ServiceObject, member, outfile:
     outfile.writeln("")
 
     if typename.lower() == "string" or service.typename_is_struct(typename):
-        outfile.writeln(f"for (uint32_t __i = 0; __i < {name}_count; __i++) {{")
+        outfile.writeln(f"for (uint32_t __i = 0; __i < (uint32_t){name}_count; __i++) {{")
         outfile.indent_inc()
         if typename.lower() == "string":
             outfile.writeln(f"{name}[__i] = deserialize_string_nocopy(__buffer);")
@@ -484,7 +527,7 @@ def write_variable_member_deserializer(service: ServiceObject, member, outfile: 
     name = member.get_name()
     outfile.writeln("__count = deserialize_uint32(&__buffer);")
     if service.typename_is_struct(typename):
-        outfile.writeln(f"for (uint32_t __i = 0; __i < GRMIN(__count, {name}_count); __i++) {{")
+        outfile.writeln(f"for (uint32_t __i = 0; __i < (uint32_t)GRMIN(__count, {name}_count); __i++) {{")
         outfile.indent_inc()
         struct_type = service.lookup_struct(typename)
         struct_name = get_scoped_name(struct_type)
@@ -492,7 +535,7 @@ def write_variable_member_deserializer(service: ServiceObject, member, outfile: 
         outfile.indent_dec()
         outfile.writeln("}")
     elif typename.lower() == "string":
-        outfile.writeln(f"for (uint32_t __i = 0; __i < GRMIN(__count, {name}_max_length); __i++) {{")
+        outfile.writeln(f"for (uint32_t __i = 0; __i < (uint32_t)GRMIN(__count, {name}_max_length); __i++) {{")
         outfile.indent_inc()
         outfile.writeln(f"{name}_out[__i] = deserialize_string_nocopy(&__buffer);")
         outfile.indent_dec()
@@ -586,17 +629,37 @@ def write_member_deserializer(service: ServiceObject, member, outfile: CodeWrite
 
 
 def write_function_body_prologue(service: ServiceObject, action_id, flags, params, is_server, outfile: CodeWriter):
+    size_expression = get_serialized_params_size_expression(service, params)
+
     outfile.writeln("gracht_buffer_t __buffer;")
     outfile.writeln("int __status;")
     outfile.writeln("")
 
     if is_server:
         if "MESSAGE_FLAG_RESPONSE" in flags:
-            outfile.writeln("__status = gracht_server_get_buffer(message->server, &__buffer);")
+            if service.is_stream():
+                if size_expression is not None:
+                    outfile.writeln(f"__status = gracht_server_get_stream_buffer_sized(message->server, {size_expression}, &__buffer);")
+                else:
+                    outfile.writeln("__status = gracht_server_get_stream_buffer(message->server, &__buffer);")
+            else:
+                outfile.writeln("__status = gracht_server_get_buffer(message->server, &__buffer);")
         else:
-            outfile.writeln("__status = gracht_server_get_buffer(server, &__buffer);")
+            if service.is_stream():
+                if size_expression is not None:
+                    outfile.writeln(f"__status = gracht_server_get_stream_buffer_sized(server, {size_expression}, &__buffer);")
+                else:
+                    outfile.writeln("__status = gracht_server_get_stream_buffer(server, &__buffer);")
+            else:
+                outfile.writeln("__status = gracht_server_get_buffer(server, &__buffer);")
     else:
-        outfile.writeln("__status = gracht_client_get_buffer(client, &__buffer);")
+        if service.is_stream():
+            if size_expression is not None:
+                outfile.writeln(f"__status = gracht_client_get_stream_buffer_sized(client, {size_expression}, &__buffer);")
+            else:
+                outfile.writeln("__status = gracht_client_get_stream_buffer(client, &__buffer);")
+        else:
+            outfile.writeln("__status = gracht_client_get_buffer(client, &__buffer);")
     outfile.writeln("if (__status) {")
     outfile.writeln("    return __status;")
     outfile.writeln("}")
@@ -621,8 +684,15 @@ def write_function_body_epilogue(service: ServiceObject, func: FunctionObject, o
 
 def define_function_body(service: ServiceObject, func: FunctionObject, outfile: CodeWriter):
     flags = get_message_flags_func(func)
+    response_size_expression = get_serialized_params_size_expression(service, func.get_response_params(), names_in_scope=False)
     write_function_body_prologue(service, func.get_id(), flags, func.get_request_params(), False, outfile)
-    outfile.write("__status = gracht_client_invoke(client, context, &__buffer);\n")
+    if service.is_stream():
+        if response_size_expression is not None:
+            outfile.write(f"__status = gracht_client_invoke_stream_sized(client, context, &__buffer, {response_size_expression});\n")
+        else:
+            outfile.write("__status = gracht_client_invoke_stream(client, context, &__buffer);\n")
+    else:
+        outfile.write("__status = gracht_client_invoke(client, context, &__buffer);\n")
     write_function_body_epilogue(service, func, outfile)
     return
 
@@ -660,21 +730,30 @@ def define_status_body(service: ServiceObject, func: FunctionObject, outfile: Co
 def define_event_body_single(service: ServiceObject, evt, outfile: CodeWriter):
     flags = "MESSAGE_FLAG_EVENT"
     write_function_body_prologue(service, evt.get_id(), flags, evt.get_params(), True, outfile)
-    outfile.write("__status = gracht_server_send_event(server, client, &__buffer, 0);\n")
+    if service.is_stream():
+        outfile.write("__status = gracht_server_send_stream_event(server, client, &__buffer, 0);\n")
+    else:
+        outfile.write("__status = gracht_server_send_event(server, client, &__buffer, 0);\n")
     write_function_body_epilogue(service, evt, outfile)
 
 
 def define_event_body_all(service: ServiceObject, evt, outfile: CodeWriter):
     flags = "MESSAGE_FLAG_EVENT"
     write_function_body_prologue(service, evt.get_id(), flags, evt.get_params(), True, outfile)
-    outfile.write("__status = gracht_server_broadcast_event(server, &__buffer, 0);\n")
+    if service.is_stream():
+        outfile.write("__status = gracht_server_broadcast_stream_event(server, &__buffer, 0);\n")
+    else:
+        outfile.write("__status = gracht_server_broadcast_event(server, &__buffer, 0);\n")
     write_function_body_epilogue(service, evt, outfile)
 
 
 def define_response_body(service: ServiceObject, func, flags, outfile: CodeWriter):
     flags = "MESSAGE_FLAG_RESPONSE"
     write_function_body_prologue(service, func.get_id(), flags, func.get_response_params(), True, outfile)
-    outfile.write("__status = gracht_server_respond(message, &__buffer);\n")
+    if service.is_stream():
+        outfile.write("__status = gracht_server_respond_stream(message, &__buffer);\n")
+    else:
+        outfile.write("__status = gracht_server_respond(message, &__buffer);\n")
     write_function_body_epilogue(service, func, outfile)
 
 
@@ -1124,18 +1203,27 @@ def define_structures(service: ServiceObject, outfile: CodeWriter):
 def write_client_api(service: ServiceObject, outfile: CodeWriter):
     outfile.writeln("""
 GRACHTAPI int gracht_client_get_buffer(gracht_client_t*, gracht_buffer_t*);
+GRACHTAPI int gracht_client_get_stream_buffer(gracht_client_t*, gracht_buffer_t*);
+GRACHTAPI int gracht_client_get_stream_buffer_sized(gracht_client_t*, uint32_t, gracht_buffer_t*);
 GRACHTAPI int gracht_client_get_status_buffer(gracht_client_t*, struct gracht_message_context*, gracht_buffer_t*);
 GRACHTAPI int gracht_client_status_finalize(gracht_client_t*, struct gracht_buffer*);
 GRACHTAPI int gracht_client_invoke(gracht_client_t*, struct gracht_message_context*, gracht_buffer_t*);
+GRACHTAPI int gracht_client_invoke_stream_sized(gracht_client_t*, struct gracht_message_context*, gracht_buffer_t*, uint32_t);
+GRACHTAPI int gracht_client_invoke_stream(gracht_client_t*, struct gracht_message_context*, gracht_buffer_t*);
 """)
 
 
 def write_server_api(service: ServiceObject, outfile: CodeWriter):
     outfile.writeln("""
 GRACHTAPI int gracht_server_get_buffer(gracht_server_t*, gracht_buffer_t*);
+GRACHTAPI int gracht_server_get_stream_buffer(gracht_server_t*, gracht_buffer_t*);
+GRACHTAPI int gracht_server_get_stream_buffer_sized(gracht_server_t*, uint32_t, gracht_buffer_t*);
 GRACHTAPI int gracht_server_respond(struct gracht_message*, gracht_buffer_t*);
+GRACHTAPI int gracht_server_respond_stream(struct gracht_message*, gracht_buffer_t*);
 GRACHTAPI int gracht_server_send_event(gracht_server_t*, gracht_conn_t client, gracht_buffer_t*, unsigned int flags);
+GRACHTAPI int gracht_server_send_stream_event(gracht_server_t*, gracht_conn_t client, gracht_buffer_t*, unsigned int flags);
 GRACHTAPI int gracht_server_broadcast_event(gracht_server_t*, gracht_buffer_t*, unsigned int flags);
+GRACHTAPI int gracht_server_broadcast_stream_event(gracht_server_t*, gracht_buffer_t*, unsigned int flags);
 """)
 
 
@@ -1166,9 +1254,9 @@ def write_client_callback_array(service: ServiceObject, outfile: CodeWriter):
     outfile.write("};\n\n")
 
     outfile.write(f"gracht_protocol_t {service.get_namespace()}_{service.get_name()}_client_protocol = ")
-    outfile.write(f"GRACHT_PROTOCOL_INIT({str(service.get_id())}, \""
+    outfile.write(f"GRACHT_PROTOCOL_INIT_FLAGS({str(service.get_id())}, \""
                   + f"{service.get_namespace().lower()}_{service.get_name().lower()}"
-                  + f"\", {callback_array_size}, {callback_array_name});\n\n")
+                  + f"\", {get_protocol_flags(service)}, {callback_array_size}, {callback_array_name});\n\n")
 
 
 # Shared deserializer logic subunits
@@ -1216,7 +1304,7 @@ def write_deserializer_destroy_members(service: ServiceObject, members, outfile:
             struct_name = get_scoped_name(struct_type)
             indexer = ""
             if member.get_is_variable():
-                outfile.writeln(f"for (uint32_t __i = 0; __i < {member.get_name()}_count; __i++) {{")
+                outfile.writeln(f"for (uint32_t __i = 0; __i < (uint32_t){member.get_name()}_count; __i++) {{")
                 outfile.indent_inc()
                 indexer = "[__i]"
             outfile.writeln(f"{struct_name}_destroy(&{member.get_name()}{indexer});")
@@ -1297,9 +1385,9 @@ def write_server_callback_array(service: ServiceObject, outfile):
     outfile.write("};\n\n")
 
     outfile.write(f"gracht_protocol_t {service.get_namespace()}_{service.get_name()}_server_protocol = ")
-    outfile.write("GRACHT_PROTOCOL_INIT(" + str(service.get_id()) + ", \""
+    outfile.write("GRACHT_PROTOCOL_INIT_FLAGS(" + str(service.get_id()) + ", \""
                   + service.get_namespace().lower() + "_" + service.get_name().lower()
-                  + f"\", {callback_array_size}, {callback_array_name});\n\n")
+                  + f"\", {get_protocol_flags(service)}, {callback_array_size}, {callback_array_name});\n\n")
 
 
 # Define the server deserializers. These are builtin callbacks that will

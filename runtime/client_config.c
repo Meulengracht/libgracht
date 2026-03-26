@@ -26,6 +26,7 @@ void gracht_client_configuration_init(gracht_client_configuration_t* config)
     memset(config, 0, sizeof(gracht_client_configuration_t));
     config->max_message_size = GRACHT_DEFAULT_MESSAGE_SIZE;
     config->recv_buffer_size = 16 * GRACHT_DEFAULT_MESSAGE_SIZE;
+    config->stream_buffer_count = 8;
 }
 
 void gracht_client_configuration_set_link(gracht_client_configuration_t* config, struct gracht_link* link)
@@ -47,4 +48,10 @@ void gracht_client_configuration_set_recv_buffer(gracht_client_configuration_t* 
 void gracht_client_configuration_set_max_msg_size(gracht_client_configuration_t* config, int maxMessageSize)
 {
     config->max_message_size = maxMessageSize;
+}
+
+void gracht_client_configuration_set_stream_buffer_size(gracht_client_configuration_t* config, int bufferSize, int bufferCount)
+{
+    config->stream_buffer_size = bufferSize;
+    config->stream_buffer_count = bufferCount;
 }

@@ -57,13 +57,14 @@ add_definitions(-DGRACHT_BUILD)
 add_sources(
         client.c
         client_config.c
+        buffer_pool.c
+        stream_pool_registry.c
         crc.c
         server.c
         server_config.c
         shared.c
         stack.c
         queue.c
-        arena.c
         hashtable.c
         control.c
 )

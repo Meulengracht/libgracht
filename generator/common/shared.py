@@ -11,6 +11,9 @@ BUILTIN_TYPES = [
         "double"
 ]
 
+SERVICE_KIND_MESSAGE = "message"
+SERVICE_KIND_STREAM = "stream"
+
 class ValueDefinition:
     def __init__(self, name, value):
         self.name = name
@@ -161,7 +164,8 @@ class FunctionObject:
 
 
 class ServiceObject:
-    def __init__(self, namespace, serviceId, name, types, enums, structs, functions, events):
+    def __init__(self, namespace, serviceId, name, types, enums, structs, functions, events,
+                 kind=SERVICE_KIND_MESSAGE, options=None):
         self.namespace = namespace
         self.name = name
         self.id = serviceId
@@ -170,6 +174,8 @@ class ServiceObject:
         self.functions = functions
         self.events = events
         self.structs = structs
+        self.kind = kind
+        self.options = options.copy() if options is not None else {}
         self.imports = []
         
     def typename_is_enum(self, typename):
@@ -213,6 +219,36 @@ class ServiceObject:
 
     def set_imports(self, imports):
         self.imports = imports
+
+    def set_id(self, service_id):
+        self.id = service_id
+
+    def get_kind(self):
+        return self.kind
+
+    def is_message(self):
+        return self.kind == SERVICE_KIND_MESSAGE
+
+    def is_stream(self):
+        return self.kind == SERVICE_KIND_STREAM
+
+    def set_option(self, key, value):
+        self.options[key] = value
+
+    def get_option(self, key, default=None):
+        return self.options.get(key, default)
+
+    def get_options(self):
+        return self.options.copy()
+
+    def set_functions(self, functions):
+        self.functions = functions
+
+    def set_events(self, events):
+        self.events = events
+
+    def set_structs(self, structs):
+        self.structs = structs
 
     def get_namespace(self):
         return self.namespace

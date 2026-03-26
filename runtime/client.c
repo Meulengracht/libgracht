@@ -23,7 +23,8 @@
 #include <errno.h>
 #include "gracht/client.h"
 #include "client_private.h"
-#include "arena.h"
+#include "buffer_pool.h"
+#include "stream_pool_registry.h"
 #include "hashtable.h"
 #include "logging.h"
 #include "thread_api.h"
@@ -58,6 +59,8 @@ struct gracht_message_descriptor {
     uint32_t        id;
     int             status;
     uint32_t        awaiter_id;
+    int             stream_buffer;
+    uint32_t        response_buffer_size;
     gracht_buffer_t buffer;
 };
 
@@ -66,11 +69,16 @@ typedef struct gracht_client {
     uint32_t             current_message_id;
     uint32_t             current_awaiter_id;
     struct gracht_link*  link;
-    struct gracht_arena* arena;
+    struct gracht_buffer_pool* recv_pool;
     int                  max_message_size;
+    size_t               stream_buffer_size;
+    size_t               stream_buffer_count;
     void*                send_buffer;
     mtx_t                send_buffer_lock;
     int                  free_send_buffer;
+    mtx_t                stream_pools_lock;
+    struct gracht_stream_pool_registry stream_send_pools;
+    struct gracht_stream_pool_registry stream_recv_pools;
     gr_hashtable_t       protocols;
     gr_hashtable_t       messages;
     mtx_t                messages_lock;
@@ -83,9 +91,13 @@ typedef struct gracht_client {
 
 // api we export to generated files
 GRACHTAPI int gracht_client_get_buffer(gracht_client_t*, gracht_buffer_t*);
+GRACHTAPI int gracht_client_get_stream_buffer(gracht_client_t*, gracht_buffer_t*);
+GRACHTAPI int gracht_client_get_stream_buffer_sized(gracht_client_t*, uint32_t, gracht_buffer_t*);
 GRACHTAPI int gracht_client_get_status_buffer(gracht_client_t*, struct gracht_message_context*, gracht_buffer_t*);
 GRACHTAPI int gracht_client_status_finalize(gracht_client_t* client, struct gracht_buffer*);
 GRACHTAPI int gracht_client_invoke(gracht_client_t*, struct gracht_message_context*, gracht_buffer_t*);
+GRACHTAPI int gracht_client_invoke_stream(gracht_client_t*, struct gracht_message_context*, gracht_buffer_t*);
+GRACHTAPI int gracht_client_invoke_stream_sized(gracht_client_t*, struct gracht_message_context*, gracht_buffer_t*, uint32_t);
 
 // static methods
 static uint32_t get_message_id(gracht_client_t*);
@@ -95,10 +107,13 @@ static uint64_t message_hash(const void* element);
 static int      message_cmp(const void* element1, const void* element2);
 static uint64_t awaiter_hash(const void* element);
 static int      awaiter_cmp(const void* element1, const void* element2);
+static int      protocol_uses_stream_pool(gracht_client_t*, uint8_t);
 
 static int __add_message(
         gracht_client_t*                   client,
-        struct gracht_message_context*     context)
+    struct gracht_message_context*     context,
+    int                                streamBuffer,
+    uint32_t                           responseBufferSize)
 {
     struct gracht_message_descriptor entry = { 0 };
     if (context == NULL) {
@@ -108,6 +123,8 @@ static int __add_message(
 
     entry.id = context->message_id;
     entry.status = GRACHT_MESSAGE_INPROGRESS;
+    entry.stream_buffer = streamBuffer;
+    entry.response_buffer_size = responseBufferSize;
 
     mtx_lock(&client->messages_lock);
     gr_hashtable_set(&client->messages, &entry);
@@ -131,18 +148,32 @@ static void __remove_message(
     mtx_unlock(&client->messages_lock);
 }
 
+static int protocol_uses_stream_pool(gracht_client_t* client, uint8_t protocolId)
+{
+    struct gracht_protocol* protocol;
+
+    protocol = gr_hashtable_get(&client->protocols, &(struct gracht_protocol){ .id = protocolId });
+    return protocol && (protocol->flags & GRACHT_PROTOCOL_FLAG_STREAM);
+}
+
 // allocated => list_header, message_id, output_buffer
-int gracht_client_invoke(
+static int gracht_client_invoke_internal(
         gracht_client_t*               client,
         struct gracht_message_context* context,
-        struct gracht_buffer*          message)
+        struct gracht_buffer*          message,
+    int                            streamBuffer,
+    uint32_t                       responseBufferSize)
 {
     uint32_t messageID;
     int      status;
-    GRTRACE(GRSTR("gracht_client_invoke()"));
+    if (streamBuffer) {
+        GRTRACE(GRSTR("gracht_client_invoke_stream()"));
+    } else {
+        GRTRACE(GRSTR("gracht_client_invoke()"));
+    }
     
     if (!client || !message) {
-        errno = (EINVAL);
+        errno = EINVAL;
         return -1;
     }
     
@@ -158,7 +189,7 @@ int gracht_client_invoke(
     
     // require intermediate buffer for sync operations
     if (MESSAGE_FLAG_TYPE(GB_MSG_FLG_0(message)) == MESSAGE_FLAG_SYNC) {
-        status = __add_message(client, context);
+        status = __add_message(client, context, streamBuffer, responseBufferSize);
         if (status) {
             goto release;
         }
@@ -170,8 +201,41 @@ int gracht_client_invoke(
     }
 
 release:
-    mtx_unlock(&client->send_buffer_lock);
+    if (streamBuffer) {
+        if (message->data) {
+            mtx_lock(&client->stream_pools_lock);
+            gracht_stream_pool_registry_release(&client->stream_send_pools, message->data);
+            mtx_unlock(&client->stream_pools_lock);
+        }
+    } else {
+        mtx_unlock(&client->send_buffer_lock);
+    }
     return status;
+}
+
+int gracht_client_invoke(
+        gracht_client_t*               client,
+        struct gracht_message_context* context,
+        struct gracht_buffer*          message)
+{
+    return gracht_client_invoke_internal(client, context, message, 0, 0);
+}
+
+int gracht_client_invoke_stream(
+        gracht_client_t*               client,
+        struct gracht_message_context* context,
+        struct gracht_buffer*          message)
+{
+    return gracht_client_invoke_internal(client, context, message, 1, 0);
+}
+
+int gracht_client_invoke_stream_sized(
+        gracht_client_t*               client,
+        struct gracht_message_context* context,
+        struct gracht_buffer*          message,
+        uint32_t                       responseBufferSize)
+{
+    return gracht_client_invoke_internal(client, context, message, 1, responseBufferSize);
 }
 
 static int __invoke_action(gracht_client_t* client, struct gracht_buffer* message)
@@ -225,6 +289,22 @@ static int __handle_response(
     return 0;
 }
 
+static void* __acquire_stream_recv_buffer(gracht_client_t* client, uint32_t messageSize, uint32_t* outSize)
+{
+    size_t requestedSize = gracht_stream_normalize_buffer_size(messageSize, client->stream_buffer_size);
+    struct gracht_buffer_pool* pool;
+    void* data = NULL;
+
+    mtx_lock(&client->stream_pools_lock);
+    pool = gracht_stream_pool_registry_get_or_create(&client->stream_recv_pools, requestedSize, client->stream_buffer_count);
+    if (pool) {
+        data = gracht_buffer_pool_acquire(pool);
+    }
+    mtx_unlock(&client->stream_pools_lock);
+    *outSize = (uint32_t)requestedSize;
+    return data;
+}
+
 int gracht_client_wait_message(
         gracht_client_t*               client,
         struct gracht_message_context* context,
@@ -233,11 +313,13 @@ int gracht_client_wait_message(
     struct gracht_buffer buffer = { 0 };
     uint32_t             messageId = 0;
     uint8_t              messageFlags;
+    int                  streamBuffer = 0;
+    uint32_t             expectedStreamSize = 0;
     int                  status;
     GRTRACE(GRSTR("gracht_client_wait_message()"));
 
     if (!client) {
-        errno = (EINVAL);
+        errno = EINVAL;
         return -1;
     }
 
@@ -261,6 +343,8 @@ listenForMessage:
             errno = ENOENT;
             return -1;
         }
+        streamBuffer = descriptor->stream_buffer;
+        expectedStreamSize = descriptor->response_buffer_size;
         if (descriptor->status != GRACHT_MESSAGE_INPROGRESS) {
             mtx_unlock(&client->messages_lock);
             return 0;
@@ -280,8 +364,39 @@ listenForMessage:
     }
 
     // initialize buffer, after this point NO returning, only jump to listenOrExit
-    buffer.data = gracht_arena_allocate(client->arena, NULL, client->max_message_size);
-    buffer.index = client->max_message_size;
+    if (client->link->ops.client.peek) {
+        uint32_t incomingLength;
+        uint8_t  protocolId;
+
+        status = client->link->ops.client.peek(client->link, &incomingLength, &protocolId, flags);
+        if (status) {
+            mtx_unlock(&client->wait_lock);
+            goto listenOrExit;
+        }
+
+        if (!streamBuffer) {
+            streamBuffer = protocol_uses_stream_pool(client, protocolId);
+        }
+        if (streamBuffer) {
+            buffer.data = __acquire_stream_recv_buffer(client, incomingLength, &buffer.index);
+        } else {
+            if (incomingLength > (uint32_t)client->max_message_size) {
+                mtx_unlock(&client->wait_lock);
+                errno = EMSGSIZE;
+                status = -1;
+                goto listenOrExit;
+            }
+            buffer.data = gracht_buffer_pool_acquire(client->recv_pool);
+            buffer.index = client->max_message_size;
+        }
+    } else {
+        if (streamBuffer) {
+            buffer.data = __acquire_stream_recv_buffer(client, expectedStreamSize, &buffer.index);
+        } else {
+            buffer.data = gracht_buffer_pool_acquire(client->recv_pool);
+            buffer.index = client->max_message_size;
+        }
+    }
 
     if (!buffer.data) {
         mtx_unlock(&client->wait_lock);
@@ -323,7 +438,13 @@ listenForMessage:
 
 listenOrExit:
     if (buffer.data) {
-        gracht_arena_free(client->arena, buffer.data, 0);
+        if (streamBuffer) {
+            mtx_lock(&client->stream_pools_lock);
+            gracht_stream_pool_registry_release(&client->stream_recv_pools, buffer.data);
+            mtx_unlock(&client->stream_pools_lock);
+        } else {
+            gracht_buffer_pool_release(client->recv_pool, buffer.data);
+        }
     }
 
     if (context) {
@@ -419,7 +540,7 @@ int gracht_client_await_multiple(
     GRTRACE(GRSTR("gracht_client_await_multiple()"));
     
     if (!client || !contexts || !contextCount) {
-        errno = (EINVAL);
+        errno = EINVAL;
         return -1;
     }
 
@@ -505,6 +626,40 @@ int gracht_client_get_buffer(gracht_client_t* client, gracht_buffer_t* buffer)
     return 0;
 }
 
+int gracht_client_get_stream_buffer(gracht_client_t* client, gracht_buffer_t* buffer)
+{
+    return gracht_client_get_stream_buffer_sized(client, 0, buffer);
+}
+
+int gracht_client_get_stream_buffer_sized(gracht_client_t* client, uint32_t requiredSize, gracht_buffer_t* buffer)
+{
+    struct gracht_buffer_pool* pool;
+    size_t                     normalizedSize;
+
+    GRTRACE(GRSTR("gracht_client_get_stream_buffer()"));
+    if (!client || !buffer) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    normalizedSize = gracht_stream_normalize_buffer_size(requiredSize, client->stream_buffer_size);
+    mtx_lock(&client->stream_pools_lock);
+    pool = gracht_stream_pool_registry_get_or_create(&client->stream_send_pools, normalizedSize, client->stream_buffer_count);
+    if (pool) {
+        buffer->data = gracht_buffer_pool_acquire(pool);
+    } else {
+        buffer->data = NULL;
+    }
+    mtx_unlock(&client->stream_pools_lock);
+    if (!buffer->data) {
+        errno = ENOMEM;
+        return -1;
+    }
+
+    buffer->index = 0;
+    return 0;
+}
+
 int gracht_client_get_status_buffer(
         gracht_client_t*               client,
         struct gracht_message_context* context,
@@ -515,7 +670,7 @@ int gracht_client_get_status_buffer(
     GRTRACE(GRSTR("gracht_client_get_status_buffer()"));
     
     if (!client || !context || !buffer) {
-        errno = (EINVAL);
+        errno = EINVAL;
         return -1;
     }
     
@@ -529,7 +684,7 @@ int gracht_client_get_status_buffer(
     );
     if (!descriptor) {
         mtx_unlock(&client->messages_lock);
-        errno = (ENOENT);
+        errno = ENOENT;
         return -1;
     }
     
@@ -539,9 +694,13 @@ int gracht_client_get_status_buffer(
     mtx_unlock(&client->messages_lock);
 
     // immediately cleanup the buffer if an error has ocurred
-    if (descriptor->status == GRACHT_MESSAGE_ERROR) {
-        if (descriptor->buffer.data) {
-            gracht_arena_free(client->arena, descriptor->buffer.data, 0);
+    if (descriptor->status == GRACHT_MESSAGE_ERROR && descriptor->buffer.data) {
+        if (descriptor->stream_buffer) {
+            mtx_lock(&client->stream_pools_lock);
+            gracht_stream_pool_registry_release(&client->stream_recv_pools, descriptor->buffer.data);
+            mtx_unlock(&client->stream_pools_lock);
+        } else {
+            gracht_buffer_pool_release(client->recv_pool, descriptor->buffer.data);
         }
     }
     return status;
@@ -552,12 +711,16 @@ int gracht_client_status_finalize(gracht_client_t* client, struct gracht_buffer*
     GRTRACE(GRSTR("gracht_client_status_finalize()"));
     
     if (!client) {
-        errno = (EINVAL);
+        errno = EINVAL;
         return -1;
     }
 
     if (buffer->data) {
-        gracht_arena_free(client->arena, buffer->data, 0);
+        mtx_lock(&client->stream_pools_lock);
+        if (!gracht_stream_pool_registry_release(&client->stream_recv_pools, buffer->data)) {
+            gracht_buffer_pool_release(client->recv_pool, buffer->data);
+        }
+        mtx_unlock(&client->stream_pools_lock);
     }
     return 0;
 }
@@ -566,7 +729,8 @@ int gracht_client_create(gracht_client_configuration_t* config, gracht_client_t*
 {
     gracht_client_t* client;
     int              status;
-    int              arenaSize;
+    int              poolSize;
+    size_t           bufferCount;
     
     if (!config || !config->link || !clientOut) {
         GRERROR(GRSTR("[gracht] [client] config or config link was null"));
@@ -586,6 +750,7 @@ int gracht_client_create(gracht_client_configuration_t* config, gracht_client_t*
     mtx_init(&client->wait_lock, mtx_plain);
     mtx_init(&client->messages_lock, mtx_plain);
     mtx_init(&client->awaiters_lock, mtx_plain);
+    mtx_init(&client->stream_pools_lock, mtx_plain);
     gr_hashtable_construct(&client->protocols, 0, sizeof(struct gracht_protocol), protocol_hash, protocol_cmp);
     gr_hashtable_construct(&client->messages, 0, sizeof(struct gracht_message_descriptor), message_hash, message_cmp);
     gr_hashtable_construct(&client->awaiters, 0, sizeof(struct gracht_message_awaiter_entry), awaiter_hash, awaiter_cmp);
@@ -601,9 +766,19 @@ int gracht_client_create(gracht_client_configuration_t* config, gracht_client_t*
         client->max_message_size = GRACHT_DEFAULT_MESSAGE_SIZE;
     }
     
-    arenaSize = config->recv_buffer_size;
-    if (arenaSize < (client->max_message_size * 2)) {
-        arenaSize = client->max_message_size * 2;
+    poolSize = config->recv_buffer_size;
+    if (config->recv_buffer) {
+        bufferCount = (size_t)(poolSize / client->max_message_size);
+        if (!bufferCount) {
+            GRERROR(GRSTR("gracht_client: recv_buffer_size must fit at least one message"));
+            errno = EINVAL;
+            goto error;
+        }
+    } else {
+        if (poolSize < (client->max_message_size * 2)) {
+            poolSize = client->max_message_size * 2;
+        }
+        bufferCount = (size_t)(poolSize / client->max_message_size);
     }
 
     // handle send buffer configuration
@@ -612,18 +787,33 @@ int gracht_client_create(gracht_client_configuration_t* config, gracht_client_t*
         client->send_buffer = malloc(client->max_message_size);
         if (!client->send_buffer) {
             GRERROR(GRSTR("gracht_client: failed to allocate memory for send buffer"));
-            errno = (ENOMEM);
+            errno = ENOMEM;
             goto error;
         }
         client->free_send_buffer = 1;
     }
     
-    status = gracht_arena_create((size_t)arenaSize, &client->arena);
+    if (config->recv_buffer) {
+        status = gracht_buffer_pool_create_with_storage(
+                (size_t)client->max_message_size,
+                bufferCount,
+                config->recv_buffer,
+                &client->recv_pool);
+    } else {
+        status = gracht_buffer_pool_create(
+                (size_t)client->max_message_size,
+                bufferCount,
+                &client->recv_pool);
+    }
     if (status) {
-        GRERROR(GRSTR("gracht_client: failed to create the memory pool"));
-        errno = (ENOMEM);
+        GRERROR(GRSTR("gracht_client: failed to create the receive buffer pool"));
+        errno = ENOMEM;
         goto error;
     }
+
+    client->stream_buffer_size = (size_t)(config->stream_buffer_size > 0 ?
+            config->stream_buffer_size : client->max_message_size);
+    client->stream_buffer_count = (size_t)(config->stream_buffer_count > 0 ? config->stream_buffer_count : 8);
 
     // register the control protocol
     gracht_client_register_protocol(client, &gracht_control_client_protocol);
@@ -661,7 +851,7 @@ int gracht_client_connect(gracht_client_t* client)
 void gracht_client_shutdown(gracht_client_t* client)
 {
     if (!client) {
-        errno = (EINVAL);
+        errno = EINVAL;
         return;
     }
     
@@ -673,14 +863,18 @@ void gracht_client_shutdown(gracht_client_t* client)
         free(client->send_buffer);
     }
 
-    if (client->arena) { 
-        gracht_arena_destroy(client->arena);
+    if (client->recv_pool) {
+        gracht_buffer_pool_destroy(client->recv_pool);
     }
+
+    gracht_stream_pool_registry_destroy(&client->stream_send_pools);
+    gracht_stream_pool_registry_destroy(&client->stream_recv_pools);
     
     gr_hashtable_destroy(&client->awaiters);
     gr_hashtable_destroy(&client->messages);
     gr_hashtable_destroy(&client->protocols);
     mtx_destroy(&client->wait_lock);
+    mtx_destroy(&client->stream_pools_lock);
     mtx_destroy(&client->send_buffer_lock);
     mtx_destroy(&client->messages_lock);
     mtx_destroy(&client->awaiters_lock);
@@ -690,7 +884,7 @@ void gracht_client_shutdown(gracht_client_t* client)
 gracht_conn_t gracht_client_iod(gracht_client_t* client)
 {
     if (!client) {
-        errno = (EINVAL);
+        errno = EINVAL;
         return -1;
     }
     return client->iod;
@@ -699,7 +893,7 @@ gracht_conn_t gracht_client_iod(gracht_client_t* client)
 int gracht_client_register_protocol(gracht_client_t* client, gracht_protocol_t* protocol)
 {
     if (!client || !protocol) {
-        errno = (EINVAL);
+        errno = EINVAL;
         return -1;
     }
     
@@ -710,7 +904,7 @@ int gracht_client_register_protocol(gracht_client_t* client, gracht_protocol_t* 
 void gracht_client_unregister_protocol(gracht_client_t* client, gracht_protocol_t* protocol)
 {
     if (!client || !protocol) {
-        errno = (EINVAL);
+        errno = EINVAL;
         return;
     }
     

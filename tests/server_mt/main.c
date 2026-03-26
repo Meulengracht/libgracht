@@ -27,6 +27,8 @@
 #include <string.h>
 
 #include <test_utils_service_server.h>
+#include <test_small_upload_service_server.h>
+#include <test_large_download_service_server.h>
 
 extern int init_mt_server_with_socket_link(int workerCount, gracht_server_t** serverOut);
 
@@ -43,6 +45,8 @@ int main(void)
     
     // register protocols
     gracht_server_register_protocol(server, &test_utils_server_protocol);
+    gracht_server_register_protocol(server, &test_small_upload_server_protocol);
+    gracht_server_register_protocol(server, &test_large_download_server_protocol);
 
     // run server
     return gracht_server_main_loop(server);

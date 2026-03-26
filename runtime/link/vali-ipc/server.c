@@ -229,9 +229,11 @@ void gracht_link_server_vali_api(struct gracht_link_vali* link)
 
     link->base.ops.server.recv_client = (server_recv_client_fn)vali_link_recv_client;
     link->base.ops.server.send_client = (server_send_client_fn)vali_link_send_client;
+    link->base.ops.server.peek_client = NULL;
 
     link->base.ops.server.recv    = (server_link_recv_fn)vali_link_recv;
     link->base.ops.server.send    = (server_link_send_fn)vali_link_send;
+    link->base.ops.server.peek    = NULL;
 
     link->base.ops.server.setup   = (server_link_setup_fn)vali_link_setup;
     link->base.ops.server.destroy = (server_link_destroy_fn)vali_link_destroy;

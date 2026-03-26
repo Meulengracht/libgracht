@@ -44,6 +44,51 @@ static int socket_link_send_stream(struct gracht_link_socket* link,
     return 0;
 }
 
+static int socket_link_peek_header(struct gracht_link_socket* link,
+    uint32_t* messageLengthOut, uint8_t* serviceIdOut, unsigned int flags)
+{
+    unsigned int socketFlags = 0;
+    uint8_t      header[GRACHT_MESSAGE_HEADER_SIZE];
+    intmax_t     bytesRead;
+
+    if (!messageLengthOut || !serviceIdOut) {
+        errno = EINVAL;
+        return -1;
+    }
+
+#ifdef _WIN32
+    __set_nonblocking_if_needed(link->base.connection, flags);
+#endif
+
+    if (!(flags & GRACHT_MESSAGE_BLOCK)) {
+        socketFlags |= MSG_DONTWAIT;
+    }
+    socketFlags |= MSG_PEEK;
+
+    bytesRead = recv(link->base.connection, (char*)&header[0], GRACHT_MESSAGE_HEADER_SIZE, socketFlags);
+    if (bytesRead != GRACHT_MESSAGE_HEADER_SIZE) {
+        if (bytesRead < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                return -1;
+            }
+            errno = EPIPE;
+        } else if (bytesRead == 0) {
+            errno = ENODATA;
+        } else {
+            errno = EPIPE;
+        }
+        return -1;
+    }
+
+    *messageLengthOut = *((uint32_t*)&header[MSG_INDEX_LEN]);
+    *serviceIdOut = header[MSG_INDEX_SID];
+    if (*messageLengthOut < GRACHT_MESSAGE_HEADER_SIZE) {
+        errno = EPROTO;
+        return -1;
+    }
+    return 0;
+}
+
 static int socket_link_recv_stream(struct gracht_link_socket* link,
     struct gracht_buffer* message, unsigned int flags)
 {
@@ -207,6 +252,16 @@ static int socket_link_send(struct gracht_link_socket* link,
     }
 }
 
+static int socket_link_peek(struct gracht_link_socket* link,
+    uint32_t* messageLengthOut, uint8_t* serviceIdOut, unsigned int flags)
+{
+    if (link->base.type != gracht_link_stream_based && link->base.type != gracht_link_packet_based) {
+        errno = ENOTSUP;
+        return -1;
+    }
+    return socket_link_peek_header(link, messageLengthOut, serviceIdOut, flags);
+}
+
 static void socket_link_destroy(struct gracht_link_socket* link)
 {
     if (!link) {
@@ -224,5 +279,6 @@ void gracht_link_client_socket_api(struct gracht_link_socket* link)
     link->base.ops.client.connect = (client_link_connect_fn)socket_link_connect;
     link->base.ops.client.recv    = (client_link_recv_fn)socket_link_recv;
     link->base.ops.client.send    = (client_link_send_fn)socket_link_send;
+    link->base.ops.client.peek    = (client_link_peek_fn)socket_link_peek;
     link->base.ops.client.destroy = (client_link_destroy_fn)socket_link_destroy;
 }

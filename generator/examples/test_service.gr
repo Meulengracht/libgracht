@@ -6,8 +6,9 @@
 import "test_structs"
 namespace gracht
 
-// define calculator service with id of 1
-service calculator (0x1) {
+// define calculator service
+// id's are generated based on the crc of <namespace>+<name>
+service calculator : message {
     func add(int a, int b) : (int result) = 1;
     func add_many(int[] inputs) : (int result) = 2;
     func print(string text) : (int result) = 3;
@@ -25,9 +26,94 @@ service calculator (0x1) {
     event transfer_complete : transfer_complete_event = 11;
 }
 
-service control (2) {
-    func subscribe(uint8_t protocol) : () = 1;
-    func unsubscribe(uint8_t protocol) : () = 2;
+service upload : stream {
+    // Bounded client-to-server transfer.
+    // Finite resource, resumable, chunk-addressable.
 
-    event error : (uint32_t messageId, int errorCode) = 3;
+    // Expected generated API shape:
+    // Client:
+    //   gracht_upload_open(string resource_id, uint size) : (string session_id)
+    //   gracht_upload_write_chunk(string session_id, uint index, uint8[] data) : ()
+    //   gracht_upload_finish(string session_id) : ()
+    //   gracht_upload_close(string session_id) : ()
+    //
+    // Server:
+    //   gracht_upload_on_open(...)
+    //   gracht_upload_on_write(...)
+    //   gracht_upload_on_finish(...)
+    //   gracht_upload_on_close(...)
+
+    option direction = to_server;
+    option mode = bounded;
+    option chunk_size = 1M;
+}
+
+service download : stream {
+    // Bounded server-to-client transfer.
+    // Finite resource, resumable, chunk-addressable.
+
+    // Expected generated API shape:
+    // Client:
+    //   gracht_download_open(string resource_id) : (string session_id, uint size)
+    //   gracht_download_read_chunk(string session_id, uint index) : (uint8[] data)
+    //   gracht_download_close(string session_id) : ()
+    //
+    // Server:
+    //   gracht_download_on_open(...)
+    //   gracht_download_on_read(...)
+    //   gracht_download_on_close(...)
+
+    option direction = to_client;
+    option mode = bounded;
+    option chunk_size = 1M;
+}
+
+service video : stream {
+    // Live server-to-client feed.
+    // Ordered stream, no random access, reconnect resumes from "now"
+    // unless replay is explicitly added later.
+
+    // Expected generated API shape:
+    // Client:
+    //   gracht_video_open(string resource-id) : (string session_id)
+    //   gracht_video_on_chunk(...)
+    //   gracht_video_pause(string session_id) : ()
+    //   gracht_video_resume(string session_id) : ()
+    //   gracht_video_close(string session_id) : ()
+    //
+    // Server:
+    //   gracht_video_broadcast_chunk(string resource-id, ...)
+    //   gracht_video_send_chunk(string session-id, ...)
+    //   gracht_video_on_pause(...)
+    //   gracht_video_on_resume(...)
+    //   gracht_video_on_close(...)
+
+    option direction = to_client;
+    option mode = live;
+    option chunk_size = 64K;
+}
+
+service microphone : stream {
+    // Live client-to-server feed.
+    // Ordered stream, no random access, reconnect resumes from "now"
+    // unless buffering/replay is explicitly supported.
+
+    // Expected generated API shape:
+    // Client:
+    //   gracht_microphone_open() : (string session_id)
+    //   gracht_microphone_write_chunk(string session_id, uint8[] data) : ()
+    //   gracht_microphone_pause(string session_id) : ()
+    //   gracht_microphone_resume(string session_id) : ()
+    //   gracht_microphone_close(string session_id) : ()
+    //
+    // Server:
+    //   gracht_microphone_on_open(...)
+    //   gracht_microphone_on_chunk(...)
+    //   gracht_microphone_on_pause(...)
+    //   gracht_microphone_on_resume(...)
+    //   gracht_microphone_on_close(...)
+
+    option direction = to_server;
+    option mode = live;
+    option chunk_size = 64K;
 }

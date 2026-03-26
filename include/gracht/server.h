@@ -50,8 +50,13 @@ typedef struct gracht_server_configuration {
     //                    on the current thread.
     // <max_message_size> specifies the maximum message size that can be handled at once. If not set it defaults
     //                    to GRACHT_DEFAULT_MESSAGE_SIZE as the default value.
+    // <stream_buffer_size> configures the size of buffers used for stream/data-plane sends. If not set it falls
+    //                      back to max_message_size.
+    // <stream_buffer_count> configures how many concurrent stream/data-plane send buffers are kept.
     int                            server_workers;
     int                            max_message_size;
+    int                            stream_buffer_size;
+    int                            stream_buffer_count;
 } gracht_server_configuration_t;
 
 #ifdef __cplusplus
@@ -69,6 +74,7 @@ GRACHTAPI void gracht_server_configuration_init(gracht_server_configuration_t* c
 GRACHTAPI void gracht_server_configuration_set_aio_descriptor(gracht_server_configuration_t* config, gracht_handle_t descriptor);
 GRACHTAPI void gracht_server_configuration_set_num_workers(gracht_server_configuration_t* config, int workerCount);
 GRACHTAPI void gracht_server_configuration_set_max_msg_size(gracht_server_configuration_t* config, int maxMessageSize);
+GRACHTAPI void gracht_server_configuration_set_stream_buffer_size(gracht_server_configuration_t* config, int bufferSize, int bufferCount);
 
 /**
  * Creates a new instance of the gracht server instance based on the config provided. The configuratipn
@@ -152,6 +158,11 @@ GRACHTAPI gracht_handle_t gracht_server_get_aio_handle(gracht_server_t* server);
  * 
  */
 GRACHTAPI void gracht_server_defer_message(struct gracht_message* in, struct gracht_message* out);
+GRACHTAPI int gracht_server_get_stream_buffer(gracht_server_t* server, gracht_buffer_t* buffer);
+GRACHTAPI int gracht_server_get_stream_buffer_sized(gracht_server_t* server, uint32_t requiredSize, gracht_buffer_t* buffer);
+GRACHTAPI int gracht_server_respond_stream(struct gracht_message* messageContext, gracht_buffer_t* message);
+GRACHTAPI int gracht_server_send_stream_event(gracht_server_t* server, gracht_conn_t client, gracht_buffer_t* message, unsigned int flags);
+GRACHTAPI int gracht_server_broadcast_stream_event(gracht_server_t* server, gracht_buffer_t* message, unsigned int flags);
 
 #ifdef __cplusplus
 }

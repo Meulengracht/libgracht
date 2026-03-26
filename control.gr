@@ -1,0 +1,24 @@
+/**
+ * Control protocol for Gracht. This is supported by all servers as
+ * this will be implemented as a part of the runtime.
+ */
+
+namespace gracht
+
+struct client_configuration {
+    uint32 version;
+    uint32 max_message_size;
+}
+
+struct agreed_configuration {
+    bool   acknowledged;
+    uint32 max_message_size;
+}
+
+service control : message {
+    func negotiate(client_configuration config) : (agreed_configuration) = 1;
+    func subscribe(uint8 protocol) : () = 2;
+    func unsubscribe(uint8 protocol) : () = 3;
+
+    event error : (uint32 messageId, int errorCode) = 4;
+}

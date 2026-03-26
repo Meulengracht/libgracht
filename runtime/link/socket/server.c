@@ -118,6 +118,48 @@ static int socket_link_send_client(struct socket_link_client* client,
     return 0;
 }
 
+static int socket_link_peek_socket(gracht_conn_t socket,
+    uint32_t* messageLengthOut, uint8_t* serviceIdOut, unsigned int flags)
+{
+    unsigned int socketFlags = get_socket_flags(flags) | MSG_PEEK;
+    uint8_t      header[GRACHT_MESSAGE_HEADER_SIZE];
+    intmax_t     bytesRead;
+
+    if (!messageLengthOut || !serviceIdOut) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    bytesRead = recv(socket, (char*)&header[0], GRACHT_MESSAGE_HEADER_SIZE, socketFlags);
+    if (bytesRead != GRACHT_MESSAGE_HEADER_SIZE) {
+        if (bytesRead < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                return -1;
+            }
+            errno = EPIPE;
+        } else if (bytesRead == 0) {
+            errno = ENODATA;
+        } else {
+            errno = EPIPE;
+        }
+        return -1;
+    }
+
+    *messageLengthOut = *((uint32_t*)&header[MSG_INDEX_LEN]);
+    *serviceIdOut = header[MSG_INDEX_SID];
+    if (*messageLengthOut < GRACHT_MESSAGE_HEADER_SIZE) {
+        errno = EPROTO;
+        return -1;
+    }
+    return 0;
+}
+
+static int socket_link_peek_client(struct socket_link_client* client,
+    uint32_t* messageLengthOut, uint8_t* serviceIdOut, unsigned int flags)
+{
+    return socket_link_peek_socket(client->base.handle, messageLengthOut, serviceIdOut, flags);
+}
+
 static int socket_link_recv_client(struct socket_link_client* client,
     struct gracht_message* context, unsigned int flags)
 {
@@ -541,6 +583,43 @@ static int socket_link_send_packet(struct gracht_link_socket* link,
     return 0;
 }
 
+static int socket_link_peek_packet(struct gracht_link_socket* link,
+    uint32_t* messageLengthOut, uint8_t* serviceIdOut, unsigned int flags)
+{
+    unsigned int socketFlags = get_socket_flags(flags) | MSG_PEEK;
+    uint8_t      header[GRACHT_MESSAGE_HEADER_SIZE];
+    intmax_t     bytesRead;
+
+    if (link->base.type != gracht_link_packet_based) {
+        errno = ENOSYS;
+        return -1;
+    }
+
+    bytesRead = recvfrom(link->base.connection, (char*)&header[0], GRACHT_MESSAGE_HEADER_SIZE,
+        socketFlags, NULL, NULL);
+    if (bytesRead != GRACHT_MESSAGE_HEADER_SIZE) {
+        if (bytesRead < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                return -1;
+            }
+            errno = EPIPE;
+        } else if (bytesRead == 0) {
+            errno = ENODATA;
+        } else {
+            errno = EPIPE;
+        }
+        return -1;
+    }
+
+    *messageLengthOut = *((uint32_t*)&header[MSG_INDEX_LEN]);
+    *serviceIdOut = header[MSG_INDEX_SID];
+    if (*messageLengthOut < GRACHT_MESSAGE_HEADER_SIZE) {
+        errno = EPROTO;
+        return -1;
+    }
+    return 0;
+}
+
 static void socket_link_destroy(struct gracht_link_socket* link, gracht_handle_t set_handle)
 {
     if (!link) {
@@ -566,9 +645,11 @@ void gracht_link_server_socket_api(struct gracht_link_socket* link)
 
     link->base.ops.server.recv_client = (server_recv_client_fn)socket_link_recv_client;
     link->base.ops.server.send_client = (server_send_client_fn)socket_link_send_client;
+    link->base.ops.server.peek_client = (server_peek_client_fn)socket_link_peek_client;
 
     link->base.ops.server.recv    = (server_link_recv_fn)socket_link_recv_packet;
     link->base.ops.server.send    = (server_link_send_fn)socket_link_send_packet;
+    link->base.ops.server.peek    = (server_link_peek_fn)socket_link_peek_packet;
 
     link->base.ops.server.setup   = (server_link_setup_fn)socket_link_setup;
     link->base.ops.server.destroy = (server_link_destroy_fn)socket_link_destroy;
