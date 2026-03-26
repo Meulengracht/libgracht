@@ -79,6 +79,7 @@ int init_client_with_socket_link(gracht_client_t** clientOut)
     init_socket_config(link);
 
     gracht_client_configuration_set_link(&clientConfiguration, (struct gracht_link*)link);
+    gracht_client_configuration_set_stream_buffer_size(&clientConfiguration, 8192, 8);
 
     code = gracht_client_create(&clientConfiguration, &client);
     if (code) {

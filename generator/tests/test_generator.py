@@ -50,9 +50,11 @@ class GeneratorTests(unittest.TestCase):
 
     def test_legacy_service_keeps_explicit_id(self):
         services = parse_services(REPO_ROOT / "tests/protocols/test_service.gr")
-        self.assertEqual(len(services), 1)
-        self.assertEqual(services[0].get_name(), "utils")
-        self.assertEqual(services[0].get_id(), 1)
+        by_name = {service.get_name(): service for service in services}
+
+        self.assertEqual(by_name["utils"].get_id(), 1)
+        self.assertTrue(by_name["small_upload"].is_stream())
+        self.assertTrue(by_name["large_download"].is_stream())
 
     def test_stream_services_synthesize_expected_operations(self):
         services = parse_services(REPO_ROOT / "generator/examples/test_service.gr")
@@ -111,13 +113,13 @@ class GeneratorTests(unittest.TestCase):
             self.assertIn("#define SERVICE_GRACHT_UPLOAD_FINISH_ID 3", upload_header)
             self.assertIn("#define SERVICE_GRACHT_UPLOAD_CLOSE_ID 4", upload_header)
             self.assertIn("#define SERVICE_GRACHT_VIDEO_EVENT_CHUNK_ID 5", video_header)
-            self.assertIn("gracht_client_get_stream_buffer", upload_client)
-            self.assertIn("gracht_client_invoke_stream", upload_client)
-            self.assertIn("gracht_server_get_stream_buffer", upload_server)
+            self.assertIn("gracht_client_get_stream_buffer_sized", upload_client)
+            self.assertIn("gracht_client_invoke_stream_sized", upload_client)
+            self.assertIn("gracht_server_get_stream_buffer_sized", upload_server)
             self.assertIn("gracht_server_respond_stream", upload_server)
             self.assertIn("GRACHT_PROTOCOL_FLAG_STREAM", upload_server)
-            self.assertIn("gracht_client_get_stream_buffer", video_client)
-            self.assertIn("gracht_client_invoke_stream", video_client)
+            self.assertIn("gracht_client_get_stream_buffer_sized", video_client)
+            self.assertIn("gracht_client_invoke_stream_sized", video_client)
             self.assertIn("GRACHT_PROTOCOL_FLAG_STREAM", video_client)
             self.assertIn("gracht_client_get_buffer", calculator_client)
             self.assertIn("gracht_client_invoke", calculator_client)

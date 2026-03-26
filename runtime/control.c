@@ -56,8 +56,8 @@ static gracht_protocol_function_t server_control_callbacks[2] = {
     { SERVICE_GRACHT_CONTROL_UNSUBSCRIBE_ID, __gracht_unsubscribe_internal },
 };
 
-gracht_protocol_t gracht_control_client_protocol = GRACHT_PROTOCOL_INIT(0, "gracht_control", 1, client_control_callbacks);
-gracht_protocol_t gracht_control_server_protocol = GRACHT_PROTOCOL_INIT(0, "gracht_control", 2, server_control_callbacks);
+gracht_protocol_t gracht_control_client_protocol = GRACHT_PROTOCOL_INIT_FLAGS(0, "gracht_control", 0, 1, client_control_callbacks);
+gracht_protocol_t gracht_control_server_protocol = GRACHT_PROTOCOL_INIT_FLAGS(0, "gracht_control", 0, 2, server_control_callbacks);
 
 extern int gracht_server_get_buffer(gracht_server_t*, gracht_buffer_t*);
 extern int gracht_server_send_event(gracht_server_t*, gracht_conn_t client, gracht_buffer_t*, unsigned int flags);

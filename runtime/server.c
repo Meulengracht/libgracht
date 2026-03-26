@@ -23,6 +23,7 @@
 #include <errno.h>
 #include "aio.h"
 #include "buffer_pool.h"
+#include "stream_pool_registry.h"
 #include "logging.h"
 #include "gracht/server.h"
 #include "thread_api.h"
@@ -53,7 +54,7 @@ struct broadcast_context {
 
 struct server_operations {
     void                   (*dispatch)(struct gracht_server*, struct gracht_message*);
-    struct gracht_message* (*get_incoming_buffer)(struct gracht_server*);
+    struct gracht_message* (*get_incoming_buffer)(struct gracht_server*, uint32_t streamMessageSize);
     void                   (*put_message)(struct gracht_server*, struct gracht_message*);
 };
 
@@ -73,10 +74,15 @@ typedef struct gracht_server {
     struct server_operations*      ops;
     struct gracht_server_callbacks callbacks;
     struct gracht_worker_pool*     worker_pool;
-    struct stack                   bufferStack;
-    size_t                         allocationSize;
-    void*                          recvBuffer;
-    struct gracht_buffer_pool*     recvPool;
+    struct stack                   buffer_stack;
+    size_t                         allocation_size;
+    size_t                         stream_buffer_size;
+    size_t                         stream_buffer_count;
+    void*                          recv_buffer;
+    struct gracht_buffer_pool*     recv_pool;
+    struct gracht_stream_pool_registry stream_send_pools;
+    struct gracht_stream_pool_registry stream_recv_pools;
+    mtx_t                          stream_pools_lock;
     gracht_handle_t                set_handle;
     int                            set_handle_provided;
     gr_hashtable_t                 protocols;
@@ -88,11 +94,16 @@ typedef struct gracht_server {
 
 // api we export to generated files
 GRACHTAPI int gracht_server_get_buffer(gracht_server_t*, gracht_buffer_t*);
+GRACHTAPI int gracht_server_get_stream_buffer(gracht_server_t*, gracht_buffer_t*);
+GRACHTAPI int gracht_server_get_stream_buffer_sized(gracht_server_t*, uint32_t, gracht_buffer_t*);
 GRACHTAPI int gracht_server_respond(struct gracht_message*, gracht_buffer_t*);
+GRACHTAPI int gracht_server_respond_stream(struct gracht_message*, gracht_buffer_t*);
 GRACHTAPI int gracht_server_send_event(gracht_server_t*, gracht_conn_t client, gracht_buffer_t*, unsigned int flags);
+GRACHTAPI int gracht_server_send_stream_event(gracht_server_t*, gracht_conn_t client, gracht_buffer_t*, unsigned int flags);
 GRACHTAPI int gracht_server_broadcast_event(gracht_server_t*, gracht_buffer_t*, unsigned int flags);
+GRACHTAPI int gracht_server_broadcast_stream_event(gracht_server_t*, gracht_buffer_t*, unsigned int flags);
 
-static struct gracht_message* get_in_buffer_st(struct gracht_server*);
+static struct gracht_message* get_in_buffer_st(struct gracht_server*, uint32_t);
 static void                   put_message_st(struct gracht_server*, struct gracht_message*);
 static void                   dispatch_st(struct gracht_server*, struct gracht_message*);
 
@@ -102,7 +113,7 @@ static struct server_operations g_stOperations = {
     put_message_st
 };
 
-static struct gracht_message* get_in_buffer_mt(struct gracht_server*);
+static struct gracht_message* get_in_buffer_mt(struct gracht_server*, uint32_t);
 static void                   put_message_mt(struct gracht_server*, struct gracht_message*);
 static void                   dispatch_mt(struct gracht_server*, struct gracht_message*);
 
@@ -121,9 +132,24 @@ static uint64_t client_hash(const void*);
 static int      client_cmp(const void*, const void*);
 static void     client_enum_destroy(int index, const void* element, void* userContext);
 static void     client_enum_broadcast(int index, const void* element, void* userContext);
+static int      server_protocol_uses_stream_pool(struct gracht_server*, uint8_t);
 
 
 static int configure_server(struct gracht_server*, gracht_server_configuration_t*);
+
+static int server_protocol_uses_stream_pool(struct gracht_server* server, uint8_t protocolId)
+{
+    struct gracht_protocol* protocol;
+    int                     useStream = 0;
+
+    rwlock_r_lock(&server->protocols_lock);
+    protocol = gr_hashtable_get(&server->protocols, &(struct gracht_protocol){ .id = protocolId });
+    if (protocol && (protocol->flags & GRACHT_PROTOCOL_FLAG_STREAM)) {
+        useStream = 1;
+    }
+    rwlock_r_unlock(&server->protocols_lock);
+    return useStream;
+}
 
 int gracht_server_create(gracht_server_configuration_t* config, gracht_server_t** serverOut)
 {
@@ -142,6 +168,7 @@ int gracht_server_create(gracht_server_configuration_t* config, gracht_server_t*
     }
     memset(server, 0, sizeof(gracht_server_t));
     server->set_handle = GRACHT_HANDLE_INVALID;
+    mtx_init(&server->stream_pools_lock, mtx_plain);
 
     status = configure_server(server, config);
     if (status) {
@@ -155,7 +182,7 @@ int gracht_server_create(gracht_server_configuration_t* config, gracht_server_t*
     rwlock_init(&server->clients_lock);
     gr_hashtable_construct(&server->protocols, 0, sizeof(struct gracht_protocol), protocol_hash, protocol_cmp);
     gr_hashtable_construct(&server->clients, 0, sizeof(struct client_wrapper), client_hash, client_cmp);
-    stack_construct(&server->bufferStack, 8);
+    stack_construct(&server->buffer_stack, 8);
 
     // everything is set up - update state before registering control protocol
     server->state = RUNNING;
@@ -188,7 +215,7 @@ static int configure_server(struct gracht_server* server, gracht_server_configur
 
     // configure the allocation size, we use the max message size and add
     // 512 bytes for context data
-    server->allocationSize = configuration->max_message_size + 512;
+    server->allocation_size = configuration->max_message_size + 512;
 
     // handle the worker count, if the worker count is not provided we do not use
     // the dispatcher, but instead handle single-threaded.
@@ -206,18 +233,25 @@ static int configure_server(struct gracht_server* server, gracht_server_configur
     // handle the max message size override, otherwise we default to our default value.
     if (configuration->server_workers > 1) {
         bufferCount = (size_t)configuration->server_workers * 32;
-        status      = gracht_buffer_pool_create(server->allocationSize, bufferCount, &server->recvPool);
+        status      = gracht_buffer_pool_create(server->allocation_size, bufferCount, &server->recv_pool);
         if (status) {
             GRERROR(GRSTR("configure_server: failed to create the receive buffer pool"));
             return -1;
         }
     } else {
-        server->recvBuffer = malloc(server->allocationSize);
-        if (!server->recvBuffer) {
+        server->recv_buffer = malloc(server->allocation_size);
+        if (!server->recv_buffer) {
             GRERROR(GRSTR("configure_server: failed to allocate memory for incoming messages"));
             return -1;
         }
     }
+
+    server->stream_buffer_size = (size_t)(configuration->stream_buffer_size > 0 ?
+            configuration->stream_buffer_size : configuration->max_message_size);
+    if (!server->stream_buffer_size) {
+        server->stream_buffer_size = GRACHT_DEFAULT_MESSAGE_SIZE;
+    }
+    server->stream_buffer_count = (size_t)(configuration->stream_buffer_count > 0 ? configuration->stream_buffer_count : 8);
     return 0;
 }
 
@@ -289,19 +323,41 @@ static int handle_connection(struct gracht_server* server, struct gracht_link* l
     return 0;
 }
 
-static struct gracht_message* get_in_buffer_st(struct gracht_server* server)
+static struct gracht_message* get_in_buffer_st(struct gracht_server* server, uint32_t streamMessageSize)
 {
-    struct gracht_message* message = (struct gracht_message*)server->recvBuffer;
+    struct gracht_message*      message;
+    struct gracht_buffer_pool*  pool;
+    size_t                      requestedSize;
+
+    if (streamMessageSize == 0) {
+        message = (struct gracht_message*)server->recv_buffer;
+        message->server = server;
+        message->index  = server->allocation_size;
+        return message;
+    }
+
+    requestedSize = gracht_stream_normalize_buffer_size((size_t)streamMessageSize + 512, server->stream_buffer_size + 512);
+    mtx_lock(&server->stream_pools_lock);
+    pool = gracht_stream_pool_registry_get_or_create(&server->stream_recv_pools, requestedSize, server->stream_buffer_count);
+    message = pool ? gracht_buffer_pool_acquire(pool) : NULL;
+    mtx_unlock(&server->stream_pools_lock);
+    if (!message) {
+        return NULL;
+    }
     message->server = server;
-    message->index  = server->allocationSize;
+    message->index  = (uint32_t)requestedSize;
     return message;
 }
 
 static void put_message_st(struct gracht_server* server, struct gracht_message* message)
 {
-    (void)server;
-    (void)message;
-    // no op
+    if (!message || message == server->recv_buffer) {
+        return;
+    }
+
+    mtx_lock(&server->stream_pools_lock);
+    gracht_stream_pool_registry_release(&server->stream_recv_pools, message);
+    mtx_unlock(&server->stream_pools_lock);
 }
 
 static void dispatch_st(struct gracht_server* server, struct gracht_message* message)
@@ -324,30 +380,75 @@ static void dispatch_mt(struct gracht_server* server, struct gracht_message* mes
     }
 }
 
-static struct gracht_message* get_in_buffer_mt(struct gracht_server* server)
+static struct gracht_message* get_in_buffer_mt(struct gracht_server* server, uint32_t streamMessageSize)
 {
     struct gracht_message* message;
-    message = gracht_buffer_pool_acquire(server->recvPool);
+
+    if (streamMessageSize == 0) {
+        message = gracht_buffer_pool_acquire(server->recv_pool);
+        if (!message) {
+            return NULL;
+        }
+        message->server = server;
+        message->index  = server->allocation_size;
+        return message;
+    }
+
+    mtx_lock(&server->stream_pools_lock);
+    {
+        struct gracht_buffer_pool* pool;
+        size_t requestedSize = gracht_stream_normalize_buffer_size((size_t)streamMessageSize + 512, server->stream_buffer_size + 512);
+
+        pool = gracht_stream_pool_registry_get_or_create(&server->stream_recv_pools, requestedSize, server->stream_buffer_count);
+        message = pool ? gracht_buffer_pool_acquire(pool) : NULL;
+        if (message) {
+            message->index = (uint32_t)requestedSize;
+        }
+    }
+    mtx_unlock(&server->stream_pools_lock);
     if (!message) {
         return NULL;
     }
     message->server = server;
-    message->index  = server->allocationSize;
     return message;
 }
 
 static void put_message_mt(struct gracht_server* server, struct gracht_message* message)
 {
-    gracht_buffer_pool_release(server->recvPool, message);
+    mtx_lock(&server->stream_pools_lock);
+    if (!gracht_stream_pool_registry_release(&server->stream_recv_pools, message)) {
+        gracht_buffer_pool_release(server->recv_pool, message);
+    }
+    mtx_unlock(&server->stream_pools_lock);
 }
 
 static int handle_packet(struct gracht_server* server, struct gracht_link* link)
 {
     struct gracht_message* message;
     int                    status;
+    uint32_t               incomingLength = 0;
+    uint8_t                protocolId = 0;
+    uint32_t               streamMessageSize = 0;
     GRTRACE(GRSTR("handle_packet(conn=%i)"), link->connection);
 
-    message = server->ops->get_incoming_buffer(server);
+    if (link->ops.server.peek) {
+        status = link->ops.server.peek(link, &incomingLength, &protocolId, GRACHT_MESSAGE_BLOCK);
+        if (status) {
+            if (errno != ENODATA) {
+                GRERROR(GRSTR("handle_packet link->ops.server.peek returned %i"), errno);
+            }
+            return status;
+        }
+
+        if (server_protocol_uses_stream_pool(server, protocolId)) {
+            streamMessageSize = incomingLength;
+        } else if (incomingLength > (uint32_t)(server->allocation_size - 512)) {
+            errno = EMSGSIZE;
+            return -1;
+        }
+    }
+
+    message = server->ops->get_incoming_buffer(server, streamMessageSize);
     if (!message) {
         GRERROR(GRSTR("handle_packet ran out of receiving buffers"));
         errno = ENOMEM;
@@ -386,15 +487,45 @@ static int handle_client_event(struct gracht_server* server, gracht_conn_t handl
     // disconnect event.
     if (events & GRACHT_AIO_EVENT_DISCONNECT) {
         client_destroy(server, handle);
-    }
-    else if ((events & GRACHT_AIO_EVENT_IN) || !events) {
+    } else if ((events & GRACHT_AIO_EVENT_IN) || !events) {
         struct client_wrapper* entry;
 
         rwlock_r_lock(&server->clients_lock);
         entry = gr_hashtable_get(&server->clients, &(struct client_wrapper){ .handle = handle });
         while (entry) {
-            struct gracht_message* message = server->ops->get_incoming_buffer(server);
+            uint32_t               incomingLength = 0;
+            uint8_t                protocolId = 0;
+            uint32_t               streamMessageSize = 0;
+            struct gracht_message* message;
+
+            if (entry->link->ops.server.peek_client) {
+                status = entry->link->ops.server.peek_client(entry->client, &incomingLength, &protocolId, 0);
+                if (status) {
+                    rwlock_r_unlock(&server->clients_lock);
+
+                    if (errno != ENODATA && errno != EAGAIN && errno != EFAULT) {
+                        GRERROR(GRSTR("handle_client_event server_object.link->peek_client returned %i"), errno);
+                    }
+
+                    if (errno == EFAULT) {
+                        GRTRACE(GRSTR("handle_client_event client disconnected, cleaning up"));
+                        client_destroy(server, handle);
+                    }
+                    return 0;
+                }
+
+                if (server_protocol_uses_stream_pool(server, protocolId)) {
+                    streamMessageSize = incomingLength;
+                } else if (incomingLength > (uint32_t)(server->allocation_size - 512)) {
+                    rwlock_r_unlock(&server->clients_lock);
+                    errno = EMSGSIZE;
+                    return -1;
+                }
+            }
+
+            message = server->ops->get_incoming_buffer(server, streamMessageSize);
             if (!message) {
+                rwlock_r_unlock(&server->clients_lock);
                 GRERROR(GRSTR("handle_client_event ran out of receiving buffers"));
                 errno = ENOMEM;
                 return -1;
@@ -462,24 +593,28 @@ static int gracht_server_shutdown(gracht_server_t* server)
     }
 
     // iterate all our serializer buffers and destroy them
-    buffer = stack_pop(&server->bufferStack);
+    buffer = stack_pop(&server->buffer_stack);
     while (buffer) {
         free(buffer);
-        buffer = stack_pop(&server->bufferStack);
+        buffer = stack_pop(&server->buffer_stack);
     }
 
     // destroy all our allocated resources
-    if (server->recvPool) {
-        gracht_buffer_pool_destroy(server->recvPool);
-    }
-    
-    if (server->recvBuffer) {
-        free(server->recvBuffer);
+    if (server->recv_pool) {
+        gracht_buffer_pool_destroy(server->recv_pool);
     }
 
-    stack_destroy(&server->bufferStack);
+    gracht_stream_pool_registry_destroy(&server->stream_send_pools);
+    gracht_stream_pool_registry_destroy(&server->stream_recv_pools);
+    
+    if (server->recv_buffer) {
+        free(server->recv_buffer);
+    }
+
+    stack_destroy(&server->buffer_stack);
     gr_hashtable_destroy(&server->protocols);
     gr_hashtable_destroy(&server->clients);
+    mtx_destroy(&server->stream_pools_lock);
     rwlock_destroy(&server->protocols_lock);
     rwlock_destroy(&server->clients_lock);
     free(server);
@@ -534,9 +669,11 @@ void server_cleanup_message(struct gracht_server* server, struct gracht_message*
         return;
     }
 
-    if (server->recvPool) {
-        gracht_buffer_pool_release(server->recvPool, recvMessage);
+    mtx_lock(&server->stream_pools_lock);
+    if (!gracht_stream_pool_registry_release(&server->stream_recv_pools, recvMessage) && server->recv_pool) {
+        gracht_buffer_pool_release(server->recv_pool, recvMessage);
     }
+    mtx_unlock(&server->stream_pools_lock);
 }
 
 int gracht_server_handle_event(gracht_server_t* server, gracht_conn_t handle, unsigned int events)
@@ -614,9 +751,9 @@ int gracht_server_get_buffer(gracht_server_t* server, gracht_buffer_t* buffer)
         return -1;
     }
 
-    data = stack_pop(&server->bufferStack);
+    data = stack_pop(&server->buffer_stack);
     if (!data) {
-        data = malloc(server->allocationSize);
+        data = malloc(server->allocation_size);
         if (!data) {
             errno = ENOMEM;
             return -1;
@@ -629,7 +766,51 @@ int gracht_server_get_buffer(gracht_server_t* server, gracht_buffer_t* buffer)
     return 0;
 }
 
-int gracht_server_respond(struct gracht_message* messageContext, gracht_buffer_t* message)
+int gracht_server_get_stream_buffer(gracht_server_t* server, gracht_buffer_t* buffer)
+{
+    return gracht_server_get_stream_buffer_sized(server, 0, buffer);
+}
+
+int gracht_server_get_stream_buffer_sized(gracht_server_t* server, uint32_t requiredSize, gracht_buffer_t* buffer)
+{
+    struct gracht_buffer_pool* pool;
+    size_t                     normalizedSize;
+
+    if (!server || !buffer) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    normalizedSize = gracht_stream_normalize_buffer_size(requiredSize, server->stream_buffer_size);
+    mtx_lock(&server->stream_pools_lock);
+    pool = gracht_stream_pool_registry_get_or_create(&server->stream_send_pools, normalizedSize, server->stream_buffer_count);
+    if (pool) {
+        buffer->data = gracht_buffer_pool_acquire(pool);
+    } else {
+        buffer->data = NULL;
+    }
+    mtx_unlock(&server->stream_pools_lock);
+    if (!buffer->data) {
+        errno = ENOMEM;
+        return -1;
+    }
+
+    buffer->index = 0;
+    return 0;
+}
+
+static void __release_send_buffer(gracht_server_t* server, void* data, int stream)
+{
+    if (stream) {
+        mtx_lock(&server->stream_pools_lock);
+        gracht_stream_pool_registry_release(&server->stream_send_pools, data);
+        mtx_unlock(&server->stream_pools_lock);
+    } else {
+        stack_push(&server->buffer_stack, data);
+    }
+}
+
+static int __server_respond(struct gracht_message* messageContext, gracht_buffer_t* message, int stream)
 {
     struct client_wrapper* entry;
     int                    status;
@@ -649,26 +830,37 @@ int gracht_server_respond(struct gracht_message* messageContext, gracht_buffer_t
     entry = gr_hashtable_get(&messageContext->server->clients, &(struct client_wrapper){ .handle = messageContext->client });
     if (!entry) {
         struct gracht_link* link;
-        
+
         rwlock_r_unlock(&messageContext->server->clients_lock);
         link = get_link_by_conn(messageContext->server, messageContext->link);
         if (!link) {
             errno = ENODEV;
+            if (stream) {
+                __release_send_buffer(messageContext->server, message->data, stream);
+            }
             return -1;
         }
         status = link->ops.server.send(link, messageContext, message);
-    }
-    else {
+    } else {
         status = entry->link->ops.server.send_client(entry->client, message, GRACHT_MESSAGE_BLOCK);
         rwlock_r_unlock(&messageContext->server->clients_lock);
     }
 
-    // return the borrowed buffer to the stack
-    stack_push(&messageContext->server->bufferStack, message->data);
+    __release_send_buffer(messageContext->server, message->data, stream);
     return status;
 }
 
-int gracht_server_send_event(gracht_server_t* server, gracht_conn_t client, gracht_buffer_t* message, unsigned int flags)
+int gracht_server_respond(struct gracht_message* messageContext, gracht_buffer_t* message)
+{
+    return __server_respond(messageContext, message, 0);
+}
+
+int gracht_server_respond_stream(struct gracht_message* messageContext, gracht_buffer_t* message)
+{
+    return __server_respond(messageContext, message, 1);
+}
+
+static int __server_send_event(gracht_server_t* server, gracht_conn_t client, gracht_buffer_t* message, unsigned int flags, int stream)
 {
     struct client_wrapper* clientEntry;
     int                    status;
@@ -687,19 +879,31 @@ int gracht_server_send_event(gracht_server_t* server, gracht_conn_t client, grac
     if (!clientEntry) {
         rwlock_r_unlock(&server->clients_lock);
         errno = ENOENT;
+        if (stream) {
+            __release_send_buffer(server, message->data, stream);
+        }
         return -1;
     }
-   
+
     // When sending target specific events - we do not care about subscriptions
     status = clientEntry->link->ops.server.send_client(clientEntry->client, message, flags);
     rwlock_r_unlock(&server->clients_lock);
 
-    // return the borrowed buffer to the stack
-    stack_push(&server->bufferStack, message->data);
+    __release_send_buffer(server, message->data, stream);
     return status;
 }
 
-int gracht_server_broadcast_event(gracht_server_t* server, gracht_buffer_t* message, unsigned int flags)
+int gracht_server_send_event(gracht_server_t* server, gracht_conn_t client, gracht_buffer_t* message, unsigned int flags)
+{
+    return __server_send_event(server, client, message, flags, 0);
+}
+
+int gracht_server_send_stream_event(gracht_server_t* server, gracht_conn_t client, gracht_buffer_t* message, unsigned int flags)
+{
+    return __server_send_event(server, client, message, flags, 1);
+}
+
+static int __server_broadcast_event(gracht_server_t* server, gracht_buffer_t* message, unsigned int flags, int stream)
 {
     struct broadcast_context context = {
         .message = message,
@@ -718,9 +922,18 @@ int gracht_server_broadcast_event(gracht_server_t* server, gracht_buffer_t* mess
     gr_hashtable_enumerate(&server->clients, client_enum_broadcast, &context);
     rwlock_r_unlock(&server->clients_lock);
 
-    // return the borrowed buffer to the stack
-    stack_push(&server->bufferStack, message->data);
+    __release_send_buffer(server, message->data, stream);
     return 0;
+}
+
+int gracht_server_broadcast_event(gracht_server_t* server, gracht_buffer_t* message, unsigned int flags)
+{
+    return __server_broadcast_event(server, message, flags, 0);
+}
+
+int gracht_server_broadcast_stream_event(gracht_server_t* server, gracht_buffer_t* message, unsigned int flags)
+{
+    return __server_broadcast_event(server, message, flags, 1);
 }
 
 int gracht_server_register_protocol(gracht_server_t* server, gracht_protocol_t* protocol)

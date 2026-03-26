@@ -50,9 +50,11 @@ typedef int (*server_create_client_fn)(struct gracht_link*, struct gracht_messag
 typedef int (*server_destroy_client_fn)(struct gracht_server_client*, gracht_handle_t set_handle);
 typedef int (*server_recv_client_fn)(struct gracht_server_client*, struct gracht_message*, unsigned int flags);
 typedef int (*server_send_client_fn)(struct gracht_server_client*, struct gracht_buffer*, unsigned int flags);
+typedef int (*server_peek_client_fn)(struct gracht_server_client*, uint32_t* messageLengthOut, uint8_t* serviceIdOut, unsigned int flags);
 
 typedef int (*server_link_recv_fn)(struct gracht_link*, struct gracht_message*, unsigned int flags);
 typedef int (*server_link_send_fn)(struct gracht_link*, struct gracht_message*, struct gracht_buffer*);
+typedef int (*server_link_peek_fn)(struct gracht_link*, uint32_t* messageLengthOut, uint8_t* serviceIdOut, unsigned int flags);
 
 typedef gracht_conn_t (*server_link_setup_fn)(struct gracht_link*, gracht_handle_t set_handle);
 typedef void          (*server_link_destroy_fn)(struct gracht_link*, gracht_handle_t set_handle);
@@ -67,6 +69,7 @@ struct server_link_ops {
     server_destroy_client_fn destroy_client;
     server_recv_client_fn    recv_client;
     server_send_client_fn    send_client;
+    server_peek_client_fn    peek_client;
 
     /**
      * Connection-less oriented functions, and must be supported by the link
@@ -74,6 +77,7 @@ struct server_link_ops {
      */
     server_link_recv_fn recv;
     server_link_send_fn send;
+    server_link_peek_fn peek;
     
     /**
      * Shared functions that must be implemented for links.
@@ -86,12 +90,14 @@ struct server_link_ops {
 typedef gracht_conn_t (*client_link_connect_fn)(struct gracht_link*);
 typedef int           (*client_link_recv_fn)(struct gracht_link*, struct gracht_buffer*, unsigned int flags);
 typedef int           (*client_link_send_fn)(struct gracht_link*, struct gracht_buffer*, void* messageContext);
+typedef int           (*client_link_peek_fn)(struct gracht_link*, uint32_t* messageLengthOut, uint8_t* serviceIdOut, unsigned int flags);
 typedef void          (*client_link_destroy_fn)(struct gracht_link*);
 
 struct client_link_ops {
     client_link_connect_fn connect;
     client_link_recv_fn    recv;
     client_link_send_fn    send;
+    client_link_peek_fn    peek;
     client_link_destroy_fn destroy;
 };
 

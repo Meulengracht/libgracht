@@ -130,6 +130,7 @@ int init_server_with_socket_link(gracht_server_t** serverOut)
 #endif
 
     gracht_server_configuration_init(&serverConfiguration);
+    gracht_server_configuration_set_stream_buffer_size(&serverConfiguration, 8192, 8);
     
     code = gracht_server_create(&serverConfiguration, serverOut);
     if (code) {
@@ -153,6 +154,7 @@ int init_mt_server_with_socket_link(int workerCount, gracht_server_t** serverOut
 #endif
 
     gracht_server_configuration_init(&serverConfiguration);
+    gracht_server_configuration_set_stream_buffer_size(&serverConfiguration, 8192, 8);
 
     // setup the number of workers
     gracht_server_configuration_set_num_workers(&serverConfiguration, workerCount);

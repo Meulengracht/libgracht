@@ -62,3 +62,15 @@ service utils (0x1) {
     event myevent : (int n) = 11;
     event transfer_status : transfer_status = 12;
 }
+
+service small_upload : stream {
+    option direction = to_server;
+    option mode = bounded;
+    option chunk_size = 64;
+}
+
+service large_download : stream {
+    option direction = to_client;
+    option mode = bounded;
+    option chunk_size = 4K;
+}

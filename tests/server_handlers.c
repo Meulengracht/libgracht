@@ -26,11 +26,82 @@
 #include <stdlib.h>
 #include <string.h>
 #include <test_utils_service_server.h>
+#include <test_small_upload_service_server.h>
+#include <test_large_download_service_server.h>
 
 // reuse the private api
 #include <thread_api.h>
 
 static char* g_message = "hello from test server!";
+
+#define TEST_SMALL_UPLOAD_RESOURCE_ID "small-upload-resource"
+#define TEST_SMALL_UPLOAD_SESSION_ID  "small-upload-session"
+#define TEST_SMALL_UPLOAD_CHUNK_SIZE  64U
+#define TEST_SMALL_UPLOAD_TOTAL_SIZE  176U
+
+#define TEST_LARGE_DOWNLOAD_RESOURCE_ID "large-download-resource"
+#define TEST_LARGE_DOWNLOAD_SESSION_ID  "large-download-session"
+#define TEST_LARGE_DOWNLOAD_CHUNK_SIZE  4096U
+#define TEST_LARGE_DOWNLOAD_TOTAL_SIZE  5632U
+
+struct stream_upload_state {
+    char*        data;
+    uint8_t*     chunk_received;
+    unsigned int expected_size;
+    unsigned int received_size;
+    unsigned int expected_chunks;
+    unsigned int received_chunks;
+    int          active;
+    int          finished;
+    int          closed;
+    int          completed;
+};
+
+static struct stream_upload_state g_smallUpload = { 0 };
+static uint8_t                    g_largeDownload[TEST_LARGE_DOWNLOAD_TOTAL_SIZE];
+static int                        g_largeDownloadInitialized = 0;
+
+static uint8_t stream_test_byte(unsigned int index)
+{
+    return (uint8_t)((index * 29U + 7U) & 0xFFU);
+}
+
+static void initialize_large_download_data(void)
+{
+    unsigned int i;
+
+    if (g_largeDownloadInitialized) {
+        return;
+    }
+
+    for (i = 0; i < TEST_LARGE_DOWNLOAD_TOTAL_SIZE; ++i) {
+        g_largeDownload[i] = stream_test_byte(i);
+    }
+    g_largeDownloadInitialized = 1;
+}
+
+static void finalize_small_upload_if_ready(void)
+{
+    unsigned int i;
+
+    if (!g_smallUpload.active || !g_smallUpload.finished || !g_smallUpload.closed) {
+        return;
+    }
+
+    if (g_smallUpload.received_size != g_smallUpload.expected_size ||
+        g_smallUpload.received_chunks != g_smallUpload.expected_chunks) {
+        return;
+    }
+
+    for (i = 0; i < g_smallUpload.received_size; ++i) {
+        assert((uint8_t)g_smallUpload.data[i] == stream_test_byte(i));
+    }
+
+    free(g_smallUpload.chunk_received);
+    free(g_smallUpload.data);
+    memset(&g_smallUpload, 0, sizeof(g_smallUpload));
+    g_smallUpload.completed = 1;
+}
 
 static int wait_and_respond(void* context)
 {
@@ -119,6 +190,7 @@ void test_utils_get_event_invocation(struct gracht_message* message, const int c
 
 void test_utils_shutdown_invocation(struct gracht_message* message)
 {
+    assert(g_smallUpload.completed);
     printf("shutdown requested\n");
     gracht_server_request_shutdown(message->server);
 }
@@ -149,4 +221,113 @@ void test_utils_add_payment_invocation(struct gracht_message* message, const str
         printf("add_payment failed for unknown account: %s\n", account->name);
         test_utils_add_payment_response(message, -1);
     }
+}
+
+void test_small_upload_open_invocation(struct gracht_message* message, const char* resource_id, const unsigned int size)
+{
+    (void)message;
+
+    assert(strcmp(resource_id, TEST_SMALL_UPLOAD_RESOURCE_ID) == 0);
+    assert(size == TEST_SMALL_UPLOAD_TOTAL_SIZE);
+
+    free(g_smallUpload.data);
+    free(g_smallUpload.chunk_received);
+    g_smallUpload.data = malloc(size);
+    assert(g_smallUpload.data != NULL);
+    g_smallUpload.chunk_received = calloc((size + TEST_SMALL_UPLOAD_CHUNK_SIZE - 1) / TEST_SMALL_UPLOAD_CHUNK_SIZE, sizeof(uint8_t));
+    assert(g_smallUpload.chunk_received != NULL);
+
+    g_smallUpload.expected_size = size;
+    g_smallUpload.received_size = 0;
+    g_smallUpload.expected_chunks = (size + TEST_SMALL_UPLOAD_CHUNK_SIZE - 1) / TEST_SMALL_UPLOAD_CHUNK_SIZE;
+    g_smallUpload.received_chunks = 0;
+    g_smallUpload.active = 1;
+    g_smallUpload.finished = 0;
+    g_smallUpload.closed = 0;
+    g_smallUpload.completed = 0;
+
+    test_small_upload_open_response(message, TEST_SMALL_UPLOAD_SESSION_ID);
+}
+
+void test_small_upload_write_chunk_invocation(struct gracht_message* message, const char* session_id, const unsigned int index, const uint8_t* data, const uint32_t data_count)
+{
+    unsigned int offset;
+    unsigned int expected_count;
+
+    (void)message;
+
+    assert(g_smallUpload.active);
+    assert(strcmp(session_id, TEST_SMALL_UPLOAD_SESSION_ID) == 0);
+    assert(index < g_smallUpload.expected_chunks);
+
+    offset = index * TEST_SMALL_UPLOAD_CHUNK_SIZE;
+    expected_count = g_smallUpload.expected_size - offset;
+    if (expected_count > TEST_SMALL_UPLOAD_CHUNK_SIZE) {
+        expected_count = TEST_SMALL_UPLOAD_CHUNK_SIZE;
+    }
+
+    assert(data_count == expected_count);
+    assert(g_smallUpload.chunk_received[index] == 0);
+
+    if (data_count != 0) {
+        memcpy(&g_smallUpload.data[offset], data, data_count);
+    }
+
+    g_smallUpload.chunk_received[index] = 1;
+    g_smallUpload.received_size += data_count;
+    g_smallUpload.received_chunks++;
+    finalize_small_upload_if_ready();
+}
+
+void test_small_upload_finish_invocation(struct gracht_message* message, const char* session_id)
+{
+    (void)message;
+
+    assert(g_smallUpload.active);
+    assert(strcmp(session_id, TEST_SMALL_UPLOAD_SESSION_ID) == 0);
+
+    g_smallUpload.finished = 1;
+    finalize_small_upload_if_ready();
+}
+
+void test_small_upload_close_invocation(struct gracht_message* message, const char* session_id)
+{
+    (void)message;
+
+    assert(g_smallUpload.active);
+    assert(strcmp(session_id, TEST_SMALL_UPLOAD_SESSION_ID) == 0);
+
+    g_smallUpload.closed = 1;
+    finalize_small_upload_if_ready();
+}
+
+void test_large_download_open_invocation(struct gracht_message* message, const char* resource_id)
+{
+    assert(strcmp(resource_id, TEST_LARGE_DOWNLOAD_RESOURCE_ID) == 0);
+
+    initialize_large_download_data();
+    test_large_download_open_response(message, TEST_LARGE_DOWNLOAD_SESSION_ID, TEST_LARGE_DOWNLOAD_TOTAL_SIZE);
+}
+
+void test_large_download_read_chunk_invocation(struct gracht_message* message, const char* session_id, const unsigned int index)
+{
+    unsigned int offset = index * TEST_LARGE_DOWNLOAD_CHUNK_SIZE;
+    uint32_t     count;
+
+    assert(strcmp(session_id, TEST_LARGE_DOWNLOAD_SESSION_ID) == 0);
+    assert(offset < TEST_LARGE_DOWNLOAD_TOTAL_SIZE);
+
+    count = (uint32_t)(TEST_LARGE_DOWNLOAD_TOTAL_SIZE - offset);
+    if (count > TEST_LARGE_DOWNLOAD_CHUNK_SIZE) {
+        count = TEST_LARGE_DOWNLOAD_CHUNK_SIZE;
+    }
+
+    test_large_download_read_chunk_response(message, &g_largeDownload[offset], count);
+}
+
+void test_large_download_close_invocation(struct gracht_message* message, const char* session_id)
+{
+    (void)message;
+
+    assert(strcmp(session_id, TEST_LARGE_DOWNLOAD_SESSION_ID) == 0);
 }

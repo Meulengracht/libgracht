@@ -41,6 +41,12 @@ typedef struct gracht_client_configuration {
     void*               recv_buffer;
     int                 recv_buffer_size;
     int                 max_message_size;
+
+    // <stream_buffer_size>  configures the size of buffers used for stream/data-plane sends.
+    //                       If not set it falls back to max_message_size.
+    // <stream_buffer_count> configures how many concurrent stream/data-plane send buffers are kept.
+    int                 stream_buffer_size;
+    int                 stream_buffer_count;
 } gracht_client_configuration_t;
 
 // Prototype declaration to hide implementation details.
@@ -58,6 +64,7 @@ GRACHTAPI void gracht_client_configuration_set_link(gracht_client_configuration_
 GRACHTAPI void gracht_client_configuration_set_send_buffer(gracht_client_configuration_t* config, void* buffer);
 GRACHTAPI void gracht_client_configuration_set_recv_buffer(gracht_client_configuration_t* config, void* buffer, int size);
 GRACHTAPI void gracht_client_configuration_set_max_msg_size(gracht_client_configuration_t* config, int maxMessageSize);
+GRACHTAPI void gracht_client_configuration_set_stream_buffer_size(gracht_client_configuration_t* config, int bufferSize, int bufferCount);
 
 /**
  * Creates a new instance of a gracht client based on the link configuration. An application
@@ -150,6 +157,11 @@ GRACHTAPI int gracht_client_await(gracht_client_t* client, struct gracht_message
  * @return int Status of the wait. Only returns -1 if there was any connection issues.
  */
 GRACHTAPI int gracht_client_await_multiple(gracht_client_t* client, struct gracht_message_context** contexts, int count, unsigned int flags);
+
+GRACHTAPI int gracht_client_get_stream_buffer(gracht_client_t* client, gracht_buffer_t* buffer);
+GRACHTAPI int gracht_client_get_stream_buffer_sized(gracht_client_t* client, uint32_t requiredSize, gracht_buffer_t* buffer);
+GRACHTAPI int gracht_client_invoke_stream(gracht_client_t* client, struct gracht_message_context* context, gracht_buffer_t* message);
+GRACHTAPI int gracht_client_invoke_stream_sized(gracht_client_t* client, struct gracht_message_context* context, gracht_buffer_t* message, uint32_t responseBufferSize);
 
 #ifdef __cplusplus
 }

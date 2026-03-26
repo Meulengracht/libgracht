@@ -145,10 +145,14 @@ typedef struct gracht_protocol_function {
 typedef struct gracht_protocol {
     uint8_t                     id;
     char*                       name;
+    uint32_t                    flags;
     uint8_t                     num_functions;
     gracht_protocol_function_t* functions;
 } gracht_protocol_t;
 
-#define GRACHT_PROTOCOL_INIT(id, name, num_functions, functions) { id, name, num_functions, functions }
+#define GRACHT_PROTOCOL_FLAG_STREAM 0x1u
+
+#define GRACHT_PROTOCOL_INIT(id, name, num_functions, functions) { id, name, 0, num_functions, functions }
+#define GRACHT_PROTOCOL_INIT_FLAGS(id, name, flags, num_functions, functions) { id, name, flags, num_functions, functions }
 
 #endif // !__GRACHT_TYPES_H__

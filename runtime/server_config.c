@@ -26,6 +26,7 @@ void gracht_server_configuration_init(gracht_server_configuration_t* config)
     memset(config, 0, sizeof(gracht_server_configuration_t));
     config->server_workers = 1;
     config->max_message_size = GRACHT_DEFAULT_MESSAGE_SIZE;
+    config->stream_buffer_count = 8;
 }
 
 void gracht_server_configuration_set_aio_descriptor(gracht_server_configuration_t* config, gracht_handle_t descriptor)
@@ -42,4 +43,10 @@ void gracht_server_configuration_set_num_workers(gracht_server_configuration_t* 
 void gracht_server_configuration_set_max_msg_size(gracht_server_configuration_t* config, int maxMessageSize)
 {
     config->max_message_size = maxMessageSize;
+}
+
+void gracht_server_configuration_set_stream_buffer_size(gracht_server_configuration_t* config, int bufferSize, int bufferCount)
+{
+    config->stream_buffer_size = bufferSize;
+    config->stream_buffer_count = bufferCount;
 }
