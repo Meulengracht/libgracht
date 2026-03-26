@@ -94,6 +94,31 @@ static int __test_empty_strings(gracht_client_t* client)
     return 0;
 }
 
+static int __test_receive_data(gracht_client_t* client)
+{
+    struct gracht_message_context context;
+    uint8_t expected[16] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 };
+    uint8_t buffer[16];
+    int     code;
+
+    code = test_utils_receive_data(client, &context);
+    if (code) {
+        return code;
+    }
+
+    code = gracht_client_wait_message(client, &context, GRACHT_MESSAGE_BLOCK);
+    if (code) {
+        return code;
+    }
+
+    test_utils_receive_data_result(client, &context, &buffer[0], sizeof(buffer));
+    if (memcmp(buffer, expected, sizeof(expected)) != 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     gracht_client_t* client;
@@ -129,6 +154,12 @@ int main(int argc, char **argv)
     status = __test_empty_strings(client);
     if (status) {
         fprintf(stderr, "__test_empty_strings: FAILED [%s]\n", strerror(status));
+        return status;
+    }
+
+    status = __test_receive_data(client);
+    if (status) {
+        fprintf(stderr, "__test_receive_data: FAILED [%s]\n", strerror(errno));
         return status;
     }
 

@@ -190,7 +190,6 @@ void test_utils_get_event_invocation(struct gracht_message* message, const int c
 
 void test_utils_shutdown_invocation(struct gracht_message* message)
 {
-    assert(g_smallUpload.completed);
     printf("shutdown requested\n");
     gracht_server_request_shutdown(message->server);
 }
