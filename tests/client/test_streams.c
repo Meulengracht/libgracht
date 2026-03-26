@@ -209,14 +209,12 @@ int main(void)
         gracht_client_shutdown(client);
         return status;
     }
-
     status = test_large_download_flow(client);
     if (status) {
         fprintf(stderr, "test_large_download_flow: FAILED [%s]\n", strerror(status));
         gracht_client_shutdown(client);
         return status;
     }
-
     gracht_client_shutdown(client);
     return 0;
 }

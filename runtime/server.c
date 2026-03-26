@@ -363,6 +363,7 @@ static void put_message_st(struct gracht_server* server, struct gracht_message* 
 static void dispatch_st(struct gracht_server* server, struct gracht_message* message)
 {
     server_invoke_action(server, message);
+    server_cleanup_message(server, message);
 }
 
 static void dispatch_mt(struct gracht_server* server, struct gracht_message* message)
