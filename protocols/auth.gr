@@ -1,0 +1,536 @@
+---
+
+# 2. Documented `auth.gr` protocol draft
+
+Suggested path:
+
+`protocol/auth.gr`
+or
+`docs/examples/auth.gr`
+or
+`tests/protocols/auth.gr`
+
+If you don’t yet have a convention, I would lean toward:
+- `protocol/auth.gr` if this is intended to become canonical
+- `docs/examples/auth.gr` if it is still a design/example artifact
+
+Here is the draft:
+
+```c
+/**
+ * libgracht Authentication and Capability Authority Protocol
+ *
+ * Overview
+ * ========
+ *
+ * This protocol defines an authentication/authorization authority service for
+ * libgracht-based systems.
+ *
+ * The intention of this service is to provide a unified authorization model
+ * across different libgracht transports, including:
+ *
+ *  - trusted local IPC links such as Vali IPC
+ *  - socket-based RPC links
+ *  - web-rpc or gateway-backed transports
+ *
+ * Design goals
+ * ============
+ *
+ * 1. Keep authentication transport-specific.
+ *    - Trusted IPC transports may provide verified peer identity directly.
+ *    - Other transports may authenticate using sessions, credentials, or
+ *      future handshake mechanisms.
+ *
+ * 2. Keep authorization capability-based.
+ *    - Callers request explicit capabilities from this authority service.
+ *    - Callers present those capabilities to target services.
+ *    - Target services validate those capabilities and enforce policy.
+ *
+ * 3. Keep authorization out of business payloads.
+ *    - Capabilities are intended to be carried in libgracht runtime envelope
+ *      metadata, not as normal service method parameters.
+ *
+ * 4. Preserve modularity.
+ *    - libgracht core/runtime handles transport and metadata carriage.
+ *    - The auth service handles issuance, introspection, and revocation.
+ *    - Target services handle resource-specific enforcement.
+ *
+ * API summary
+ * ===========
+ *
+ * whoami()
+ *   Returns the principal identity seen by the auth service for the caller.
+ *   This is especially useful on trusted IPC transports where the authority
+ *   can derive identity from verified peer information.
+ *
+ * mint_capability(request)
+ *   Requests issuance of a capability for a resource, audience, and set of
+ *   rights. The auth service evaluates policy and returns either a capability
+ *   blob or a denial.
+ *
+ * introspect_capability(request)
+ *   Resolves a capability blob into normalized claims such as subject,
+ *   audience, resource, rights, issuer, and expiry. This is primarily useful
+ *   for centralized validation and debugging.
+ *
+ * revoke_capability(request)
+ *   Requests revocation of a previously issued capability by capability ID.
+ *   This is primarily intended for opaque/reference capabilities and policy
+ *   management workflows.
+ *
+ * Capability model
+ * ================
+ *
+ * A capability represents explicit authority. At minimum, it is expected to
+ * encode or refer to:
+ *
+ *  - issuer
+ *  - subject
+ *  - audience
+ *  - resource
+ *  - rights
+ *  - issuance time
+ *  - expiry time
+ *  - a unique capability identifier
+ *
+ * Recommended naming conventions
+ * ==============================
+ *
+ * Principal identifiers:
+ *  - "service:displayd"
+ *  - "user:root"
+ *  - "process:42"
+ *  - "session:abcd1234"
+ *
+ * Resource identifiers:
+ *  - "service:fs"
+ *  - "service:fs/open"
+ *  - "service:display/create_window"
+ *  - "object:file:1234"
+ *  - "object:window:55"
+ *  - "device:/dev/input"
+ *
+ * Rights:
+ *  - "call"
+ *  - "read"
+ *  - "write"
+ *  - "execute"
+ *  - "subscribe"
+ *  - "publish"
+ *  - "delegate"
+ *  - "admin"
+ *
+ * Initial implementation guidance
+ * ===============================
+ *
+ * The first implementation is expected to use:
+ *
+ *  - opaque capability blobs
+ *  - centralized introspection
+ *  - short-lived capability grants
+ *
+ * Signed/self-contained capabilities can be added later without changing the
+ * high-level protocol model.
+ */
+
+namespace auth
+
+define uint64_t timestamp_t from "stdint.h"
+define uint32_t auth_code_t from "stdint.h"
+
+/**
+ * auth_status
+ * ===========
+ *
+ * Generic status values returned by the authority service.
+ *
+ * These values are intentionally compact and generic so that target systems
+ * can map them to local runtime or application error models.
+ */
+enum auth_status {
+    /**
+     * The operation completed successfully.
+     */
+    auth_ok = 0,
+
+    /**
+     * The request was malformed, inconsistent, or contained invalid data.
+     */
+    auth_invalid = 1,
+
+    /**
+     * The caller is known, but the requested action is not permitted by policy.
+     */
+    auth_denied = 2,
+
+    /**
+     * The referenced credential or capability has expired.
+     */
+    auth_expired = 3,
+
+    /**
+     * The authority could not complete the request, for example because a
+     * backing store or required subsystem is unavailable.
+     */
+    auth_unavailable = 4
+}
+
+/**
+ * principal_kind
+ * ==============
+ *
+ * Describes the broad class of principal represented by a principal record.
+ *
+ * This keeps the protocol flexible enough to describe users, services,
+ * processes, and session-oriented identities.
+ */
+enum principal_kind {
+    /**
+     * Principal kind could not be determined.
+     */
+    principal_unknown = 0,
+
+    /**
+     * Human or account identity.
+     */
+    principal_user = 1,
+
+    /**
+     * Named service identity.
+     */
+    principal_service = 2,
+
+    /**
+     * Process identity.
+     */
+    principal_process = 3,
+
+    /**
+     * Session-scoped identity.
+     */
+    principal_session = 4
+}
+
+/**
+ * capability_format
+ * =================
+ *
+ * Describes the wire format of a capability blob.
+ *
+ * The initial implementation is expected to prefer opaque capabilities.
+ * Signed capabilities are reserved for future expansion.
+ */
+enum capability_format {
+    /**
+     * Opaque or reference-style capability.
+     *
+     * The contents are not interpreted by the target service directly and are
+     * typically resolved by centralized introspection.
+     */
+    capability_opaque = 0,
+
+    /**
+     * Signed, self-contained capability format.
+     *
+     * This is reserved for future use and is intended for transports or
+     * deployment models where local validation is desirable.
+     */
+    capability_signed_v1 = 1
+}
+
+/**
+ * principal
+ * =========
+ *
+ * Describes the identity of a caller or subject as understood by the auth
+ * authority.
+ *
+ * id
+ *   Stable identity string suitable for policy checks, logging, and
+ *   comparison.
+ *
+ * display_name
+ *   Human-oriented display value. This may be empty or equal to id.
+ */
+struct principal {
+    principal_kind kind;
+    string id;
+    string display_name;
+}
+
+/**
+ * right
+ * =====
+ *
+ * Represents one named authorization right.
+ *
+ * Rights are modeled as strings to keep the protocol open-ended and avoid
+ * baking a fixed permission enum into the core auth model.
+ */
+struct right {
+    string name;
+}
+
+/**
+ * capability_descriptor
+ * =====================
+ *
+ * Describes the authority being requested when minting a new capability.
+ *
+ * audience
+ *   The intended recipient service or service domain for this capability.
+ *   Capabilities should generally be audience-bound to avoid reuse across
+ *   unrelated services.
+ *
+ * resource
+ *   The protected target resource, service method, object, device, or logical
+ *   namespace to which the capability applies.
+ *
+ * rights
+ *   The explicit operations permitted on the resource.
+ *
+ * expires_at
+ *   Absolute expiration time for the requested capability.
+ *   Short-lived capabilities are recommended.
+ *
+ * delegatable
+ *   Non-zero if the capability may later be used as the basis for a derived
+ *   or attenuated capability. The first implementation may ignore this field
+ *   if delegation is not yet supported, but it is included now to stabilize
+ *   the protocol shape early.
+ */
+struct capability_descriptor {
+    string audience;
+    string resource;
+    right[] rights;
+    timestamp_t expires_at;
+    int delegatable;
+}
+
+/**
+ * capability_blob
+ * ===============
+ *
+ * Opaque transport container for a capability.
+ *
+ * format
+ *   The capability wire format.
+ *
+ * data
+ *   Raw capability bytes. These are expected to be carried by libgracht in
+ *   runtime envelope metadata when target services are called.
+ */
+struct capability_blob {
+    uint32_t format;
+    uint8_t[] data;
+}
+
+/**
+ * whoami_result
+ * =============
+ *
+ * Returns the principal currently observed by the auth authority for the
+ * caller of whoami().
+ *
+ * On trusted local transports, this may reflect verified peer identity.
+ * On other transports, this may reflect session or credential-derived identity.
+ */
+struct whoami_result {
+    auth_status status;
+    principal principal;
+}
+
+/**
+ * mint_capability_request
+ * =======================
+ *
+ * Requests issuance of a capability according to the supplied descriptor.
+ *
+ * The authority service is expected to evaluate:
+ *  - who the caller is
+ *  - whether the caller may obtain the requested authority
+ *  - whether the requested lifetime is acceptable
+ *  - whether the requested audience/resource combination is valid
+ */
+struct mint_capability_request {
+    capability_descriptor descriptor;
+}
+
+/**
+ * mint_capability_result
+ * ======================
+ *
+ * Returns either a newly minted capability or an error status.
+ *
+ * On success:
+ *  - status is auth_ok
+ *  - capability contains the issued authorization artifact
+ *
+ * On failure:
+ *  - status indicates why the request did not succeed
+ *  - capability may be empty
+ */
+struct mint_capability_result {
+    auth_status status;
+    capability_blob capability;
+}
+
+/**
+ * introspect_capability_request
+ * =============================
+ *
+ * Requests normalized claim information for a capability blob.
+ *
+ * This operation is especially useful when:
+ *  - capabilities are opaque/reference-based
+ *  - services rely on centralized introspection
+ *  - administrators or tools need human-readable diagnostic information
+ */
+struct introspect_capability_request {
+    capability_blob capability;
+}
+
+/**
+ * introspect_capability_result
+ * ============================
+ *
+ * Returns normalized claim information about a capability.
+ *
+ * subject
+ *   The principal to whom the capability was issued.
+ *
+ * issuer
+ *   The authority that created the capability.
+ *
+ * audience
+ *   The service or service domain for which the capability is intended.
+ *
+ * resource
+ *   The protected target resource identifier.
+ *
+ * rights
+ *   The operations granted on the resource.
+ *
+ * issued_at / expires_at
+ *   Validity interval for the capability.
+ *
+ * capability_id
+ *   Stable identifier for administration, revocation, and diagnostics.
+ *
+ * parent_capability_id
+ *   Optional parent capability identifier if this capability was derived from
+ *   another capability. This may be empty in the initial implementation.
+ *
+ * delegatable
+ *   Non-zero if this capability may be used to derive narrower capabilities.
+ */
+struct introspect_capability_result {
+    auth_status status;
+    principal subject;
+    string issuer;
+    string audience;
+    string resource;
+    right[] rights;
+    timestamp_t issued_at;
+    timestamp_t expires_at;
+    string capability_id;
+    string parent_capability_id;
+    int delegatable;
+}
+
+/**
+ * revoke_capability_request
+ * =========================
+ *
+ * Requests revocation of a previously issued capability.
+ *
+ * capability_id
+ *   Stable capability identifier previously returned by introspection or
+ *   otherwise known to the caller.
+ *
+ * Note:
+ *   Revocation is most naturally supported by opaque/reference capabilities.
+ *   Signed/self-contained capabilities may instead rely primarily on short
+ *   lifetimes, revocation lists, or additional introspection policy.
+ */
+struct revoke_capability_request {
+    string capability_id;
+}
+
+/**
+ * revoke_capability_result
+ * ========================
+ *
+ * Returns the status of a revocation attempt.
+ */
+struct revoke_capability_result {
+    auth_status status;
+}
+
+/**
+ * authority
+ * =========
+ *
+ * Central authentication and capability authority service.
+ *
+ * Typical usage
+ * =============
+ *
+ * 1. A caller establishes identity with the authority.
+ *    - On Vali IPC, this may happen implicitly through verified peer identity.
+ *    - On other transports, future session or credential flows may be used.
+ *
+ * 2. The caller requests a capability using mint_capability().
+ *
+ * 3. The caller attaches the returned capability to subsequent libgracht
+ *    requests using runtime envelope metadata.
+ *
+ * 4. Target services validate the capability using centralized introspection
+ *    or future local verification.
+ */
+service authority (1) {
+    /**
+     * Returns the principal identity currently observed by the auth service for
+     * the caller making the request.
+     *
+     * This is primarily useful for:
+     *  - debugging identity bootstrap
+     *  - service self-discovery
+     *  - validating trusted transport identity mapping
+     */
+    func whoami() : (whoami_result result) = 1;
+
+    /**
+     * Requests a capability granting explicit rights to a particular resource
+     * for a particular audience.
+     *
+     * This is the primary authorization issuance API.
+     *
+     * Example intent:
+     *   audience = "service:fs"
+     *   resource = "service:fs/open"
+     *   rights   = ["call"]
+     */
+    func mint_capability(mint_capability_request request)
+        : (mint_capability_result result) = 2;
+
+    /**
+     * Resolves a capability blob into normalized authorization claims.
+     *
+     * This is intended for:
+     *  - target service validation
+     *  - centralized policy enforcement
+     *  - debugging and diagnostics
+     */
+    func introspect_capability(introspect_capability_request request)
+        : (introspect_capability_result result) = 3;
+
+    /**
+     * Revokes a previously issued capability by identifier.
+     *
+     * This is mainly intended for administrative policy changes, emergency
+     * invalidation, and lifecycle management of opaque capabilities.
+     */
+    func revoke_capability(revoke_capability_request request)
+        : (revoke_capability_result result) = 4;
+}
