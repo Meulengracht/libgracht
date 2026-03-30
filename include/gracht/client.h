@@ -26,6 +26,13 @@
 #include "types.h"
 #include "link/link.h"
 
+struct gracht_call_options {
+    uint32_t                 flags;
+    struct gracht_capability capability;
+    uint64_t                 timeout_ms;
+    void*                    user_context;
+};
+
 typedef struct gracht_client_configuration {
     // Link operations, which can be filled by any link-implementation under <link/*>
     // these provide the underlying link implementation like a socket interface or a serial interface.
