@@ -95,6 +95,8 @@ GRACHTAPI int gracht_server_create(gracht_server_configuration_t* config, gracht
  */
 GRACHTAPI void gracht_server_request_shutdown(gracht_server_t* server);
 
+
+
 /**
  * Registers a link with the server. The server can operate on multiple links, but it needs
  * atleast a single link to function. Any functions called without registering a link will
@@ -104,6 +106,9 @@ GRACHTAPI void gracht_server_request_shutdown(gracht_server_t* server);
  * @return int Returns 0 if the protocol was link, or -1 if max count of links has been registered.
  */
 GRACHTAPI int gracht_server_add_link(gracht_server_t* server, struct gracht_link* link);
+
+GRACHTAPI const struct gracht_security_context*
+gracht_server_get_security_context(gracht_server_request_t* request);
 
 /**
  * Registers a new protocol with the server. A max of 255 protocols can be registered, and if
