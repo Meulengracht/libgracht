@@ -118,6 +118,18 @@ struct gracht_message {
     uint8_t          payload[]; // payload follows this message header
 };
 
+enum gracht_capability_format {
+    GRACHT_CAPABILITY_FORMAT_OPAQUE = 0,
+    GRACHT_CAPABILITY_FORMAT_SIGNED_V1 = 1
+};
+
+// Represents a capability used for authentication
+struct gracht_capability {
+    const void* data;
+    size_t      length;
+    uint32_t    format;
+};
+
 /**
  * The message buffer descriptor. Used internally by the generated system to perform
  * serialization and deserialization of messages
