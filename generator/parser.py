@@ -93,6 +93,18 @@ def token_to_string(token):
         return "OPTION"
     return "UNKNOWN"
 
+
+def token_matches(token_type, expected):
+    if isinstance(expected, list):
+        return token_type in expected
+    return token_type == expected
+
+
+def expected_as_list(expected):
+    if isinstance(expected, list):
+        return expected
+    return [expected]
+
 class Token:
     def __init__(self, scanner, token_type, value=None):
         trace(f"found {str(token_type)} at line {scanner.line_no()}:{scanner.line_index()} == {value}")
@@ -785,47 +797,53 @@ def handle_struct(context, tokens):
 def match_syntax(tokens, syntax):
     i = 0
     j = 0
-    while i < len(tokens) and j < len(syntax):
-        trace(f"matching {tokens[i].token_type()} == {syntax[j]} ({j}/{len(syntax)})")
-        if isinstance(syntax[j], list):
-            foundOption = False
-            for option in syntax[j]:
-                if tokens[i].token_type() == option:
-                    i += 1
-                    j += 1
-                    foundOption = True
-                    break
-            if not foundOption:
-                return False
-        else:
-            if tokens[i].token_type() == syntax[j]:
+    while j < len(syntax):
+        expected = syntax[j]
+
+        if expected == -1:
+            j += 1
+            if j >= len(syntax):
+                return True, None
+            expected = syntax[j]
+            while i < len(tokens) and not token_matches(tokens[i].token_type(), expected):
                 i += 1
-                j += 1
-            elif syntax[j] == -1:
-                # variable entries
-                j += 1
-                while i < len(tokens) and tokens[i].token_type() != syntax[j]:
-                    i += 1
-                if i == len(tokens):
-                    return False
-            else:
-                return False
-    return True
+            if i == len(tokens):
+                return False, expected_as_list(expected)
+            continue
+
+        if i >= len(tokens):
+            return False, expected_as_list(expected)
+
+        trace(f"matching {tokens[i].token_type()} == {expected} ({j}/{len(syntax)})")
+        if token_matches(tokens[i].token_type(), expected):
+            i += 1
+            j += 1
+            continue
+
+        return False, expected_as_list(expected)
+
+    return True, None
 
 
 def parse_scope(context, tokens, allowed_syntax):
     while len(tokens):
         matched = False
+        expected_tokens = set()
         for syntax in allowed_syntax.items():
-            matched = match_syntax(tokens, syntax[1])
+            matched, expected = match_syntax(tokens, syntax[1])
             if matched:
                 trace(f"found matching syntax: {syntax[0][0]}")
                 syntax[0][1](context, tokens)
                 break
+            if expected:
+                for expected_token in expected:
+                    expected_tokens.add(expected_token)
 
         if not matched:
-            print(f"unknown syntax on line {tokens[0].line_no()}: {tokens[0].line_contents()}")
-            error(f"at {tokens[0].line_index()} for token {token_to_string(tokens[0])} ({tokens[0].token_type()})")
+            unexpected = tokens[0]
+            expected_str = ", ".join(sorted(token_to_string(token) for token in expected_tokens)) if expected_tokens else "no valid tokens found"
+            print(f"unknown syntax on line {unexpected.line_no()}: {unexpected.line_contents()}")
+            error(f"unexpected token {token_to_string(unexpected.token_type())} at {unexpected.line_no()}:{unexpected.line_index()}, expected: {expected_str}")
 
 
 def parse_identifier(scanner: Scanner):
