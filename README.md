@@ -37,39 +37,76 @@ Supported platforms:
  * Includes example of a test protocol and some test structures
  */
 
-import "shared_types" // imports file shared_types.gr
 namespace test
 
-define uint32_t from "stdint.h"
-
-enum error_codes {
-    ok = 0,
-    invalid_parameters = -1,
-    invalid_result = -2
+struct payment {
+    uint32 id;
+    int    amount;
 }
 
-struct transfer_device {
-    string device;
+struct owner_business {
+    uint32 id;
+    string name;
 }
 
-struct transfer_bit {
-    int start;
-    int length;
+struct owner_person {
+    uint32 id;
+    string name;
 }
 
-struct transfer_request {
-    transfer_device device;
-    transfer_bit[] bits;
+struct account_owner {
+    variant type {
+        owner_business b;
+        owner_person p;
+    }
 }
 
-struct transfer_complete_event {
-    uint32_t id;
+struct account {
+    string        name;
+    uint32        id;
+    account_owner owner;
+    int           balance;
+    payment[]     payments;
 }
 
-service disk : message {
-    func transfer(transfer_request request) : (int status) = 1;
-    func transfer_many(transfer_request[] request) : (int[] statuses) = 2;
-    event transfer_complete : transfer_complete_event = 3;
+struct transaction {
+    uint32  test_id;
+    string  serial;
+    uint8[] data;
+}
+
+struct transfer_status {
+    uint32 test_id;
+    int    code;
+}
+
+service utils (0x1) {
+    func print(string text) : (int result) = 1;
+    func transfer(transaction transaction) : (transfer_status result) = 2;
+    func transfer_many(transaction[] transactions) : (transfer_status[] results) = 3;
+    func transfer_data(uint8[] data) : () = 4;
+    func receive_data() : (uint8[] data) = 5;
+    func receive_string() : (string text) = 6;
+    func get_event(int count) : () = 7;
+    func shutdown() : () = 8;
+
+    func get_account(string name) : (account result) = 9;
+    func add_payment(account account, payment payment) : (int result) = 10;
+
+    event myevent : (int n) = 11;
+    event transfer_status : transfer_status = 12;
+}
+
+service small_upload : stream {
+    option direction = to_server;
+    option mode = bounded;
+    option chunk_size = 64;
+}
+
+service large_download : stream {
+    option direction = to_client;
+    option mode = bounded;
+    option chunk_size = 4K;
 }
 ```
 
