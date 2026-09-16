@@ -80,7 +80,7 @@ struct transfer_status {
     int    code;
 }
 
-service utils (0x1) {
+service utils : message {
     func print(string text) : (int result) = 1;
     func transfer(transaction transaction) : (transfer_status result) = 2;
     func transfer_many(transaction[] transactions) : (transfer_status[] results) = 3;
