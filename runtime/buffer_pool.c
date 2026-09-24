@@ -45,6 +45,11 @@ static int gracht_buffer_pool_create_internal(
         errno = EINVAL;
         return -1;
     }
+    
+    if (bufferCount > SIZE_MAX / bufferSize) {
+        errno = EOVERFLOW;
+        return -1;
+    }
 
     pool = malloc(sizeof(struct gracht_buffer_pool));
     if (!pool) {

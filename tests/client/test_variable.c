@@ -51,6 +51,7 @@ int main(void)
     struct gracht_message_context context;
     struct test_transaction       transactions[12];
     struct test_transfer_status   status[12];
+    uint32_t                      status_count = 12;
 
     // create client
     code = init_client_with_socket_link(&client);
@@ -72,7 +73,10 @@ int main(void)
     
     test_utils_transfer_many(client, &context, &transactions[0], 12);
     gracht_client_wait_message(client, &context, GRACHT_MESSAGE_BLOCK);
-    test_utils_transfer_many_result(client, &context, &status[0], 12);
+    if (test_utils_transfer_many_result(client, &context, &status[0], &status_count) || status_count != 12) {
+        gracht_client_shutdown(client);
+        return EINVAL;
+    }
 
     for (code = 0; code < 12; code++) {
         printf("gracht_client: status[%i]=%i\n", code, status[code].code);

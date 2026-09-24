@@ -150,6 +150,15 @@ GRACHTAPI int gracht_server_handle_event(gracht_server_t* server, gracht_conn_t 
  */
 GRACHTAPI int gracht_server_main_loop(gracht_server_t* server);
 
+/** 
+ * Register the sender of a received packet for directed events, without a
+ * separate subscribe round trip. Idempotent for an existing sender. Call only
+ * after application authorization, while the received message is still valid.
+ * The server owns the routing entry until disconnect/unsubscribe or shutdown.
+ * Returns zero on success, -1 with errno on allocation/invalid-link failure.
+ */
+GRACHTAPI int gracht_server_register_client(const struct gracht_message* message);
+
 /**
  * Returns the epoll/select/completion port handle/descriptor that is used by the server.
  * 

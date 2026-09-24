@@ -21,16 +21,10 @@
  */
 
 #include "control.h"
+#include <gracht/codec.h>
 
-#define SERIALIZE_VALUE(name, type) static inline void serialize_##name(gracht_buffer_t* buffer, type value) { \
-                                  *((type*)&buffer->data[buffer->index]) = value; buffer->index += sizeof(type); \
-                              }
-
-#define DESERIALIZE_VALUE(name, type) static inline type deserialize_##name(gracht_buffer_t* buffer) { \
-                                  type value = *((type*)&buffer->data[buffer->index]); \
-                                  buffer->index += sizeof(type); \
-                                  return value; \
-                              }
+#define SERIALIZE_VALUE GRACHT_SERIALIZE_VALUE
+#define DESERIALIZE_VALUE GRACHT_DESERIALIZE_VALUE
 
 SERIALIZE_VALUE(uint8_t, uint8_t)
 DESERIALIZE_VALUE(uint8_t, uint8_t)
@@ -69,6 +63,7 @@ void __gracht_error_internal(gracht_client_t* __client, gracht_buffer_t* __buffe
     int __errorCode;
     __messageId = deserialize_uint32_t(__buffer);
     __errorCode = deserialize_int(__buffer);
+    if (__buffer->error) return;
     gracht_control_error_invocation(__client, __messageId, __errorCode);
 }
 
@@ -76,6 +71,7 @@ void __gracht_subscribe_internal(struct gracht_message* __message, gracht_buffer
 {
     uint8_t __protocol;
     __protocol = deserialize_uint8_t(__buffer);
+    if (__buffer->error) return;
     gracht_control_subscribe_invocation(__message, __protocol);
 }
 
@@ -83,6 +79,7 @@ void __gracht_unsubscribe_internal(struct gracht_message* __message, gracht_buff
 {
     uint8_t __protocol;
     __protocol = deserialize_uint8_t(__buffer);
+    if (__buffer->error) return;
     gracht_control_unsubscribe_invocation(__message, __protocol);
 }
 

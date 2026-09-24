@@ -99,6 +99,7 @@ static int __test_receive_data(gracht_client_t* client)
     struct gracht_message_context context;
     uint8_t expected[16] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 };
     uint8_t buffer[16];
+    uint32_t count = sizeof(buffer);
     int     code;
 
     code = test_utils_receive_data(client, &context);
@@ -111,8 +112,8 @@ static int __test_receive_data(gracht_client_t* client)
         return code;
     }
 
-    test_utils_receive_data_result(client, &context, &buffer[0], sizeof(buffer));
-    if (memcmp(buffer, expected, sizeof(expected)) != 0) {
+    code = test_utils_receive_data_result(client, &context, &buffer[0], &count);
+    if (code || count != sizeof(expected) || memcmp(buffer, expected, sizeof(expected)) != 0) {
         errno = EINVAL;
         return -1;
     }
@@ -138,6 +139,13 @@ int main(int argc, char **argv)
 
     // register protocols
     gracht_client_register_protocol(client, &test_utils_client_protocol);
+
+    uint8_t oversized[GRACHT_DEFAULT_MESSAGE_SIZE + 1] = {0};
+    status = test_utils_transfer_data(client, NULL, oversized, sizeof(oversized));
+    if (status != -1 || errno != EMSGSIZE) {
+        gracht_client_shutdown(client);
+        return EINVAL;
+    }
 
     status = __test_print(client, text);
     if (status) {

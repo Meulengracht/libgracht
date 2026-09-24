@@ -53,6 +53,7 @@ struct gracht_link_vali;
 GRACHTAPI int  gracht_link_vali_create(struct gracht_link_vali** linkOut);
 GRACHTAPI void gracht_link_vali_set_listen(struct gracht_link_vali* link, int listen);
 GRACHTAPI void gracht_link_vali_set_address(struct gracht_link_vali* link, IPCAddress_t*);
+GRACHTAPI void gracht_link_vali_set_send_timeout(struct gracht_link_vali* link, uint32_t milliseconds);
 
 // OS API
 struct sockaddr_storage;

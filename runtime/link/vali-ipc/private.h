@@ -29,6 +29,18 @@
 struct gracht_link_vali {
     struct gracht_link base;
     IPCAddress_t       address;
+    uint32_t           send_timeout_ms;
 };
+
+/**
+ * @brief Shared deadline handling for requests, responses and directed events. 
+ * @param iod The I/O descriptor for the IPC endpoint.
+ * @param address The address of the IPC recipient.
+ * @param data Pointer to the data to be sent.
+ * @param length Length of the data to be sent.
+ * @param timeoutMs Timeout in milliseconds for the send operation.
+ * @return 0 on success, or -1 on failure with errno set appropriately.
+ */
+int gracht_vali_send(int iod, IPCAddress_t* address, const void* data, unsigned int length, uint32_t timeoutMs);
 
 #endif // !__GRACHT_VALI_PRIVATE_H__

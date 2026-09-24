@@ -57,6 +57,8 @@ struct gracht_message_awaiter_entry {
 // descriptor | message | params
 struct gracht_message_descriptor {
     uint32_t        id;
+    uint8_t         protocol_id;
+    uint8_t         action_id;
     int             status;
     uint32_t        awaiter_id;
     int             stream_buffer;
@@ -110,8 +112,9 @@ static int      awaiter_cmp(const void* element1, const void* element2);
 static int      protocol_uses_stream_pool(gracht_client_t*, uint8_t);
 
 static int __add_message(
-        gracht_client_t*                   client,
+    gracht_client_t*                   client,
     struct gracht_message_context*     context,
+    const gracht_buffer_t*             request,
     int                                streamBuffer,
     uint32_t                           responseBufferSize)
 {
@@ -122,6 +125,8 @@ static int __add_message(
     }
 
     entry.id = context->message_id;
+    entry.protocol_id = GB_MSG_SID_0(request);
+    entry.action_id = GB_MSG_AID_0(request);
     entry.status = GRACHT_MESSAGE_INPROGRESS;
     entry.stream_buffer = streamBuffer;
     entry.response_buffer_size = responseBufferSize;
@@ -177,10 +182,16 @@ static int gracht_client_invoke_internal(
         return -1;
     }
     
+    if (message->error || message->index < GRACHT_MESSAGE_HEADER_SIZE || message->index > message->limit) {
+        errno = message->error ? message->error : EMSGSIZE;
+        status = -1;
+        goto release;
+    }
+
     // fill in some message details
     messageID = get_message_id(client);
-    GB_MSG_ID_0(message)  = messageID;
-    GB_MSG_LEN_0(message) = message->index;
+    __gracht_write_u32(&message->data[MSG_INDEX_ID], messageID);
+    __gracht_write_u32(&message->data[MSG_INDEX_LEN], message->index);
 
     // store a copy of the message id if the context was provided.
     if (context) {
@@ -189,7 +200,7 @@ static int gracht_client_invoke_internal(
     
     // require intermediate buffer for sync operations
     if (MESSAGE_FLAG_TYPE(GB_MSG_FLG_0(message)) == MESSAGE_FLAG_SYNC) {
-        status = __add_message(client, context, streamBuffer, responseBufferSize);
+        status = __add_message(client, context, message, streamBuffer, responseBufferSize);
         if (status) {
             goto release;
         }
@@ -252,6 +263,10 @@ static int __invoke_action(gracht_client_t* client, struct gracht_buffer* messag
 
     message->index += GRACHT_MESSAGE_HEADER_SIZE;
     ((client_invoke_t)function->address)(client, message);
+    if (message->error) {
+        errno = message->error;
+        return -1;
+    }
     return 0;
 }
 
@@ -272,13 +287,29 @@ static int __handle_response(
     );
     if (!descriptor) {
         mtx_unlock(&client->messages_lock);
-        // what the heck?
-        GRERROR(GRSTR("[gracht_client_wait_message] no-one was listening for message %u"), GB_MSG_ID(buffer));
+        // Late responses are possible after a result has already been consumed.
+        // The caller still owns this receive buffer and must release it.
+        errno = ENOENT;
+        return -1;
+    }
+    if (descriptor->protocol_id != GB_MSG_SID(buffer) ||
+        descriptor->action_id != GB_MSG_AID(buffer)) {
+        mtx_unlock(&client->messages_lock);
+        // A matching message ID does not make a different response schema safe
+        // to decode. Keep the original operation pending for its actual reply.
+        errno = EPROTO;
+        return -1;
+    }
+    if (descriptor->status != GRACHT_MESSAGE_INPROGRESS) {
+        mtx_unlock(&client->messages_lock);
+        // First terminal result wins. Replacing it would leak its receive buffer
+        // and could notify an awaiter more than once for the same operation.
+        errno = EALREADY;
         return -1;
     }
 
     // copy data over to message, but increase index, so it skips the meta-data
-    descriptor->buffer.data  = buffer->data;
+    descriptor->buffer = *buffer;
     descriptor->buffer.index = buffer->index + GRACHT_MESSAGE_HEADER_SIZE;
     descriptor->status = GRACHT_MESSAGE_COMPLETED;
     awaiterID = descriptor->awaiter_id;
@@ -413,6 +444,13 @@ listenForMessage:
         goto listenOrExit;
     }
 
+    buffer.error = 0;
+    if (!gracht_codec_reserve(&buffer, GRACHT_MESSAGE_HEADER_SIZE) ||
+        GB_MSG_LEN(&buffer) != buffer.limit - buffer.index) {
+        errno = EPROTO;
+        status = -1;
+        goto listenOrExit;
+    }
     messageFlags = GB_MSG_FLG(&buffer);
 
     // If the message is not an event, then do not invoke any actions. In any case if a context is provided
@@ -425,7 +463,9 @@ listenForMessage:
     } else if (MESSAGE_FLAG_TYPE(messageFlags) == MESSAGE_FLAG_RESPONSE) {
         status = __handle_response(client, &buffer);
         if (status) {
-            goto listenForMessage;
+            // Rejected/late responses never transfer ownership to a descriptor.
+            // Release this buffer before returning to the application's pump.
+            goto listenOrExit;
         }
 
         // set message id handled
@@ -623,6 +663,8 @@ int gracht_client_get_buffer(gracht_client_t* client, gracht_buffer_t* buffer)
     mtx_lock(&client->send_buffer_lock);
     buffer->data = client->send_buffer;
     buffer->index = 0;
+    buffer->limit = (uint32_t)client->max_message_size;
+    buffer->error = 0;
     return 0;
 }
 
@@ -643,6 +685,10 @@ int gracht_client_get_stream_buffer_sized(gracht_client_t* client, uint32_t requ
     }
 
     normalizedSize = gracht_stream_normalize_buffer_size(requiredSize, client->stream_buffer_size);
+    if (!normalizedSize || normalizedSize > UINT32_MAX) {
+        errno = EOVERFLOW;
+        return -1;
+    }
     mtx_lock(&client->stream_pools_lock);
     pool = gracht_stream_pool_registry_get_or_create(&client->stream_send_pools, normalizedSize, client->stream_buffer_count);
     if (pool) {
@@ -657,7 +703,51 @@ int gracht_client_get_stream_buffer_sized(gracht_client_t* client, uint32_t requ
     }
 
     buffer->index = 0;
+    buffer->limit = (uint32_t)normalizedSize;
+    buffer->error = 0;
     return 0;
+}
+
+int gracht_client_abandon(gracht_client_t* client, struct gracht_message_context* context)
+{
+    struct gracht_message_descriptor* descriptor;
+    gracht_buffer_t buffer;
+    if (!client || !context) { errno = EINVAL; return -1; }
+    mtx_lock(&client->messages_lock);
+    descriptor = gr_hashtable_get(&client->messages,
+            &(struct gracht_message_descriptor){ .id = context->message_id });
+    if (!descriptor || descriptor->awaiter_id) {
+        errno = descriptor ? EBUSY : ENOENT;
+        mtx_unlock(&client->messages_lock);
+        return -1;
+    }
+    buffer = descriptor->buffer;
+    gr_hashtable_remove(&client->messages,
+            &(struct gracht_message_descriptor){ .id = context->message_id });
+    mtx_unlock(&client->messages_lock);
+    return gracht_client_status_finalize(client, &buffer);
+}
+
+int gracht_client_get_status(gracht_client_t* client, struct gracht_message_context* context)
+{
+    struct gracht_message_descriptor* descriptor;
+    int status;
+
+    if (!client || !context) {
+        errno = EINVAL;
+        return -1;
+    }
+    mtx_lock(&client->messages_lock);
+    descriptor = gr_hashtable_get(&client->messages,
+            &(struct gracht_message_descriptor){ .id = context->message_id });
+    status = descriptor ? descriptor->status : GRACHT_MESSAGE_ERROR;
+    if (!descriptor) {
+        errno = ENOENT;
+    } else if (status == GRACHT_MESSAGE_ERROR) {
+        errno = EIO;
+    }
+    mtx_unlock(&client->messages_lock);
+    return status;
 }
 
 int gracht_client_get_status_buffer(
@@ -666,6 +756,7 @@ int gracht_client_get_status_buffer(
         struct gracht_buffer*          buffer)
 {
     struct gracht_message_descriptor* descriptor;
+    struct gracht_message_descriptor  completed;
     int                               status;
     GRTRACE(GRSTR("gracht_client_get_status_buffer()"));
     
@@ -674,9 +765,11 @@ int gracht_client_get_status_buffer(
         return -1;
     }
     
-    // guard against already checked
+    // Inspection must not consume a pending request. Generated result helpers
+    // are also used by nonblocking executors, which may call them repeatedly
+    // between event-pump turns. Transfer a buffer only for a terminal result.
     mtx_lock(&client->messages_lock);
-    descriptor = gr_hashtable_remove(
+    descriptor = gr_hashtable_get(
             &client->messages,
             &(struct gracht_message_descriptor) {
                     .id = context->message_id
@@ -689,19 +782,30 @@ int gracht_client_get_status_buffer(
     }
     
     status = descriptor->status;
-    buffer->data = descriptor->buffer.data;
-    buffer->index = descriptor->buffer.index;
+    if (status == GRACHT_MESSAGE_INPROGRESS) {
+        memset(buffer, 0, sizeof(*buffer));
+        mtx_unlock(&client->messages_lock);
+        return status;
+    }
+
+    // Hashtable storage may move on a concurrent insertion/removal. Snapshot the
+    // terminal descriptor while locked; never dereference it after unlocking.
+    completed = *descriptor;
+    gr_hashtable_remove(&client->messages, &completed);
+    *buffer = completed.buffer;
     mtx_unlock(&client->messages_lock);
 
     // immediately cleanup the buffer if an error has ocurred
-    if (descriptor->status == GRACHT_MESSAGE_ERROR && descriptor->buffer.data) {
-        if (descriptor->stream_buffer) {
+    if (status == GRACHT_MESSAGE_ERROR && completed.buffer.data) {
+        if (completed.stream_buffer) {
             mtx_lock(&client->stream_pools_lock);
-            gracht_stream_pool_registry_release(&client->stream_recv_pools, descriptor->buffer.data);
+            gracht_stream_pool_registry_release(&client->stream_recv_pools, completed.buffer.data);
             mtx_unlock(&client->stream_pools_lock);
         } else {
-            gracht_buffer_pool_release(client->recv_pool, descriptor->buffer.data);
+            gracht_buffer_pool_release(client->recv_pool, completed.buffer.data);
         }
+        // No ownership is handed to callers on an error result.
+        memset(buffer, 0, sizeof(*buffer));
     }
     return status;
 }

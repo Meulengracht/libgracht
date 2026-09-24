@@ -332,20 +332,30 @@ static struct gracht_message* get_in_buffer_st(struct gracht_server* server, uin
     if (streamMessageSize == 0) {
         message = (struct gracht_message*)server->recv_buffer;
         message->server = server;
-        message->index  = server->allocation_size;
+        message->index  = (uint32_t)(server->allocation_size - sizeof(*message));
         return message;
     }
 
-    requestedSize = gracht_stream_normalize_buffer_size((size_t)streamMessageSize + 512, server->stream_buffer_size + 512);
+    requestedSize = gracht_stream_normalize_buffer_size(
+        gracht_codec_size_add(streamMessageSize, 512), 
+        gracht_codec_size_add(server->stream_buffer_size, 512)
+    );
+    
+    // acquire a buffer from the stream pool based on the requested size
     mtx_lock(&server->stream_pools_lock);
-    pool = gracht_stream_pool_registry_get_or_create(&server->stream_recv_pools, requestedSize, server->stream_buffer_count);
+    pool = gracht_stream_pool_registry_get_or_create(
+        &server->stream_recv_pools,
+        requestedSize,
+        server->stream_buffer_count
+    );
     message = pool ? gracht_buffer_pool_acquire(pool) : NULL;
     mtx_unlock(&server->stream_pools_lock);
+    
     if (!message) {
         return NULL;
     }
     message->server = server;
-    message->index  = (uint32_t)requestedSize;
+    message->index  = (uint32_t)(requestedSize - sizeof(*message));
     return message;
 }
 
@@ -368,45 +378,60 @@ static void dispatch_st(struct gracht_server* server, struct gracht_message* mes
 
 static void dispatch_mt(struct gracht_server* server, struct gracht_message* message)
 {
-    uint8_t protocol = *((uint8_t*)&message->payload[message->index + MSG_INDEX_SID]);
+    uint8_t protocol;
+
+    if (message->index > message->size || message->size - message->index < GRACHT_MESSAGE_HEADER_SIZE) {
+        server_cleanup_message(server, message);
+        return;
+    }
+    
+    // read the protocol from the payload
+    protocol = *((uint8_t*)&message->payload[message->index + MSG_INDEX_SID]);
 
     // due to the fact that the control protocol modifies state on the server, especially
     // client state - we want to ensure that these methods are run on orchestrator thread.
     if (protocol == 0) {
         server_invoke_action(server, message);
         server_cleanup_message(server, message);
-    }
-    else {
+    } else {
         gracht_worker_pool_dispatch(server->worker_pool, message);
     }
 }
 
 static struct gracht_message* get_in_buffer_mt(struct gracht_server* server, uint32_t streamMessageSize)
 {
-    struct gracht_message* message;
+    struct gracht_message*     message;
+    struct gracht_buffer_pool* pool;
+    size_t                     requestedSize;
 
     if (streamMessageSize == 0) {
         message = gracht_buffer_pool_acquire(server->recv_pool);
         if (!message) {
             return NULL;
         }
+        
         message->server = server;
-        message->index  = server->allocation_size;
+        message->index  = (uint32_t)(server->allocation_size - sizeof(*message));
         return message;
     }
 
     mtx_lock(&server->stream_pools_lock);
-    {
-        struct gracht_buffer_pool* pool;
-        size_t requestedSize = gracht_stream_normalize_buffer_size((size_t)streamMessageSize + 512, server->stream_buffer_size + 512);
+    requestedSize = gracht_stream_normalize_buffer_size(
+        gracht_codec_size_add(streamMessageSize, 512),
+        gracht_codec_size_add(server->stream_buffer_size, 512)
+    );
 
-        pool = gracht_stream_pool_registry_get_or_create(&server->stream_recv_pools, requestedSize, server->stream_buffer_count);
-        message = pool ? gracht_buffer_pool_acquire(pool) : NULL;
-        if (message) {
-            message->index = (uint32_t)requestedSize;
-        }
+    pool = gracht_stream_pool_registry_get_or_create(
+        &server->stream_recv_pools,
+        requestedSize,
+        server->stream_buffer_count
+    );
+    message = pool ? gracht_buffer_pool_acquire(pool) : NULL;
+    if (message) {
+        message->index = (uint32_t)(requestedSize - sizeof(*message));
     }
     mtx_unlock(&server->stream_pools_lock);
+    
     if (!message) {
         return NULL;
     }
@@ -640,11 +665,17 @@ void gracht_server_request_shutdown(gracht_server_t* server)
 void server_invoke_action(struct gracht_server* server, struct gracht_message* recvMessage)
 {
     gracht_protocol_function_t* function;
-    gracht_buffer_t             buffer = { .data = (char*)&recvMessage->payload[0], .index = recvMessage->index };
+    gracht_buffer_t             buffer = { .data = (char*)&recvMessage->payload[0], .index = recvMessage->index, .limit = recvMessage->size, .error = 0 };
     uint32_t                    messageId;
     uint8_t                     protocol;
     uint8_t                     action;
 
+    if (!gracht_codec_reserve(&buffer, GRACHT_MESSAGE_HEADER_SIZE) ||
+        GB_MSG_LEN(&buffer) != buffer.limit - buffer.index) {
+        errno = EPROTO;
+        return;
+    }
+    
     messageId = GB_MSG_ID(&buffer);
     protocol  = GB_MSG_SID(&buffer);
     action    = GB_MSG_AID(&buffer);
@@ -662,6 +693,15 @@ void server_invoke_action(struct gracht_server* server, struct gracht_message* r
     // skip the message header when invoking
     buffer.index += GRACHT_MESSAGE_HEADER_SIZE;
     ((server_invoke_t)function->address)(recvMessage, &buffer);
+    
+    if (buffer.error) {
+        gracht_control_event_error_single(
+            server,
+            recvMessage->client,
+            messageId,
+            buffer.error
+        );
+    }
 }
 
 void server_cleanup_message(struct gracht_server* server, struct gracht_message* recvMessage)
@@ -764,6 +804,8 @@ int gracht_server_get_buffer(gracht_server_t* server, gracht_buffer_t* buffer)
     // this should always return a safe buffer to use for the request
     buffer->data  = data;
     buffer->index = 0;
+    buffer->limit = (uint32_t)server->allocation_size;
+    buffer->error = 0;
     return 0;
 }
 
@@ -782,21 +824,36 @@ int gracht_server_get_stream_buffer_sized(gracht_server_t* server, uint32_t requ
         return -1;
     }
 
-    normalizedSize = gracht_stream_normalize_buffer_size(requiredSize, server->stream_buffer_size);
+    normalizedSize = gracht_stream_normalize_buffer_size(
+        requiredSize,
+        server->stream_buffer_size
+    );
+    if (!normalizedSize || normalizedSize > UINT32_MAX) {
+        errno = EOVERFLOW;
+        return -1;
+    }
+    
     mtx_lock(&server->stream_pools_lock);
-    pool = gracht_stream_pool_registry_get_or_create(&server->stream_send_pools, normalizedSize, server->stream_buffer_count);
+    pool = gracht_stream_pool_registry_get_or_create(
+        &server->stream_send_pools,
+        normalizedSize,
+        server->stream_buffer_count
+    );
     if (pool) {
         buffer->data = gracht_buffer_pool_acquire(pool);
     } else {
         buffer->data = NULL;
     }
     mtx_unlock(&server->stream_pools_lock);
+    
     if (!buffer->data) {
         errno = ENOMEM;
         return -1;
     }
 
     buffer->index = 0;
+    buffer->limit = (uint32_t)normalizedSize;
+    buffer->error = 0;
     return 0;
 }
 
@@ -823,9 +880,15 @@ static int __server_respond(struct gracht_message* messageContext, gracht_buffer
         return -1;
     }
 
-    // update message header
-    GB_MSG_ID_0(message)  = *((uint32_t*)&messageContext->payload[messageContext->index]);
-    GB_MSG_LEN_0(message) = message->index;
+    if (message->error || message->index < GRACHT_MESSAGE_HEADER_SIZE || message->index > message->limit) {
+        int error = message->error ? message->error : EMSGSIZE;
+        __release_send_buffer(messageContext->server, message->data, stream);
+        errno = error;
+        return -1;
+    }
+    
+    __gracht_write_u32(&message->data[MSG_INDEX_ID], __gracht_read_u32(&messageContext->payload[messageContext->index]));
+    __gracht_write_u32(&message->data[MSG_INDEX_LEN], message->index);
 
     rwlock_r_lock(&messageContext->server->clients_lock);
     entry = gr_hashtable_get(&messageContext->server->clients, &(struct client_wrapper){ .handle = messageContext->client });
@@ -872,17 +935,20 @@ static int __server_send_event(gracht_server_t* server, gracht_conn_t client, gr
         return -1;
     }
 
-    // update message header
-    GB_MSG_LEN_0(message) = message->index;
+    if (message->error || message->index < GRACHT_MESSAGE_HEADER_SIZE || message->index > message->limit) {
+        int error = message->error ? message->error : EMSGSIZE;
+        __release_send_buffer(server, message->data, stream);
+        errno = error;
+        return -1;
+    }
+    __gracht_write_u32(&message->data[MSG_INDEX_LEN], message->index);
 
     rwlock_r_lock(&server->clients_lock);
     clientEntry = gr_hashtable_get(&server->clients, &(struct client_wrapper){ .handle = client });
     if (!clientEntry) {
         rwlock_r_unlock(&server->clients_lock);
         errno = ENOENT;
-        if (stream) {
-            __release_send_buffer(server, message->data, stream);
-        }
+        __release_send_buffer(server, message->data, stream);
         return -1;
     }
 
@@ -916,8 +982,13 @@ static int __server_broadcast_event(gracht_server_t* server, gracht_buffer_t* me
         return -1;
     }
 
-    // update message header
-    GB_MSG_LEN_0(message) = message->index;
+    if (message->error || message->index < GRACHT_MESSAGE_HEADER_SIZE || message->index > message->limit) {
+        int error = message->error ? message->error : EMSGSIZE;
+        __release_send_buffer(server, message->data, stream);
+        errno = error;
+        return -1;
+    }
+    __gracht_write_u32(&message->data[MSG_INDEX_LEN], message->index);
 
     rwlock_r_lock(&server->clients_lock);
     gr_hashtable_enumerate(&server->clients, client_enum_broadcast, &context);
@@ -1055,56 +1126,108 @@ static int client_is_subscribed(struct gracht_server_client* client, uint8_t id)
 }
 
 // Server control protocol implementation
+int gracht_server_register_client(const struct gracht_message* message)
+{
+    struct client_wrapper  newEntry;
+    struct client_wrapper* entry;
+    gracht_server_t*       server;
+    int                    status;
+
+    // Validate the input message and ensure it has an associated server.
+    if (!message || !message->server) { 
+        errno = EINVAL;
+        return -1;
+    }
+
+    server = message->server;
+
+    // Stream dispatch already holds a read lock. Existing senders must not
+    // upgrade it to a write lock merely to subscribe/register again.
+    rwlock_r_lock(&server->clients_lock);
+    entry = gr_hashtable_get(&server->clients,
+        &(struct client_wrapper){ .handle = message->client });
+    if (entry) {
+        entry->client->flags &= ~GRACHT_CLIENT_FLAG_CLEANUP;
+        rwlock_r_unlock(&server->clients_lock);
+        return 0;
+    }
+    rwlock_r_unlock(&server->clients_lock);
+
+    // Recheck after acquiring the write lock: another executor may have
+    // registered this packet sender while we changed lock modes.
+    rwlock_w_lock(&server->clients_lock);
+    entry = gr_hashtable_get(
+        &server->clients,
+        &(struct client_wrapper){
+            .handle = message->client 
+        }
+    );
+    if (entry) {
+        // If a client entry already exists, 
+        // clear the cleanup flag and return success.
+        entry->client->flags &= ~GRACHT_CLIENT_FLAG_CLEANUP;
+        rwlock_w_unlock(&server->clients_lock);
+        return 0;
+    }
+
+    // Retrieve the link the connection belongs to and check if
+    // we need to invoke the create_client callback.
+    newEntry.link = get_link_by_conn(server, message->link);
+    if (!newEntry.link || !newEntry.link->ops.server.create_client) {
+        rwlock_w_unlock(&server->clients_lock);
+        errno = EINVAL; return -1;
+    }
+
+    status = newEntry.link->ops.server.create_client(
+        newEntry.link,
+        (struct gracht_message*)message, 
+        &newEntry.client
+    );
+    if (status) {
+        rwlock_w_unlock(&server->clients_lock);
+        return -1;
+    }
+
+    newEntry.handle = message->client;
+    
+    // Hashtable growth can fail. Check insertion before reporting a routable
+    // client; the new link object must not leak on that path.
+    errno = 0;
+    if (gr_hashtable_set(&server->clients, &newEntry) == NULL && errno == ENOMEM) {
+        newEntry.link->ops.server.destroy_client(newEntry.client, server->set_handle);
+        rwlock_w_unlock(&server->clients_lock);
+        return -1;
+    }
+    rwlock_w_unlock(&server->clients_lock);
+    
+    // Client was inserted and is now considered connected, 
+    // invoke the clientConnected callback if it is set.
+    if (server->callbacks.clientConnected) {
+        server->callbacks.clientConnected(message->client);
+    }
+    return 0;
+}
+
 void gracht_control_subscribe_invocation(const struct gracht_message* message, const uint8_t protocol)
 {
     struct client_wrapper* entry;
-    struct client_wrapper  newEntry;
-    GRTRACE(GRSTR("gracht_control_subscribe_invocation(protocol=%u, client=%i)"), protocol, message->client);
-    
-    // When dealing with connectionless clients, they aren't really created in the client register. To deal
-    // with this, we actually create a record for them, so we can support connection-less events. This means
-    // that connection-less clients aren't considered connected unless they subscribe to some protocol - even
-    // if they actually use the functions provided by the protocol. It is also possible to receive targetted
-    // events that come in response to a function call even without subscribing.
-    rwlock_r_lock(&message->server->clients_lock);
-    entry = gr_hashtable_get(&message->server->clients, &(struct client_wrapper){ .handle = message->client });
-    if (!entry) {
-        // So, client did not have a record, at this point we then know this message was received on a 
-        // connection-less stream, meaning we do not currently hold another _read_lock on this thread, thus we can
-        // release our reader lock and acqurie the write-lock
-        rwlock_r_unlock(&message->server->clients_lock);
 
-        // lookup the connection as the client wasn't recorded on a specific link
-        newEntry.link = get_link_by_conn(message->server, message->link);
-        if (newEntry.link->ops.server.create_client(newEntry.link, (struct gracht_message*)message, &newEntry.client)) {
-            GRERROR(GRSTR("gracht_control_subscribe_invocation server_object.link->create_client returned error"));
-            return;
-        }
-
-        newEntry.handle = message->client;
-
-        // this does not have to be serialized with the above read lock due to the fact that all
-        // write-locks are only acquired by this thread. So any changes made are only the ones we make
-        // right now
-        rwlock_w_lock(&message->server->clients_lock);
-        gr_hashtable_set(&message->server->clients, &newEntry);
-        rwlock_w_unlock(&message->server->clients_lock);
-
-        if (message->server->callbacks.clientConnected) {
-            message->server->callbacks.clientConnected(message->client);
-        }
-
-        // not really neccessary but for correctness
-        rwlock_r_lock(&message->server->clients_lock);
-        
-        // set the entry pointer
-        entry = &newEntry;
-    } else {
-        // make sure if they were marked cleanup that we remove that
-        entry->client->flags &= ~(GRACHT_CLIENT_FLAG_CLEANUP);
+    // Ensure the client is registered before subscribing to a protocol.
+    if (gracht_server_register_client(message)) {
+        return;
     }
-
-    client_subscribe(entry->client, protocol);
+    
+    rwlock_r_lock(&message->server->clients_lock);
+    entry = gr_hashtable_get(
+        &message->server->clients,
+        &(struct client_wrapper){ 
+            .handle = message->client 
+        }
+    );
+    if (entry) {
+        // Subscribe the client to the specified protocol.
+        client_subscribe(entry->client, protocol);
+    }
     rwlock_r_unlock(&message->server->clients_lock);
 }
 

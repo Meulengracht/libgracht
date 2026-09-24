@@ -38,6 +38,7 @@ struct vali_link_client {
     struct gracht_server_client base;
     IPCAddress_t                address;
     int                         link;
+    uint32_t                    send_timeout_ms;
 };
 
 static int vali_link_send_client(struct vali_link_client* client,
@@ -51,7 +52,7 @@ static int vali_link_send_client(struct vali_link_client* client,
     addr.Data.Handle = (uuid_t)client->base.handle;
 
     // send to connection-less client (all of them)
-    status = ipsend(client->link, &addr, data->data, data->index, NULL);
+    status = gracht_vali_send(client->link, &addr, data->data, data->index, client->send_timeout_ms);
     if (status) {
         return status;
     }
@@ -87,6 +88,7 @@ static int vali_link_create_client(struct gracht_link_vali* link, struct gracht_
     memset(client, 0, sizeof(struct vali_link_client));
     client->base.handle = message->client;
     client->link = link->base.connection;
+    client->send_timeout_ms = link->send_timeout_ms;
 
     client->address.Type = IPC_ADDRESS_HANDLE;
     client->address.Data.Handle = message->client;
@@ -176,7 +178,7 @@ static int vali_link_send(struct gracht_link_vali* link,
     addr.Data.Handle = messageContext->client;
 
     // send to connection-less client (all of them)
-    status = ipsend(link->base.connection, &addr, data->data, data->index, NULL);
+    status = gracht_vali_send(link->base.connection, &addr, data->data, data->index, link->send_timeout_ms);
     if (status) {
         return status;
     }

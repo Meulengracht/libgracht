@@ -135,8 +135,10 @@ struct gracht_capability {
  * serialization and deserialization of messages
  */
 typedef struct gracht_buffer {
-    char*    data;
-    uint32_t index;
+    char*         data;
+    uint32_t      index;
+    uint32_t      limit;
+    int           error;
 } gracht_buffer_t;
 
 /**

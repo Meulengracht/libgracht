@@ -33,7 +33,6 @@ static volatile int g_eventsReceived = 0;
 
 void test_utils_event_myevent_invocation(gracht_client_t* client, const int n)
 {
-    (void)client;
     printf("myevent: %i\n", n);
     g_eventsReceived++;
 }

@@ -140,12 +140,12 @@ def get_serialized_member_size_expression(service: ServiceObject, member, names_
         if not names_in_scope:
             return None
         c_typename = get_c_typename(service, typename)
-        return f"(sizeof(uint32_t) + ((uint32_t)sizeof({c_typename}) * {value}_count))"
+        return f"gracht_codec_size_array(sizeof({c_typename}), {value}_count)"
 
     if typename.lower() == "string":
         if not names_in_scope:
             return None
-        return f"(sizeof(uint32_t) + ({value} != NULL ? (uint32_t)strlen({value}) : 0) + 1)"
+        return f"gracht_codec_size_add(sizeof(uint32_t) + 1, {value} != NULL ? strlen({value}) : 0)"
     if service.typename_is_struct(typename):
         return None
     if service.typename_is_enum(typename):
@@ -161,7 +161,28 @@ def get_serialized_params_size_expression(service: ServiceObject, params, names_
         if member_expression is None:
             return None
         expressions.append(member_expression)
-    return " + ".join(expressions)
+    expression = expressions[0]
+    for member_expression in expressions[1:]:
+        expression = f"gracht_codec_size_add({expression}, {member_expression})"
+    return expression
+
+
+def get_minimum_wire_size(service, typename):
+    if service.typename_is_struct(typename):
+        sizes = []
+        for member in service.lookup_struct(typename).get_members():
+            if isinstance(member, VariableVariantObject):
+                sizes.append("1")
+            elif member.get_is_variable():
+                sizes.append("sizeof(uint32_t)")
+            else:
+                sizes.append(get_minimum_wire_size(service, member.get_typename()))
+        return "(" + " + ".join(sizes or ["1"]) + ")"
+    if typename.lower() == "string":
+        return "(sizeof(uint32_t) + 1)"
+    if service.typename_is_enum(typename):
+        return "sizeof(int)"
+    return f"sizeof({get_c_typename(service, typename)})"
 
 
 def define_headers(headers, outfile: CodeWriter):
@@ -250,6 +271,9 @@ def get_parameter_string(service: ServiceObject, params, case, is_output):
         if should_define_parameter(param, case, is_output):
             parameters_valid.append(get_param_typename(service, param, case, is_output))
         if should_define_param_length_component(param, case):
+            if param.get_is_variable() and case == CONST.TYPENAME_CASE_FUNCTION_STATUS:
+                parameters_valid.append(f"uint32_t* {param.get_name()}_count")
+                continue
             if not param.get_is_variable() and param.get_typename().lower() == "string":
                 length_param = VariableObject("uint32", f"{param.get_name()}_max_length", False)
             else:
@@ -363,13 +387,14 @@ def write_variable_count(members, outfile: CodeWriter):
         outfile.writeln("uint32_t __count;")
 
 
-def write_variable_struct_member_serializer(service: ServiceObject, member, outfile: CodeWriter):
-    name = member.get_name()
+def write_variable_struct_member_serializer(service: ServiceObject, member, outfile: CodeWriter, prefix=""):
+    name = prefix + member.get_name()
     typename = member.get_typename()
     outfile.writeln(f"serialize_uint32(buffer, in->{name}_count);")
     if service.typename_is_struct(member.get_typename()):
         struct_type = service.lookup_struct(typename)
-        outfile.writeln(f"for (uint32_t __i = 0; __i < (uint32_t)in->{name}_count; __i++) {{")
+        outfile.writeln(f"if (in->{name}_count && !in->{name}) gracht_codec_fail(buffer, EINVAL);")
+        outfile.writeln(f"for (uint32_t __i = 0; !buffer->error && __i < in->{name}_count; __i++) {{")
         outfile.indent_inc()
         outfile.writeln(f"serialize_{get_scoped_name(struct_type)}(buffer, &in->{name}[__i]);")
         outfile.indent_dec()
@@ -378,9 +403,7 @@ def write_variable_struct_member_serializer(service: ServiceObject, member, outf
         print("error: variable string arrays are not supported at this moment for the C-code generator")
         exit(-1)
     else:
-        outfile.writeln(
-            f"memcpy(&buffer->data[buffer->index], &in->{name}[0], sizeof({get_c_typename(service, typename)}) * in->{name}_count);")
-        outfile.writeln(f"buffer->index += sizeof({get_c_typename(service, typename)}) * in->{name}_count;")
+        outfile.writeln(f"gracht_codec_write(buffer, in->{name}, gracht_codec_array_bytes(buffer, sizeof({get_c_typename(service, typename)}), in->{name}_count));")
 
 
 def write_variable_member_serializer(service: ServiceObject, member, outfile: CodeWriter):
@@ -389,13 +412,15 @@ def write_variable_member_serializer(service: ServiceObject, member, outfile: Co
     outfile.writeln(f"serialize_uint32(&__buffer, {name}_count);")
     if service.typename_is_struct(typename):
         struct_type = service.lookup_struct(typename)
-        outfile.writeln(f"for (uint32_t __i = 0; __i < (uint32_t){name}_count; __i++) {{")
+        outfile.writeln(f"if ({name}_count && !{name}) gracht_codec_fail(&__buffer, EINVAL);")
+        outfile.writeln(f"for (uint32_t __i = 0; !__buffer.error && __i < {name}_count; __i++) {{")
         outfile.indent_inc()
         outfile.writeln(f"serialize_{get_scoped_name(struct_type)}(&__buffer, &{name}[__i]);")
         outfile.indent_dec()
         outfile.writeln("}")
     elif typename.lower() == "string":
-        outfile.writeln(f"for (uint32_t __i = 0; __i < (uint32_t){name}_count; __i++) {{")
+        outfile.writeln(f"if ({name}_count && !{name}) gracht_codec_fail(&__buffer, EINVAL);")
+        outfile.writeln(f"for (uint32_t __i = 0; !__buffer.error && __i < {name}_count; __i++) {{")
         outfile.indent_inc()
         outfile.writeln(f"serialize_string(&__buffer, {name}[__i]);")
         outfile.indent_dec()
@@ -403,9 +428,7 @@ def write_variable_member_serializer(service: ServiceObject, member, outfile: Co
     else:
         outfile.writeln(f"if ({name}_count) {{")
         outfile.indent_inc()
-        outfile.writeln(
-            f"memcpy(&__buffer.data[__buffer.index], &{name}[0], sizeof({get_c_typename(service, typename)}) * {name}_count);")
-        outfile.writeln(f"__buffer.index += sizeof({get_c_typename(service, typename)}) * {name}_count;")
+        outfile.writeln(f"gracht_codec_write(&__buffer, {name}, gracht_codec_array_bytes(&__buffer, sizeof({get_c_typename(service, typename)}), {name}_count));")
         outfile.indent_dec()
         outfile.writeln("}")
 
@@ -413,7 +436,7 @@ def write_variable_member_serializer(service: ServiceObject, member, outfile: Co
 def write_struct_variant_serializer(service: ServiceObject, struct: StructureObject, member: VariableVariantObject, outfile: CodeWriter):
     outfile.writeln(f"serialize_uint8(buffer, in->{member.get_name()}_type);")
     outfile.writeln(f"switch (in->{member.get_name()}_type) {{")
-    outfile.writeln(f"default: break;")
+    outfile.writeln("default: gracht_codec_fail(buffer, EPROTO); break;")
     for entry in member.get_entries():
         outfile.writeln(f"case {get_variant_enum_name(struct, member, entry)}:")
         outfile.indent_inc()
@@ -428,7 +451,7 @@ def write_struct_member_serializer(service: ServiceObject, prefix, struct, membe
     if isinstance(member, VariableVariantObject):
         write_struct_variant_serializer(service, struct, member, outfile)
     elif member.get_is_variable():
-        write_variable_struct_member_serializer(service, member, outfile)
+        write_variable_struct_member_serializer(service, member, outfile, prefix)
     elif service.typename_is_struct(member.get_typename()):
         struct_type = service.lookup_struct(member.get_typename())
         outfile.writeln(f"serialize_{get_scoped_name(struct_type)}(buffer, &in->{prefix}{member.get_name()});")
@@ -453,18 +476,18 @@ def write_member_serializer(service: ServiceObject, member, outfile: CodeWriter)
         outfile.writeln(f"serialize_{member.get_typename()}(&__buffer, {value});")
 
 
-def write_variable_struct_member_deserializer(service: ServiceObject, member, outfile: CodeWriter):
-    name = member.get_name()
+def write_variable_struct_member_deserializer(service: ServiceObject, member, outfile: CodeWriter, prefix=""):
+    name = prefix + member.get_name()
     typename = member.get_typename()
     outfile.writeln(f"out->{name}_count = deserialize_uint32(buffer);")
     outfile.writeln(f"if (out->{name}_count) {{")
     outfile.indent_inc()
-    outfile.writeln(f"out->{name} = malloc(sizeof({get_c_typename(service, typename)}) * out->{name}_count);")
-    outfile.writeln(f"assert(out->{name} != NULL);")
+    outfile.writeln(f"out->{name} = gracht_codec_allocate(buffer, sizeof({get_c_typename(service, typename)}), out->{name}_count, {get_minimum_wire_size(service, typename)});")
+    outfile.writeln(f"if (!out->{name}) {{ out->{name}_count = 0; return; }}")
     if service.typename_is_struct(typename):
         struct_type = service.lookup_struct(typename)
         struct_name = get_scoped_name(struct_type)
-        outfile.writeln(f"for (int __i = 0; __i < out->{name}_count; __i++) {{")
+        outfile.writeln(f"for (uint32_t __i = 0; !buffer->error && __i < out->{name}_count; __i++) {{")
         outfile.indent_inc()
         outfile.writeln(f"deserialize_{struct_name}(buffer, &out->{name}[__i]);")
         outfile.indent_dec()
@@ -473,8 +496,7 @@ def write_variable_struct_member_deserializer(service: ServiceObject, member, ou
         print("error: variable string arrays are not supported at this moment for the C-code generator")
         exit(-1)
     else:
-        outfile.writeln(f"memcpy(&out->{name}[0], &buffer->data[buffer->index], sizeof({get_c_typename(service, typename)}) * out->{name}_count);")
-        outfile.writeln(f"buffer->index += sizeof({get_c_typename(service, typename)}) * out->{name}_count;")
+        outfile.writeln(f"gracht_codec_read(buffer, out->{name}, gracht_codec_array_bytes(buffer, sizeof({get_c_typename(service, typename)}), out->{name}_count));")
     outfile.indent_dec()
     outfile.writeln("} else {")
     outfile.indent_inc()
@@ -492,16 +514,17 @@ def write_variable_member_deserializer2(service: ServiceObject, member, outfile:
     outfile.writeln(f"{name}_count = deserialize_uint32(__buffer);")
     outfile.writeln(f"if ({name}_count) {{")
     outfile.indent_inc()
-    outfile.writeln(f"{name} = malloc(sizeof({c_typename}) * {name}_count);")
+    outfile.writeln(f"{name} = gracht_codec_allocate(__buffer, sizeof({c_typename}), {name}_count, {get_minimum_wire_size(service, typename)});")
     outfile.writeln(f"if (!{name}) {{")
     outfile.indent_inc()
-    outfile.writeln(f"return;\n")
+    outfile.writeln(f"{name}_count = 0;")
+    outfile.writeln("goto cleanup;")
     outfile.indent_dec()
     outfile.writeln("}")
     outfile.writeln("")
 
     if typename.lower() == "string" or service.typename_is_struct(typename):
-        outfile.writeln(f"for (uint32_t __i = 0; __i < (uint32_t){name}_count; __i++) {{")
+        outfile.writeln(f"for (uint32_t __i = 0; !__buffer->error && __i < {name}_count; __i++) {{")
         outfile.indent_inc()
         if typename.lower() == "string":
             outfile.writeln(f"{name}[__i] = deserialize_string_nocopy(__buffer);")
@@ -515,8 +538,7 @@ def write_variable_member_deserializer2(service: ServiceObject, member, outfile:
         outfile.writeln("}")
         outfile.writeln("")
     else:
-        outfile.writeln(f"memcpy(&{name}[0], &__buffer->data[__buffer->index], sizeof({c_typename}) * {name}_count);")
-        outfile.writeln(f"__buffer->index += sizeof({c_typename}) * {name}_count;")
+        outfile.writeln(f"gracht_codec_read(__buffer, {name}, gracht_codec_array_bytes(__buffer, sizeof({c_typename}), {name}_count));")
     outfile.indent_dec()
     outfile.writeln("}")
     outfile.writeln("")
@@ -526,25 +548,42 @@ def write_variable_member_deserializer(service: ServiceObject, member, outfile: 
     typename = member.get_typename()
     name = member.get_name()
     outfile.writeln("__count = deserialize_uint32(&__buffer);")
+    outfile.writeln(f"if (!gracht_codec_reserve(&__buffer, gracht_codec_array_bytes(&__buffer, {get_minimum_wire_size(service, typename)}, __count))) goto cleanup;")
+    outfile.writeln(f"if (__count > __{name}_capacity) __truncated = 1;")
     if service.typename_is_struct(typename):
-        outfile.writeln(f"for (uint32_t __i = 0; __i < (uint32_t)GRMIN(__count, {name}_count); __i++) {{")
+        outfile.writeln(f"for (uint32_t __i = 0; !__buffer.error && __i < __count; __i++) {{")
         outfile.indent_inc()
         struct_type = service.lookup_struct(typename)
         struct_name = get_scoped_name(struct_type)
+        outfile.writeln(f"if (__i < __{name}_capacity) {{")
         outfile.writeln(f"deserialize_{struct_name}(&__buffer, &{name}_out[__i]);")
+        outfile.writeln(f"++*{name}_count;")
+        outfile.writeln("} else {")
+        outfile.writeln(f"{get_scoped_typename(struct_type)} __discard = {{0}};")
+        outfile.writeln(f"deserialize_{struct_name}(&__buffer, &__discard);")
+        outfile.writeln(f"{struct_name}_destroy(&__discard);")
+        outfile.writeln("}")
         outfile.indent_dec()
         outfile.writeln("}")
     elif typename.lower() == "string":
-        outfile.writeln(f"for (uint32_t __i = 0; __i < (uint32_t)GRMIN(__count, {name}_max_length); __i++) {{")
-        outfile.indent_inc()
-        outfile.writeln(f"{name}_out[__i] = deserialize_string_nocopy(&__buffer);")
-        outfile.indent_dec()
+        outfile.writeln("for (uint32_t __i = 0; !__buffer.error && __i < __count; __i++) {")
+        outfile.writeln(f"if (__i < __{name}_capacity) {{")
+        outfile.writeln(f"{name}_out[__i] = deserialize_string_alloc(&__buffer);")
+        outfile.writeln(f"++*{name}_count;")
+        outfile.writeln("} else {")
+        outfile.writeln("(void)deserialize_string_nocopy(&__buffer);")
+        outfile.writeln("}")
         outfile.writeln("}")
     else:
-        outfile.writeln(f"if (__count) {{")
+        outfile.writeln("{")
         outfile.indent_inc()
-        outfile.writeln(f"memcpy(&{name}_out[0], &__buffer.data[__buffer.index], sizeof({get_c_typename(service, typename)}) * GRMIN(__count, {name}_count));")
-        outfile.writeln(f"__buffer.index += sizeof({get_c_typename(service, typename)}) * __count;")
+        outfile.writeln(f"size_t __bytes = gracht_codec_array_bytes(&__buffer, sizeof({get_c_typename(service, typename)}), __count);")
+        outfile.writeln("if (gracht_codec_reserve(&__buffer, __bytes)) {")
+        outfile.writeln(f"uint32_t __copied = GRMIN(__count, __{name}_capacity);")
+        outfile.writeln(f"gracht_codec_read(&__buffer, {name}_out, sizeof({get_c_typename(service, typename)}) * __copied);")
+        outfile.writeln(f"__buffer.index += (uint32_t)(__bytes - sizeof({get_c_typename(service, typename)}) * __copied);")
+        outfile.writeln(f"*{name}_count = __copied;")
+        outfile.writeln("}")
         outfile.indent_dec()
         outfile.writeln("}")
 
@@ -553,7 +592,7 @@ def write_struct_variant_deserializer(service: ServiceObject, struct: StructureO
     name = member.get_name()
     outfile.writeln(f"out->{name}_type = deserialize_uint8(buffer);")
     outfile.writeln(f"switch (out->{name}_type) {{")
-    outfile.writeln(f"default: break;")
+    outfile.writeln("default: gracht_codec_fail(buffer, EPROTO); break;")
     for entry in member.get_entries():
         outfile.writeln(f"case {get_variant_enum_name(struct, member, entry)}:")
         outfile.indent_inc()
@@ -571,12 +610,18 @@ def write_struct_member_deserializer(service: ServiceObject, prefix, struct, mem
     name = member.get_name()
     typename = member.get_typename()
     if member.get_is_variable():
-        write_variable_struct_member_deserializer(service, member, outfile)
+        write_variable_struct_member_deserializer(service, member, outfile, prefix)
     elif typename.lower() == "string":
-        outfile.writeln(f"uint32_t _{name}_length = *((uint32_t*)&buffer->data[buffer->index]);")
-        outfile.writeln(f"out->{name} = malloc(_{name}_length + 1);")
-        outfile.writeln(f"assert(out->{name} != NULL);")
-        outfile.writeln(f"deserialize_string_copy(buffer, &out->{prefix}{name}[0], 0);")
+        outfile.writeln("{")
+        outfile.writeln("uint32_t __start = buffer->index;")
+        outfile.writeln("char* __string = deserialize_string_nocopy(buffer);")
+        outfile.writeln("if (__string) {")
+        outfile.writeln("size_t __length = buffer->index - __start - sizeof(uint32_t);")
+        outfile.writeln(f"out->{prefix}{name} = malloc(__length);")
+        outfile.writeln(f"if (!out->{prefix}{name}) {{ gracht_codec_fail(buffer, ENOMEM); return; }}")
+        outfile.writeln(f"memcpy(out->{prefix}{name}, __string, __length);")
+        outfile.writeln("}")
+        outfile.writeln("}")
     elif service.typename_is_struct(typename):
         struct_type = service.lookup_struct(typename)
         struct_name = get_scoped_name(struct_type)
@@ -615,7 +660,7 @@ def write_member_deserializer(service: ServiceObject, member, outfile: CodeWrite
     if member.get_is_variable():
         write_variable_member_deserializer(service, member, outfile)
     elif typename.lower() == "string":
-        outfile.writeln(f"deserialize_string_copy(&__buffer, &{name}_out[0], {name}_max_length);")
+        outfile.writeln(f"deserialize_string_copy(&__buffer, {name}_out, {name}_max_length);")
     elif service.typename_is_struct(typename):
         struct_type = service.lookup_struct(typename)
         struct_name = get_scoped_name(struct_type)
@@ -634,6 +679,11 @@ def write_function_body_prologue(service: ServiceObject, action_id, flags, param
     outfile.writeln("gracht_buffer_t __buffer;")
     outfile.writeln("int __status;")
     outfile.writeln("")
+
+    if service.is_stream() and size_expression is not None:
+        outfile.writeln(f"uint32_t __required_size = {size_expression};")
+        outfile.writeln("if (__required_size == UINT32_MAX) { errno = EOVERFLOW; return -1; }")
+        size_expression = "__required_size"
 
     if is_server:
         if "MESSAGE_FLAG_RESPONSE" in flags:
@@ -700,8 +750,19 @@ def define_function_body(service: ServiceObject, func: FunctionObject, outfile: 
 def write_status_body_prologue(service: ServiceObject, func: FunctionObject, outfile: CodeWriter):
     outfile.writeln("gracht_buffer_t __buffer;")
     outfile.writeln("int __status;")
+    outfile.writeln("int __truncated = 0;")
     write_variable_count(func.get_response_params(), outfile)
     outfile.writeln("")
+
+    for param in func.get_response_params():
+        name = param.get_name()
+        if param.get_is_variable():
+            outfile.writeln(f"if (!{name}_count || (*{name}_count && !{name}_out)) {{ errno = EINVAL; return -1; }}")
+            outfile.writeln(f"uint32_t __{name}_capacity = *{name}_count;")
+        elif param.get_typename().lower() == "string":
+            outfile.writeln(f"if ({name}_max_length && !{name}_out) {{ errno = EINVAL; return -1; }}")
+        else:
+            outfile.writeln(f"if (!{name}_out) {{ errno = EINVAL; return -1; }}")
 
     outfile.writeln("__status = gracht_client_get_status_buffer(client, context, &__buffer);")
     outfile.writeln("if (__status != GRACHT_MESSAGE_COMPLETED) {")
@@ -713,7 +774,16 @@ def write_status_body_prologue(service: ServiceObject, func: FunctionObject, out
     # deserialization. That unfortunately means all deserialization code that is not known before-hand
     # which situtation must use _copy code instead of _nocopy
     for param in func.get_response_params():
+        name = param.get_name()
+        if param.get_is_variable():
+            outfile.writeln(f"*{name}_count = 0;")
+        elif service.typename_is_struct(param.get_typename()):
+            outfile.writeln(f"memset({name}_out, 0, sizeof(*{name}_out));")
+
+    for param in func.get_response_params():
         write_member_deserializer(service, param, outfile)
+        outfile.writeln("if (__buffer.error == ENOBUFS) { __truncated = 1; __buffer.error = 0; }")
+        outfile.writeln("if (__buffer.error) goto cleanup;")
 
 
 def write_status_body_epilogue(service: ServiceObject, func: FunctionObject, outfile: CodeWriter):
@@ -723,8 +793,35 @@ def write_status_body_epilogue(service: ServiceObject, func: FunctionObject, out
 
 def define_status_body(service: ServiceObject, func: FunctionObject, outfile: CodeWriter):
     write_status_body_prologue(service, func, outfile)
-    outfile.write("__status = gracht_client_status_finalize(client, &__buffer);\n")
-    write_status_body_epilogue(service, func, outfile)
+    outfile.writeln("cleanup:")
+    outfile.writeln("__status = __buffer.error;")
+    outfile.writeln("(void)gracht_client_status_finalize(client, &__buffer);")
+    outfile.writeln("if (__status) {")
+    outfile.indent_inc()
+    for param in func.get_response_params():
+        name = param.get_name()
+        is_struct = service.typename_is_struct(param.get_typename())
+        if param.get_is_variable():
+            if is_struct or param.get_typename().lower() == "string":
+                outfile.writeln(f"for (uint32_t __i = 0; __i < *{name}_count; __i++) {{")
+                if is_struct:
+                    struct_name = get_scoped_name(service.lookup_struct(param.get_typename()))
+                    outfile.writeln(f"{struct_name}_destroy(&{name}_out[__i]);")
+                    outfile.writeln(f"memset(&{name}_out[__i], 0, sizeof({name}_out[__i]));")
+                else:
+                    outfile.writeln(f"free({name}_out[__i]); {name}_out[__i] = NULL;")
+                outfile.writeln("}")
+            outfile.writeln(f"*{name}_count = 0;")
+        elif is_struct:
+            struct_name = get_scoped_name(service.lookup_struct(param.get_typename()))
+            outfile.writeln(f"{struct_name}_destroy({name}_out);")
+            outfile.writeln(f"memset({name}_out, 0, sizeof(*{name}_out));")
+    outfile.writeln("errno = __status;")
+    outfile.writeln("return -1;")
+    outfile.indent_dec()
+    outfile.writeln("}")
+    outfile.writeln("if (__truncated) { errno = ENOBUFS; return -1; }")
+    outfile.writeln("return 0;")
 
 
 def define_event_body_single(service: ServiceObject, evt, outfile: CodeWriter):
@@ -783,15 +880,9 @@ def define_shared_serializers(service: ServiceObject, outfile: CodeWriter):
 
 #ifndef __GRACHT_SERVICE_SHARED_SERIALIZERS
 #define __GRACHT_SERVICE_SHARED_SERIALIZERS
-#define SERIALIZE_VALUE(name, type) static inline void serialize_##name(gracht_buffer_t* buffer, type value) { \\
-                                        *((type*)&buffer->data[buffer->index]) = value; buffer->index += sizeof(type); \\
-                                    }
-
-#define DESERIALIZE_VALUE(name, type) static inline type deserialize_##name(gracht_buffer_t* buffer) { \\
-                                          type value = *((type*)&buffer->data[buffer->index]); \\
-                                          buffer->index += sizeof(type); \\
-                                          return value; \\
-                                       }
+#include <gracht/codec.h>
+#define SERIALIZE_VALUE GRACHT_SERIALIZE_VALUE
+#define DESERIALIZE_VALUE GRACHT_DESERIALIZE_VALUE
 
 """)
 
@@ -806,33 +897,67 @@ def define_shared_serializers(service: ServiceObject, outfile: CodeWriter):
     # N+1: zero terminator
     outfile.writeln("""
 static inline void serialize_string(gracht_buffer_t* buffer, const char* string) {
-    uint32_t length = string != NULL ? (uint32_t)strlen(string) : 0;
-    *((uint32_t*)&buffer->data[buffer->index]) = length;
-    if (length == 0) {
-        buffer->data[buffer->index + sizeof(uint32_t)] = 0;
-        buffer->index += sizeof(uint32_t) + 1;
+    size_t length = string != NULL ? strlen(string) : 0;
+    if (length >= UINT32_MAX) {
+        gracht_codec_fail(buffer, EOVERFLOW);
         return;
     }
-    memcpy(&buffer->data[buffer->index + sizeof(uint32_t)], string, length);
-    buffer->data[buffer->index + sizeof(uint32_t) + length] = 0;
-    buffer->index += (sizeof(uint32_t) + length + 1);
-}
-
-static inline void deserialize_string_copy(gracht_buffer_t* buffer, char* out, uint32_t maxLength) {
-    uint32_t length = *((uint32_t*)&buffer->data[buffer->index]);
-    uint32_t clampedLength = GRMIN(length, maxLength - 1);
-    if (clampedLength > 0) {
-        memcpy(out, &buffer->data[buffer->index + sizeof(uint32_t)], clampedLength);
-    }
-    out[clampedLength] = 0;
-    buffer->index += sizeof(uint32_t) + length + 1;
+    serialize_uint32(buffer, (uint32_t)length);
+    gracht_codec_write(buffer, string != NULL ? string : "", length + 1);
 }
 
 static inline char* deserialize_string_nocopy(gracht_buffer_t* buffer) {
-    uint32_t length = *((uint32_t*)&buffer->data[buffer->index]);
-    char*    string = &buffer->data[buffer->index + sizeof(uint32_t)];
-    buffer->index += sizeof(uint32_t) + length + 1;
+    uint32_t length = deserialize_uint32(buffer);
+    char* string;
+    if (length == UINT32_MAX || !gracht_codec_reserve(buffer, (size_t)length + 1)) {
+        gracht_codec_fail(buffer, EPROTO);
+        return NULL;
+    }
+    string = buffer->data + buffer->index;
+    if (string[length] != 0) {
+        gracht_codec_fail(buffer, EPROTO);
+        return NULL;
+    }
+    buffer->index += length + 1;
     return string;
+}
+
+static inline void deserialize_string_copy(gracht_buffer_t* buffer, char* out, uint32_t capacity) {
+    uint32_t start = buffer->index;
+    char* string = deserialize_string_nocopy(buffer);
+    uint32_t length;
+    if (!string) {
+        return;
+    }
+    length = buffer->index - start - sizeof(uint32_t) - 1;
+    if (capacity && !out) {
+        gracht_codec_fail(buffer, EINVAL);
+        return;
+    }
+    if (capacity) {
+        uint32_t copied = GRMIN(length, capacity - 1);
+        memcpy(out, string, copied);
+        out[copied] = 0;
+    }
+    if (length >= capacity) {
+        gracht_codec_fail(buffer, ENOBUFS);
+    }
+}
+
+static inline char* deserialize_string_alloc(gracht_buffer_t* buffer) {
+    uint32_t start = buffer->index;
+    char* string = deserialize_string_nocopy(buffer);
+    char* result;
+    size_t length;
+    if (!string) return NULL;
+    length = buffer->index - start - sizeof(uint32_t);
+    result = malloc(length);
+    if (!result) {
+        gracht_codec_fail(buffer, ENOMEM);
+        return NULL;
+    }
+    memcpy(result, string, length);
+    return result;
 }
 #endif //! __GRACHT_SERVICE_SHARED_SERIALIZERS
 
@@ -867,6 +992,7 @@ def define_struct_serializers(service: ServiceObject, outfile: CodeWriter):
         outfile.writeln(f"#define __GRACHT_{guard_name}_DEFINED__")
         outfile.writeln(f"static void serialize_{struct_name}(gracht_buffer_t* buffer, const {struct_typename}* in) {{")
         outfile.indent_inc()
+        outfile.writeln("if (!in) { gracht_codec_fail(buffer, EINVAL); return; }")
 
         for member in struct.get_members():
             write_struct_member_serializer(service, "", struct, member, outfile)
@@ -876,8 +1002,11 @@ def define_struct_serializers(service: ServiceObject, outfile: CodeWriter):
 
         outfile.writeln(f"static void deserialize_{struct_name}(gracht_buffer_t* buffer, {struct_typename}* out) {{")
         outfile.indent_inc()
+        outfile.writeln("if (!out) { gracht_codec_fail(buffer, EINVAL); return; }")
+        outfile.writeln("memset(out, 0, sizeof(*out));")
 
         for member in struct.get_members():
+            outfile.writeln("if (buffer->error) return;")
             write_struct_member_deserializer(service, "", struct, member, outfile)
         outfile.indent_dec()
         outfile.writeln("}") 
@@ -1075,7 +1204,7 @@ def write_structure_member_destructor(service: ServiceObject, prefix, struct: St
         if service.typename_is_struct(member.get_typename()):
             struct_type = service.lookup_struct(member.get_typename())
             member_name = get_scoped_name(struct_type)
-            outfile.writeln(f"for (int __i = 0; __i < {prefix}{member.get_name()}_count; __i++) {{")
+            outfile.writeln(f"for (uint32_t __i = 0; __i < {prefix}{member.get_name()}_count; __i++) {{")
             outfile.indent_inc()
             outfile.writeln(f"{member_name}_destroy(&{prefix}{member.get_name()}[__i]);")
             outfile.indent_dec()
@@ -1264,12 +1393,13 @@ def write_deserializer_prologue(service: ServiceObject, members, outfile: CodeWr
     # write definitions
     for param in members:
         star_modifier = ""
-        default_value = ""
+        default_value = " = {0}"
         if param.get_is_variable():
-            outfile.writeln(f"uint32_t {param.get_name()}_count;")
+            outfile.writeln(f"uint32_t {param.get_name()}_count = 0;")
             star_modifier = "*"
             default_value = " = NULL"
         if param.get_typename().lower() == "string":
+            default_value = " = NULL"
             outfile.writeln(f"char*{star_modifier} {param.get_name() + default_value};")
         elif service.typename_is_struct(param.get_typename()):
             struct_type = service.lookup_struct(param.get_typename())
@@ -1345,6 +1475,7 @@ def write_client_deserializer_body(service: ServiceObject, evt: EventObject, out
     # write deserializer calls
     for param in evt.get_params():
         write_member_deserializer2(service, param, outfile)
+        outfile.writeln("if (__buffer->error) goto cleanup;")
 
     # write invocation line
     outfile.write(f"{get_client_event_callback_name(service, evt)}(__client")
@@ -1352,6 +1483,9 @@ def write_client_deserializer_body(service: ServiceObject, evt: EventObject, out
     outfile.append(");\n")
 
     # write destroy calls
+    if evt.get_params():
+        outfile.writeln("cleanup:")
+        outfile.writeln(";")
     write_deserializer_destroy_members(service, evt.get_params(), outfile)
     outfile.indent_dec()
     outfile.writeln("}")
@@ -1420,6 +1554,7 @@ def write_server_deserializer_body(service: ServiceObject, func: FunctionObject,
     # write deserializer calls
     for param in func.get_request_params():
         write_member_deserializer2(service, param, outfile)
+        outfile.writeln("if (__buffer->error) goto cleanup;")
 
     # write invocation line
     outfile.write(f"{get_service_callback_name(service, func)}(__message")
@@ -1427,6 +1562,9 @@ def write_server_deserializer_body(service: ServiceObject, func: FunctionObject,
     outfile.append(");\n")
 
     # write destroy calls
+    if func.get_request_params():
+        outfile.writeln("cleanup:")
+        outfile.writeln(";")
     write_deserializer_destroy_members(service, func.get_request_params(), outfile)
     outfile.indent_dec()
     outfile.writeln("}")

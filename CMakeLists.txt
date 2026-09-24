@@ -14,5 +14,6 @@ configure_file(config.h.in config.h @ONLY)
 add_subdirectory(runtime)
 
 if (GRACHT_BUILD_TESTS)
+    enable_testing()
     add_subdirectory(tests)
 endif ()

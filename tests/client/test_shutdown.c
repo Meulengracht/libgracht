@@ -32,12 +32,14 @@ extern int init_client_with_socket_link(gracht_client_t** clientOut);
 void test_utils_event_myevent_invocation(gracht_client_t* client, const int n)
 {
     (void)client;
+    (void)sender;
     (void)n;
 }
 
 void test_utils_event_transfer_status_invocation(gracht_client_t* client, const struct test_transfer_status* transfer_status)
 {
     (void)client;
+    (void)sender;
     (void)transfer_status;
 }
 

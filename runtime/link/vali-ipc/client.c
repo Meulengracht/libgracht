@@ -30,6 +30,8 @@
 #include <ipcontext.h>
 #include <io.h>
 #include <stdlib.h>
+#include <string.h>
+#include <time.h>
 
 static int vali_link_connect(struct gracht_link_vali* link)
 {
@@ -53,7 +55,8 @@ static int vali_link_send(struct gracht_link_vali* link,
 {
     int status;
 
-    status = ipsend(link->base.connection, &context->address, message->data, message->index, NULL);
+    status = gracht_vali_send(link->base.connection, &context->address,
+        message->data, message->index, link->send_timeout_ms);
     if (status) {
         errno = (EPIPE);
         return -1;
@@ -72,16 +75,24 @@ static inline int get_ip_flags(unsigned int flags)
 
 static int vali_link_recv(struct gracht_link_vali* link, struct gracht_buffer* message, unsigned int flags)
 {
-    int bytesRead;
-    int ipFlags = get_ip_flags(flags);
-    int index   = sizeof(uuid_t);
+    int          bytesRead;
+    int          ipFlags = get_ip_flags(flags);
+    unsigned int index   = sizeof(uuid_t);
+    uuid_t       sender;
 
-    bytesRead = iprecv(link->base.connection, &message->data[index], message->index, ipFlags, (uuid_t*)message->data);
+    if (message->index < index + GRACHT_MESSAGE_HEADER_SIZE) {
+        errno = EMSGSIZE;
+        return -1;
+    }
+
+    bytesRead = iprecv(link->base.connection, &message->data[index], message->index - index, ipFlags, &sender);
     if (bytesRead < 0) {
         return bytesRead;
     }
 
-    message->index = index;
+    memcpy(message->data, &sender, sizeof(sender));
+    message->index = (uint32_t)index;
+    message->limit = (uint32_t)index + (uint32_t)bytesRead;
     return 0;
 }
 

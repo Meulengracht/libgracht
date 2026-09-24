@@ -145,7 +145,7 @@ static int socket_link_peek_socket(gracht_conn_t socket,
         return -1;
     }
 
-    *messageLengthOut = *((uint32_t*)&header[MSG_INDEX_LEN]);
+    *messageLengthOut = __gracht_read_u32(&header[MSG_INDEX_LEN]);
     *serviceIdOut = header[MSG_INDEX_SID];
     if (*messageLengthOut < GRACHT_MESSAGE_HEADER_SIZE) {
         errno = EPROTO;
@@ -166,6 +166,12 @@ static int socket_link_recv_client(struct socket_link_client* client,
     unsigned int socketFlags = get_socket_flags(flags);
     intmax_t     bytesRead;
     uint32_t     missingData;
+    uint32_t     length;
+
+    if (context->index < GRACHT_MESSAGE_HEADER_SIZE) {
+        errno = EMSGSIZE;
+        return -1;
+    }
     
     GRTRACE(GRSTR("socket_link_recv_client reading message header"));
 #ifdef _WIN32
@@ -206,9 +212,17 @@ static int socket_link_recv_client(struct socket_link_client* client,
     }
 #endif
     
-    GRTRACE(GRSTR("socket_link_recv_client message id %u, length of message %u"), 
-        *((uint32_t*)&context->payload[0]), *((uint32_t*)&context->payload[4]));
-    missingData = *((uint32_t*)&context->payload[4]) - GRACHT_MESSAGE_HEADER_SIZE;
+    length = __gracht_read_u32(&context->payload[MSG_INDEX_LEN]);
+    if (length < GRACHT_MESSAGE_HEADER_SIZE || length > context->index) {
+        errno = EMSGSIZE;
+        return -1;
+    }
+    
+    GRTRACE(GRSTR("socket_link_recv_client message id %u, length of message %u"),
+        __gracht_read_u32(&context->payload[MSG_INDEX_ID]), length
+    );
+    
+    missingData = length - GRACHT_MESSAGE_HEADER_SIZE;
     if (missingData) {
         GRTRACE(GRSTR("socket_link_recv_client reading message payload"));
         bytesRead = recv(client->base.handle, &context->payload[GRACHT_MESSAGE_HEADER_SIZE], 
@@ -227,7 +241,7 @@ static int socket_link_recv_client(struct socket_link_client* client,
     context->client = client->socket;
     context->index  = 0;
     context->rsize  = 0;
-    context->size   = *((uint32_t*)&context->payload[4]);
+    context->size   = length;
 
 #ifdef _WIN32
     // queue up another read
@@ -611,7 +625,7 @@ static int socket_link_peek_packet(struct gracht_link_socket* link,
         return -1;
     }
 
-    *messageLengthOut = *((uint32_t*)&header[MSG_INDEX_LEN]);
+    *messageLengthOut = __gracht_read_u32(&header[MSG_INDEX_LEN]);
     *serviceIdOut = header[MSG_INDEX_SID];
     if (*messageLengthOut < GRACHT_MESSAGE_HEADER_SIZE) {
         errno = EPROTO;

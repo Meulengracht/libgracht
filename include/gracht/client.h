@@ -140,6 +140,43 @@ GRACHTAPI gracht_conn_t gracht_client_iod(gracht_client_t* client);
 GRACHTAPI int gracht_client_wait_message(gracht_client_t *client, struct gracht_message_context *context, unsigned int flags);
 
 /**
+ * Inspect a request without waiting, receiving messages, or consuming its result.
+ * Returns GRACHT_MESSAGE_INPROGRESS, COMPLETED, or ERROR; an unknown context
+ * returns -1 with errno ENOENT. A terminal ERROR returns with errno EIO.
+ *
+ * Event-loop users should call generated *_result helpers only after COMPLETED:
+ * those helpers return 0 on successful decoding, which is also the numeric value
+ * of INPROGRESS. Use this query to distinguish readiness from decode success.
+ * Exactly one consumer must own result retrieval for a given context; readiness
+ * inspection does not reserve a result against another consuming thread.
+ */
+GRACHTAPI int gracht_client_get_status(gracht_client_t* client, struct gracht_message_context* context);
+
+/**
+ * Drop local tracking before an application-level retry. This does not cancel
+ * remote work or authorize reclaiming shared storage. Serialize with result
+ * consumption; contexts registered with an awaiter return EBUSY.
+ */
+GRACHTAPI int gracht_client_abandon(gracht_client_t* client, struct gracht_message_context* context);
+
+/**
+ * Result-buffer support for generated *_result functions. This never waits or
+ * pumps messages. INPROGRESS leaves the request registered and returns an empty
+ * buffer, so checking again after a later event-loop turn is safe. COMPLETED
+ * consumes the request exactly once and transfers its response buffer to the
+ * caller; release that buffer with gracht_client_status_finalize after decoding.
+ * ERROR consumes a terminal failure without transferring buffer ownership.
+ * Unknown/already-consumed contexts return -1 with errno ENOENT.
+ *
+ * A completed buffer retains transport sender metadata. Protocol/function IDs
+ * are checked by the runtime; authorization remains the transport/application's 
+ * responsibility.
+ * Inspecting a result does not cancel remote work.
+ */
+GRACHTAPI int gracht_client_get_status_buffer(gracht_client_t* client, struct gracht_message_context* context, gracht_buffer_t* buffer);
+GRACHTAPI int gracht_client_status_finalize(gracht_client_t* client, gracht_buffer_t* buffer);
+
+/**
  * Can be used to await a response for a specific function invoke. This only returns when the function response
  * was received. The default waiting mode is synchronous, and that means that this function internally calls 
  * wait_message unless an asynchronous mode was specified.

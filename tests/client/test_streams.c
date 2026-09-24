@@ -44,12 +44,14 @@ extern int init_client_with_socket_link(gracht_client_t** clientOut);
 void test_utils_event_myevent_invocation(gracht_client_t* client, const int n)
 {
     (void)client;
+    (void)sender;
     (void)n;
 }
 
 void test_utils_event_transfer_status_invocation(gracht_client_t* client, const struct test_transfer_status* transfer_status)
 {
     (void)client;
+    (void)sender;
     (void)transfer_status;
 }
 
@@ -150,6 +152,7 @@ static int test_large_download_flow(gracht_client_t* client)
     index = 0;
     while (offset < size) {
         unsigned int expected_count = size - offset;
+        uint32_t decoded_count = sizeof(chunk);
         unsigned int i;
 
         if (expected_count > TEST_LARGE_DOWNLOAD_CHUNK_SIZE) {
@@ -168,9 +171,12 @@ static int test_large_download_flow(gracht_client_t* client)
             return status;
         }
 
-        status = test_large_download_read_chunk_result(client, &context, &chunk[0], sizeof(chunk));
+        status = test_large_download_read_chunk_result(client, &context, &chunk[0], &decoded_count);
         if (status) {
             return status;
+        }
+        if (decoded_count != expected_count) {
+            return EINVAL;
         }
 
         for (i = 0; i < expected_count; ++i) {

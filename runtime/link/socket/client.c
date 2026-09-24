@@ -80,7 +80,7 @@ static int socket_link_peek_header(struct gracht_link_socket* link,
         return -1;
     }
 
-    *messageLengthOut = *((uint32_t*)&header[MSG_INDEX_LEN]);
+    *messageLengthOut = __gracht_read_u32(&header[MSG_INDEX_LEN]);
     *serviceIdOut = header[MSG_INDEX_SID];
     if (*messageLengthOut < GRACHT_MESSAGE_HEADER_SIZE) {
         errno = EPROTO;
@@ -94,6 +94,12 @@ static int socket_link_recv_stream(struct gracht_link_socket* link,
 {
     size_t   bytesRead;
     uint32_t missingData;
+    uint32_t length;
+
+    if (message->index < GRACHT_MESSAGE_HEADER_SIZE) {
+        errno = EMSGSIZE;
+        return -1;
+    }
     
     GRTRACE(GRSTR("[gracht_connection_recv_stream] reading message header"));
     bytesRead = recv(link->base.connection, &message->data[0], GRACHT_MESSAGE_HEADER_SIZE, flags);
@@ -107,7 +113,13 @@ static int socket_link_recv_stream(struct gracht_link_socket* link,
         return -1;
     }
     
-    missingData = *((uint32_t*)&message->data[4]) - GRACHT_MESSAGE_HEADER_SIZE;
+    length = __gracht_read_u32(&message->data[MSG_INDEX_LEN]);
+    if (length < GRACHT_MESSAGE_HEADER_SIZE || length > message->index) {
+        errno = EMSGSIZE;
+        return -1;
+    }
+    
+    missingData = length - GRACHT_MESSAGE_HEADER_SIZE;
     if (missingData) {
         GRTRACE(GRSTR("[gracht_connection_recv_stream] reading message payload"));
         bytesRead = recv(link->base.connection, &message->data[GRACHT_MESSAGE_HEADER_SIZE], missingData, MSG_WAITALL);
@@ -121,6 +133,7 @@ static int socket_link_recv_stream(struct gracht_link_socket* link,
     }
 
     message->index = 0;
+    message->limit = length;
     return 0;
 }
 
@@ -145,6 +158,10 @@ static int socket_link_recv_packet(struct gracht_link_socket* link, struct grach
     // important to use the address we receive from (i.e 
     // the length of the address we connect to)
     socklen_t addrlen = link->connect_address_length;
+    if (message->index < addrlen || message->index - addrlen < GRACHT_MESSAGE_HEADER_SIZE) {
+        errno = EMSGSIZE;
+        return -1;
+    }
     char*     base    = &message->data[addrlen];
     size_t    len     = message->index - addrlen;
     long      bytes_read;
@@ -165,6 +182,7 @@ static int socket_link_recv_packet(struct gracht_link_socket* link, struct grach
         }
         return -1;
     }
+    message->limit = message->index + (uint32_t)bytes_read;
     return 0;
 }
 

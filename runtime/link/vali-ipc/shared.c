@@ -23,6 +23,8 @@
  */
 
 #include <errno.h>
+#include <ipcontext.h>
+#include <time.h>
 #include "gracht/link/vali.h"
 #include "private.h"
 #include <inet/socket.h>
@@ -82,8 +84,7 @@ void gracht_link_vali_set_listen(struct gracht_link_vali* link, int listen)
 {
     if (listen) {
         gracht_link_server_vali_api(link);
-    }
-    else {
+    } else {
         gracht_link_client_vali_api(link);
     }
 }
@@ -91,4 +92,34 @@ void gracht_link_vali_set_listen(struct gracht_link_vali* link, int listen)
 void gracht_link_vali_set_address(struct gracht_link_vali* link, IPCAddress_t* address)
 {
     memcpy(&link->address, address, sizeof(IPCAddress_t));
+}
+
+void gracht_link_vali_set_send_timeout(struct gracht_link_vali* link, uint32_t milliseconds)
+{
+    link->send_timeout_ms = milliseconds;
+}
+
+int gracht_vali_send(int iod, IPCAddress_t* address,
+    const void* data, unsigned int length, uint32_t timeoutMs)
+{
+    struct timespec  deadline;
+    struct timespec* until = NULL;
+   
+    if (timeoutMs) {
+        if (timespec_get(&deadline, TIME_UTC) != TIME_UTC) { 
+            errno = EIO;
+            return -1; 
+        }
+
+        deadline.tv_sec += timeoutMs / 1000;
+        deadline.tv_nsec += (long)(timeoutMs % 1000) * 1000000;
+        
+        if (deadline.tv_nsec >= 1000000000) {
+            deadline.tv_sec++;
+            deadline.tv_nsec -= 1000000000; 
+        }
+        until = &deadline;
+    }
+    
+    return ipsend(iod, address, data, length, until);
 }

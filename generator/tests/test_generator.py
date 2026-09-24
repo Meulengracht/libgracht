@@ -1,4 +1,9 @@
 import argparse
+import io
+import os
+import shlex
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -15,6 +20,8 @@ import parser as service_parser
 from passes.consolidate import pass_consolidate
 from passes.synthesize import pass_synthesize
 from passes.validate import derive_service_id, pass_validate
+from common.shared import FunctionObject, VariableObject
+from languages.langc import CGenerator, CodeWriter, define_status_body, write_server_deserializer, write_client_deserializer
 
 
 def parse_services(service_path: Path):
@@ -29,6 +36,37 @@ def parse_services(service_path: Path):
 
 
 class GeneratorTests(unittest.TestCase):
+    def test_generated_codec_safety(self):
+        compiler = shutil.which(os.environ.get("CC", "cc"))
+        if compiler is None:
+            self.skipTest("C compiler unavailable")
+        service = parse_services(REPO_ROOT / "tests/protocols/test_service.gr")[0]
+        with tempfile.TemporaryDirectory() as directory:
+            generator = CGenerator()
+            generator.generate_shared_header(service, directory)
+            helpers = io.StringIO()
+            writer = CodeWriter(helpers)
+            for name, typename in [("probe", "transaction"), ("bytes", "uint64"), ("strings", "string")]:
+                function = FunctionObject(name, 20, [], [VariableObject(typename, "items", True),
+                                                       VariableObject("uint32", "trailer", False)])
+                writer.writeln(generator.get_function_status_prototype(service, function) + " {")
+                define_status_body(service, function, writer)
+                writer.writeln("}")
+            function = next(function for function in service.get_functions() if function.get_name() == "transfer_many")
+            writer.writeln(generator.get_server_callback_prototype(service, function) + ";")
+            write_server_deserializer(service, function, writer)
+            event = next(event for event in service.get_events() if event.get_name() == "myevent")
+            writer.writeln(generator.get_client_callback_prototype(service, event) + ";")
+            write_client_deserializer(service, event, writer)
+            Path(directory, "codec_helpers.h").write_text(helpers.getvalue())
+            executable = Path(directory, "codec-test")
+            command = [compiler, "-std=gnu11", "-Werror=incompatible-pointer-types",
+                       "-I" + str(REPO_ROOT / "include"), "-I" + directory,
+                       str(GENERATOR_ROOT / "tests/codec_test.c"), "-o", str(executable)]
+            command.extend(shlex.split(os.environ.get("GRACHT_TEST_CFLAGS", "")))
+            subprocess.run(command, check=True)
+            subprocess.run([str(executable)], check=True)
+
     def test_auto_generated_service_ids_for_new_schema(self):
         services = parse_services(REPO_ROOT / "generator/examples/test_service.gr")
         by_name = {service.get_name(): service for service in services}
@@ -40,7 +78,7 @@ class GeneratorTests(unittest.TestCase):
         self.assertEqual(by_name["microphone"].get_id(), derive_service_id(by_name["microphone"]))
 
     def test_control_service_is_pinned_to_zero(self):
-        services = parse_services(REPO_ROOT / "control.gr")
+        services = parse_services(REPO_ROOT / "protocols/control.gr")
         self.assertEqual(len(services), 1)
         control = services[0]
 

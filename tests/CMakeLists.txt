@@ -48,7 +48,7 @@ include_directories(${CMAKE_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR} ../include)
 add_custom_command(
     OUTPUT  test_utils_service_server.c test_utils_service_server.h test_utils_service_client.c test_utils_service_client.h test_utils_service.h test_small_upload_service_server.c test_small_upload_service_server.h test_small_upload_service_client.c test_small_upload_service_client.h test_small_upload_service.h test_large_download_service_server.c test_large_download_service_server.h test_large_download_service_client.c test_large_download_service_client.h test_large_download_service.h
     COMMAND python3 ${CMAKE_SOURCE_DIR}/generator/parser.py --service ${CMAKE_CURRENT_SOURCE_DIR}/protocols/test_service.gr --out ${CMAKE_CURRENT_BINARY_DIR} --lang-c --server --client
-    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/protocols/test_service.gr
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/protocols/test_service.gr ${CMAKE_SOURCE_DIR}/generator/parser.py ${CMAKE_SOURCE_DIR}/generator/languages/langc.py
 )
 add_custom_target(
     test_protocols
@@ -74,3 +74,32 @@ add_client_test(gclient_7 client/test_shutdown.c)
 # Server test applications
 add_server_test(gserver server/main.c)
 add_server_test(gserver_mt server_mt/main.c)
+
+# In-memory transport tests exercise the real client runtime without a server,
+# sleeps, sockets, or scheduler timing assumptions. Keep their names separate
+# from gclient_*: run-tests.sh runs those against an external server.
+add_executable(client_runtime_test client/test_runtime.c)
+if (GRACHT_C_BUILD_STATIC)
+    target_link_libraries(client_runtime_test gracht_static)
+else ()
+    target_link_libraries(client_runtime_test gracht)
+endif ()
+if (UNIX AND HAVE_PTHREAD)
+    target_link_libraries(client_runtime_test pthread)
+endif ()
+foreach (scenario pending correlation peer duplicate unknown event abandon)
+    add_test(NAME client_runtime_${scenario} COMMAND client_runtime_test ${scenario})
+endforeach ()
+
+add_executable(server_registration_test server/test_registration.c)
+if (GRACHT_C_BUILD_STATIC)
+    target_link_libraries(server_registration_test gracht_static)
+else ()
+    target_link_libraries(server_registration_test gracht)
+endif ()
+if (UNIX AND HAVE_PTHREAD)
+    target_link_libraries(server_registration_test pthread)
+endif ()
+add_test(NAME server_registration COMMAND server_registration_test)
+
+set_tests_properties(server_registration PROPERTIES TIMEOUT 10)

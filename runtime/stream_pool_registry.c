@@ -29,8 +29,10 @@ size_t gracht_stream_normalize_buffer_size(size_t requestedSize, size_t fallback
 
     if (!size) {
         size = GRACHT_DEFAULT_MESSAGE_SIZE;
+    } else if (size > UINT32_MAX - (GRACHT_STREAM_BUFFER_ALIGNMENT - 1)) {
+        errno = EOVERFLOW;
+        return 0;
     }
-
     return (size + (GRACHT_STREAM_BUFFER_ALIGNMENT - 1)) & ~(size_t)(GRACHT_STREAM_BUFFER_ALIGNMENT - 1);
 }
 
@@ -61,7 +63,7 @@ struct gracht_buffer_pool* gracht_stream_pool_registry_get_or_create(
     size_t capacity;
     size_t i;
 
-    if (!registry) {
+    if (!registry || !requestedSize) {
         errno = EINVAL;
         return NULL;
     }
