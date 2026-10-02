@@ -84,7 +84,7 @@ static int socket_aio_add(gracht_handle_t aio, gracht_conn_t iod) {
     iocpEntry->socket = (SOCKET)iod;
 
     HANDLE handle = CreateIoCompletionPort((HANDLE)iocpEntry->socket, 
-        iocp->iocp, (DWORD)iod, 0);
+        iocp->iocp, (ULONG_PTR)iod, 0);
     if (!handle) {
         free(iocpEntry);
         return -1;

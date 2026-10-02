@@ -524,6 +524,7 @@ static int handle_client_event(struct gracht_server* server, gracht_conn_t handl
             uint32_t               streamMessageSize = 0;
             struct gracht_message* message;
 
+#ifndef _WIN32
             if (entry->link->ops.server.peek_client) {
                 status = entry->link->ops.server.peek_client(entry->client, &incomingLength, &protocolId, 0);
                 if (status) {
@@ -548,6 +549,7 @@ static int handle_client_event(struct gracht_server* server, gracht_conn_t handl
                     return -1;
                 }
             }
+#endif
 
             message = server->ops->get_incoming_buffer(server, streamMessageSize);
             if (!message) {
