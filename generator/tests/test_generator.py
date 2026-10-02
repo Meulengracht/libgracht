@@ -36,6 +36,77 @@ def parse_services(service_path: Path):
 
 
 class GeneratorTests(unittest.TestCase):
+    def test_generated_unset_variants(self):
+        compiler = shutil.which(os.environ.get("CC", "cc"))
+        if compiler is None:
+            self.skipTest("C compiler unavailable")
+        service = parse_services(REPO_ROOT / "tests/protocols/test_service.gr")[0]
+        source = r'''
+#include <assert.h>
+#include "test_utils_service.h"
+
+int main(void)
+{
+    char wire[512];
+    gracht_buffer_t buffer = { .data = wire, .limit = sizeof(wire) };
+    struct test_account_owner owner;
+    struct test_account_owner decoded;
+    test_account_owner_init(&owner);
+    test_account_owner_init(&decoded);
+    assert(owner.type_type == TEST_ACCOUNT_OWNER_TYPE_UNSET);
+    serialize_test_account_owner(&buffer, &owner);
+    assert(!buffer.error && buffer.index == 1 && wire[0] == 0);
+    serialize_uint32(&buffer, 99);
+    buffer.limit = buffer.index;
+    buffer.index = 0;
+    deserialize_test_account_owner(&buffer, &decoded);
+    assert(!buffer.error && decoded.type_type == TEST_ACCOUNT_OWNER_TYPE_UNSET);
+    assert(deserialize_uint32(&buffer) == 99 && !buffer.error);
+
+    struct test_owner_business business = { .id = 7, .name = "business" };
+    test_account_owner_type_set_owner_business(&owner, &business);
+    buffer = (gracht_buffer_t){ .data = wire, .limit = sizeof(wire) };
+    serialize_test_account_owner(&buffer, &owner);
+    assert(!buffer.error);
+    buffer.limit = buffer.index;
+    buffer.index = 0;
+    deserialize_test_account_owner(&buffer, &decoded);
+    assert(!buffer.error && decoded.type_type == TEST_ACCOUNT_OWNER_TYPE_B);
+    assert(decoded.type.b.id == 7 && strcmp(decoded.type.b.name, "business") == 0);
+    test_account_owner_type_clear(&decoded);
+    test_account_owner_type_clear(&owner);
+    assert(owner.type_type == TEST_ACCOUNT_OWNER_TYPE_UNSET);
+    assert(decoded.type_type == TEST_ACCOUNT_OWNER_TYPE_UNSET);
+    buffer = (gracht_buffer_t){ .data = wire, .limit = sizeof(wire) };
+    serialize_test_account_owner(&buffer, &owner);
+    assert(!buffer.error && buffer.index == 1);
+    buffer.limit = buffer.index;
+    buffer.index = 0;
+    deserialize_test_account_owner(&buffer, &decoded);
+    assert(!buffer.error && decoded.type_type == TEST_ACCOUNT_OWNER_TYPE_UNSET);
+
+    owner.type_type = 255;
+    buffer = (gracht_buffer_t){ .data = wire, .limit = sizeof(wire) };
+    serialize_test_account_owner(&buffer, &owner);
+    assert(buffer.error == EPROTO);
+    buffer = (gracht_buffer_t){ .data = wire, .limit = 1 };
+    deserialize_test_account_owner(&buffer, &decoded);
+    assert(buffer.error == EPROTO);
+    test_account_owner_destroy(&owner);
+    test_account_owner_destroy(&decoded);
+    return 0;
+}
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            CGenerator().generate_shared_header(service, directory)
+            executable = Path(directory, "variant-test")
+            command = [compiler, "-std=gnu11", "-Werror=incompatible-pointer-types",
+                       "-I" + str(REPO_ROOT / "include"), "-I" + directory,
+                       "-x", "c", "-", "-o", str(executable)]
+            command.extend(shlex.split(os.environ.get("GRACHT_TEST_CFLAGS", "")))
+            subprocess.run(command, input=source, text=True, check=True)
+            subprocess.run([str(executable)], check=True)
+
     def test_generated_codec_safety(self):
         compiler = shutil.which(os.environ.get("CC", "cc"))
         if compiler is None:

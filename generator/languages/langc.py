@@ -436,6 +436,7 @@ def write_variable_member_serializer(service: ServiceObject, member, outfile: Co
 def write_struct_variant_serializer(service: ServiceObject, struct: StructureObject, member: VariableVariantObject, outfile: CodeWriter):
     outfile.writeln(f"serialize_uint8(buffer, in->{member.get_name()}_type);")
     outfile.writeln(f"switch (in->{member.get_name()}_type) {{")
+    outfile.writeln(f"case {get_scoped_name(struct).upper()}_{member.get_name().upper()}_UNSET: break;")
     outfile.writeln("default: gracht_codec_fail(buffer, EPROTO); break;")
     for entry in member.get_entries():
         outfile.writeln(f"case {get_variant_enum_name(struct, member, entry)}:")
@@ -592,6 +593,7 @@ def write_struct_variant_deserializer(service: ServiceObject, struct: StructureO
     name = member.get_name()
     outfile.writeln(f"out->{name}_type = deserialize_uint8(buffer);")
     outfile.writeln(f"switch (out->{name}_type) {{")
+    outfile.writeln(f"case {get_scoped_name(struct).upper()}_{name.upper()}_UNSET: break;")
     outfile.writeln("default: gracht_codec_fail(buffer, EPROTO); break;")
     for entry in member.get_entries():
         outfile.writeln(f"case {get_variant_enum_name(struct, member, entry)}:")
@@ -1069,7 +1071,7 @@ def write_structure_variant_enums(struct, outfile: CodeWriter):
         if isinstance(member, VariableVariantObject):
             outfile.writeln(f"enum {get_scoped_name(struct)}_{member.get_name()}_type {{")
             outfile.indent_inc()
-            outfile.writeln(f"{get_scoped_name(struct).upper()}_{member.get_name().upper()}_INVALID = 0,")
+            outfile.writeln(f"{get_scoped_name(struct).upper()}_{member.get_name().upper()}_UNSET = 0,")
             for value in member.get_entries():
                 outfile.writeln(f"{get_variant_enum_name(struct, member, value)},")
             outfile.indent_dec()
@@ -1130,7 +1132,7 @@ def write_structure_variant_member_functions(service: ServiceObject, struct: Str
         outfile.writeln("break;")
         outfile.indent_dec()
     outfile.writeln("}")
-    outfile.writeln(f"in->{variant.get_name()}_type = {get_scoped_name(struct).upper()}_{variant.get_name().upper()}_INVALID;")
+    outfile.writeln(f"in->{variant.get_name()}_type = {get_scoped_name(struct).upper()}_{variant.get_name().upper()}_UNSET;")
     outfile.indent_dec()
     outfile.writeln("}")
     outfile.writeln("")
