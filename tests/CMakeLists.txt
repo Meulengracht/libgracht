@@ -103,3 +103,16 @@ endif ()
 add_test(NAME server_registration COMMAND server_registration_test)
 
 set_tests_properties(server_registration PROPERTIES TIMEOUT 10)
+
+# Includes client.c to intercept the exact registration/wait boundary.
+if (GRACHT_C_BUILD_STATIC)
+add_executable(client_await_test client/test_await.c)
+target_link_libraries(client_await_test gracht_static)
+if (UNIX AND HAVE_PTHREAD)
+    target_link_libraries(client_await_test pthread)
+endif ()
+foreach (scenario early spurious all any normal duplicate concurrent-all concurrent-any)
+    add_test(NAME client_await_${scenario} COMMAND client_await_test ${scenario})
+    set_tests_properties(client_await_${scenario} PROPERTIES TIMEOUT 10)
+endforeach ()
+endif ()

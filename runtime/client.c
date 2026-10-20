@@ -568,6 +568,17 @@ static inline void __await_loop(
     }
 }
 
+static int __is_awaiter_pending(
+    struct gracht_message_awaiter* awaiter,
+    unsigned int                    flags)
+{
+    if (flags & GRACHT_AWAIT_ALL) {
+        return awaiter->current_count < awaiter->count;
+    } else {
+        return awaiter->current_count == 0;
+    }
+}
+
 int gracht_client_await_multiple(
         gracht_client_t*                client,
         struct gracht_message_context** contexts,
@@ -632,7 +643,11 @@ int gracht_client_await_multiple(
     // and thus we should just use the awaiter
     if (flags & GRACHT_AWAIT_ASYNC) {
         mtx_lock(&awaiter->mutex);
-        cnd_wait(&awaiter->event, &awaiter->mutex);
+        // A response may arrive after registration but before this lock is
+        // acquired.
+        while (__is_awaiter_pending(awaiter, flags)) {
+            cnd_wait(&awaiter->event, &awaiter->mutex);
+        }
         mtx_unlock(&awaiter->mutex);
     } else {
         // otherwise we are a single threaded application (maybe) and we should also
@@ -643,6 +658,8 @@ int gracht_client_await_multiple(
 
 cleanup:
     // cleanup the awaiter
+    cnd_destroy(&awaiter->event);
+    mtx_destroy(&awaiter->mutex);
     free(awaiter);
     return 0;
 }
@@ -1022,24 +1039,27 @@ static void mark_awaiters(gracht_client_t* client, uint32_t awaiterID)
 
     mtx_lock(&client->awaiters_lock);
     entry = gr_hashtable_get(
-            &client->awaiters,
-            &(struct gracht_message_awaiter_entry) { .id = awaiterID }
+        &client->awaiters,
+        &(struct gracht_message_awaiter_entry) { .id = awaiterID }
     );
     if (!entry) {
         mtx_unlock(&client->awaiters_lock);
         return;
     }
     awaiter = entry->awaiter;
-    mtx_unlock(&client->awaiters_lock);
 
-    awaiter->current_count++;
-    if (awaiter->flags & GRACHT_AWAIT_ALL) {
-        if (awaiter->current_count == awaiter->count) {
+    // an ANY waiter can remove and free itself as soon as another response has arrived.
+    // Synchronous awaiters count the completed descriptors in their receive loop.
+    if (awaiter->flags & GRACHT_AWAIT_ASYNC) {
+        mtx_lock(&awaiter->mutex);
+        awaiter->current_count++;
+        if (!(awaiter->flags & GRACHT_AWAIT_ALL) ||
+            awaiter->current_count == awaiter->count) {
             cnd_signal(&awaiter->event);
         }
-    } else {
-        cnd_signal(&awaiter->event);
+        mtx_unlock(&awaiter->mutex);
     }
+    mtx_unlock(&client->awaiters_lock);
 }
 
 static uint32_t get_message_id(gracht_client_t* client)
@@ -1072,6 +1092,12 @@ void gracht_control_error_invocation(gracht_client_t* client, const uint32_t mes
         return;
     }
     
+    // Match normal response handling: one terminal result, one notification.
+    if (descriptor->status != GRACHT_MESSAGE_INPROGRESS) {
+        mtx_unlock(&client->messages_lock);
+        return;
+    }
+
     // set status
     descriptor->status = GRACHT_MESSAGE_ERROR;
     awaiterID = descriptor->awaiter_id;
