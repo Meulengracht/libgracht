@@ -106,10 +106,25 @@ GRACHTAPI void gracht_server_request_shutdown(gracht_server_t* server);
 GRACHTAPI int gracht_server_add_link(gracht_server_t* server, struct gracht_link* link);
 
 /**
- * Retrieves the security context associated with a given request message.
+ * @brief Returns credentials authenticated by the receiving link.
+ *
+ * Vali IPC captures credentials when the message is sent. Linux Unix stream
+ * links use SO_PEERCRED from connection time; Unix datagram links receive
+ * SCM_CREDENTIALS with each datagram. On POSIX, check capture for CONNECTION
+ * or MESSAGE; source KERNEL only tells you who supplied or checked them.
+ * These credentials never come from RPC payload fields.
+ *
+ * Windows, Internet sockets and non-Linux socket links supply no credentials.
+ * Linux Unix links reject requests if they cannot obtain valid credentials.
+ * Deferral copies the original credentials without refreshing them or keeping
+ * the server or connection alive.
+ *
+ * @param request A received or deferred message, or NULL.
+ * @return A pointer to credentials stored in request, valid as long as request
+ * is valid, or NULL if credentials are absent or unsupported.
  */
 GRACHTAPI const struct gracht_security_context*
-gracht_server_get_security_context(struct gracht_message* request);
+gracht_server_get_security_context(const struct gracht_message* request);
 
 /**
  * Registers a new protocol with the server. A max of 255 protocols can be registered, and if

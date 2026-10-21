@@ -20,6 +20,10 @@
  *   and functionality, refer to the individual things for descriptions
  */
 
+#if defined(__linux__) && !defined(_GNU_SOURCE)
+#define _GNU_SOURCE
+#endif
+
 #include <assert.h>
 #include <errno.h>
 #include "gracht/link/socket.h"
@@ -38,6 +42,9 @@ struct socket_link_client {
     gracht_conn_t               socket;
     gracht_conn_t               link;
     int                         streaming;
+#if defined(__linux__)
+    struct gracht_security_context security;
+#endif
 #ifdef _WIN32
     WSABUF                      waitbuf;
     uint8_t                     headerbuf[GRACHT_MESSAGE_HEADER_SIZE];
@@ -45,6 +52,128 @@ struct socket_link_client {
     WSAOVERLAPPED               overlapped;
 #endif
 };
+
+#if defined(__linux__)
+static int
+__CredentialsValid(
+    const struct ucred* credentials)
+{
+    return credentials->pid > 0 && credentials->uid != (uid_t)-1 && credentials->gid != (gid_t)-1;
+}
+
+static int
+__GetPeerCredentials(
+    int socket,
+    struct gracht_security_context* security)
+{
+    struct ucred credentials;
+    socklen_t length = sizeof(credentials);
+
+    if (getsockopt(socket, SOL_SOCKET, SO_PEERCRED, &credentials, &length) != 0) {
+        return -1;
+    }
+    if (length != sizeof(credentials) || !__CredentialsValid(&credentials)) {
+        errno = EPROTO;
+        return -1;
+    }
+    *security = (struct gracht_security_context){
+        .source = GRACHT_SECURITY_KERNEL,
+        .capture = GRACHT_SECURITY_CAPTURE_CONNECTION,
+        .pid = credentials.pid,
+        .uid = credentials.uid,
+        .gid = credentials.gid
+    };
+    return 0;
+}
+
+static ssize_t
+__ReceiveUnixPacket(
+    int socket,
+    struct gracht_message* context,
+    size_t capacity,
+    socklen_t* addressLength,
+    unsigned int flags)
+{
+    union {
+        struct cmsghdr alignment;
+        unsigned char bytes[CMSG_SPACE(sizeof(struct ucred))];
+    } control;
+    struct iovec data = {
+        .iov_base = &context->payload[sizeof(struct sockaddr_storage)],
+        .iov_len = capacity
+    };
+    struct msghdr message = {
+        .msg_name = context->payload,
+        .msg_namelen = *addressLength,
+        .msg_iov = &data,
+        .msg_iovlen = 1,
+        .msg_control = control.bytes,
+        .msg_controllen = sizeof(control.bytes)
+    };
+    struct cmsghdr* header;
+    struct ucred credentials = {0};
+    ssize_t bytesRead;
+    unsigned credentialCount = 0;
+    int invalid = 0;
+
+    bytesRead = recvmsg(socket, &message, flags | MSG_CMSG_CLOEXEC);
+    if (bytesRead < 0) {
+        return -1;
+    }
+
+    // recvmsg can return file descriptors even when control data is truncated.
+    // Close those it returned; the kernel closes any that did not fit. This
+    // transport does not support descriptor passing.
+    for (header = CMSG_FIRSTHDR(&message); header; header = CMSG_NXTHDR(&message, header)) {
+        if (header->cmsg_level != SOL_SOCKET) {
+            continue;
+        }
+        if (header->cmsg_type == SCM_RIGHTS) {
+            size_t offset;
+            int descriptor;
+
+            for (offset = CMSG_LEN(0); offset + sizeof(descriptor) <= header->cmsg_len; offset += sizeof(descriptor)) {
+                memcpy(&descriptor, (unsigned char*)header + offset, sizeof(descriptor));
+                close(descriptor);
+            }
+            invalid = 1;
+        } else if (header->cmsg_type == SCM_CREDENTIALS) {
+            credentialCount++;
+            if (header->cmsg_len != CMSG_LEN(sizeof(credentials))) {
+                invalid = 1;
+            } else {
+                memcpy(&credentials, CMSG_DATA(header), sizeof(credentials));
+            }
+        }
+    }
+    if (message.msg_flags & (MSG_TRUNC | MSG_CTRUNC)) {
+        errno = EMSGSIZE;
+        return -1;
+    }
+    if (invalid || credentialCount != 1 || !__CredentialsValid(&credentials)) {
+        errno = EPROTO;
+        return -1;
+    }
+    if (message.msg_namelen == 0 || message.msg_namelen > *addressLength) {
+        errno = ENOLINK;
+        return -1;
+    }
+    if (bytesRead == 0) {
+        errno = ENODATA;
+        return -1;
+    }
+
+    *addressLength = message.msg_namelen;
+    context->security = (struct gracht_security_context){
+        .source = GRACHT_SECURITY_KERNEL,
+        .capture = GRACHT_SECURITY_CAPTURE_MESSAGE,
+        .pid = credentials.pid,
+        .uid = credentials.uid,
+        .gid = credentials.gid
+    };
+    return bytesRead;
+}
+#endif
 
 #ifdef _WIN32
 static int queue_accept(struct gracht_link_socket* link, gracht_handle_t iocp_handle)
@@ -168,6 +297,7 @@ static int socket_link_recv_client(struct socket_link_client* client,
     uint32_t     missingData;
     uint32_t     length;
 
+    memset(&context->security, 0, sizeof(context->security));
     if (context->index < GRACHT_MESSAGE_HEADER_SIZE) {
         errno = EMSGSIZE;
         return -1;
@@ -242,6 +372,9 @@ static int socket_link_recv_client(struct socket_link_client* client,
     context->index  = 0;
     context->rsize  = 0;
     context->size   = length;
+#if defined(__linux__)
+    context->security = client->security;
+#endif
 
 #ifdef _WIN32
     // queue up another read
@@ -321,6 +454,21 @@ static gracht_conn_t socket_link_setup(struct gracht_link_socket* link, gracht_h
         if (link->base.connection == GRACHT_CONN_INVALID) {
             return GRACHT_CONN_INVALID;
         }
+
+#if defined(__linux__)
+        if (link->domain == AF_UNIX) {
+            int enabled = 1;
+            int savedError;
+
+            if (setsockopt(link->base.connection, SOL_SOCKET, SO_PASSCRED, &enabled, sizeof(enabled)) != 0) {
+                savedError = errno;
+                close(link->base.connection);
+                link->base.connection = GRACHT_CONN_INVALID;
+                errno = savedError;
+                return GRACHT_CONN_INVALID;
+            }
+        }
+#endif
 
         status = bind(link->base.connection,
             (const struct sockaddr*)&link->bind_address,
@@ -475,6 +623,17 @@ static int socket_link_accept(
     client->base.handle    = client->socket;
     client->streaming      = 1;
     client->address_length = address_length;
+
+#if defined(__linux__)
+    if (link->domain == AF_UNIX && __GetPeerCredentials(client->socket, &client->security) != 0) {
+        int savedError = errno;
+
+        close(client->socket);
+        free(client);
+        errno = savedError;
+        return -1;
+    }
+#endif
     
     status = socket_aio_add(set_handle, client->socket);
     if (status) {
@@ -495,8 +654,13 @@ static int socket_link_recv_packet(struct gracht_link_socket* link,
     unsigned int socketFlags = get_socket_flags(flags);
     uint32_t     addressCrc;
 
+    memset(&context->security, 0, sizeof(context->security));
     if (link->base.type != gracht_link_packet_based) {
         errno = ENOSYS;
+        return -1;
+    }
+    if (context->index < sizeof(struct sockaddr_storage)) {
+        errno = EMSGSIZE;
         return -1;
     }
 
@@ -530,8 +694,16 @@ static int socket_link_recv_packet(struct gracht_link_socket* link,
 #else
     // Packets are atomic, either the full packet is there, or none is. So avoid
     // the use of MSG_WAITALL here.
-    intmax_t bytesRead = (intmax_t)recvfrom(link->base.connection, base, len, 
-        socketFlags, (struct sockaddr*)&context->payload[0], &addrlen);
+    intmax_t bytesRead;
+#if defined(__linux__)
+    if (link->domain == AF_UNIX) {
+        bytesRead = __ReceiveUnixPacket(link->base.connection, context, len, &addrlen, socketFlags);
+    } else
+#endif
+    {
+        bytesRead = (intmax_t)recvfrom(link->base.connection, base, len,
+            socketFlags, (struct sockaddr*)&context->payload[0], &addrlen);
+    }
     if (bytesRead <= 0) {
         if (bytesRead == 0) {
             errno = (ENODATA);

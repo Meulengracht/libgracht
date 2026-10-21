@@ -47,16 +47,74 @@ typedef int gracht_handle_t;
 typedef int gracht_conn_t;
 #define GRACHT_HANDLE_INVALID ((int)-1)
 #define GRACHT_CONN_INVALID   ((int)-1)
+
+/** 
+ * Where credentials came from. The receiving link defines when they were captured.
+ */
+enum gracht_security_source {
+    GRACHT_SECURITY_NONE = 0,
+    GRACHT_SECURITY_KERNEL = 1
+};
+
+/**
+ * Vali kernel credentials captured when the message is sent. The principal is
+ * valid within one boot, and capabilities holds Vali rights. Neither field is a
+ * resource handle or an RPC argument. Source NONE or principal zero means no
+ * credentials are present; a zero capability mask is valid.
+ */
+struct gracht_security_context {
+    enum gracht_security_source source;
+    uint64_t                    principal;
+    uint32_t                    capabilities;
+};
 #elif defined(_WIN32)
 typedef void*      gracht_handle_t;
 typedef uintptr_t  gracht_conn_t;
 #define GRACHT_HANDLE_INVALID NULL
 #define GRACHT_CONN_INVALID   (uintptr_t)(~0)
+
+// Not implemented for windows yet
+struct gracht_security_context {
+    uint32_t reserved;
+};
 #else
+#include <sys/types.h>
+
 typedef int gracht_handle_t;
 typedef int gracht_conn_t;
 #define GRACHT_HANDLE_INVALID ((int)-1)
 #define GRACHT_CONN_INVALID   ((int)-1)
+
+/** 
+ * Where credentials came from. The receiving link defines when they were captured.
+ */
+enum gracht_security_source {
+    GRACHT_SECURITY_NONE = 0,
+    GRACHT_SECURITY_KERNEL = 1
+};
+
+/**
+ * Whether POSIX credentials describe the connecting peer or a message's sender.
+ */
+enum gracht_security_capture {
+    GRACHT_SECURITY_CAPTURE_UNSPECIFIED = 0,
+    GRACHT_SECURITY_CAPTURE_CONNECTION = 1, // peer at connection establishment
+    GRACHT_SECURITY_CAPTURE_MESSAGE = 2     // sender credentials attached to this message
+};
+
+/**
+ * POSIX credentials supplied by a link. Source NONE means no credentials are
+ * present; UID zero is valid. Linux Unix sockets use CONNECTION for streams
+ * and MESSAGE for datagrams. Other links may leave the context empty.
+ * IDs use the receiving process's namespaces.
+ */
+struct gracht_security_context {
+    enum gracht_security_source  source;
+    enum gracht_security_capture capture;
+    pid_t                        pid;
+    uid_t                        uid;
+    gid_t                        gid;
+};
 #endif
 
 #define GRACHT_MESSAGE_HEADER_SIZE 11
@@ -108,14 +166,22 @@ typedef int gracht_conn_t;
 // the structure is exposed is when servers would like to respond to invocations
 // in the form of events, they will access to the client member of this structure.
 typedef struct gracht_server gracht_server_t;
+
+/**
+ * Metadata for a received message, followed by payload and any link routing data.
+ * Credentials are stored inline and copied by value when the message is deferred;
+ * they need no separate cleanup. The header's layout depends on the platform and
+ * is never sent over the wire. Links without credentials leave security zeroed.
+ */
 struct gracht_message {
-    gracht_server_t* server;  // server instance message is received on
-    gracht_conn_t    link;    // link message is received on
-    gracht_conn_t    client;  // client context on the link
-    uint32_t         size;    // size of the payload
-    uint32_t         rsize;  // the number of bytes that are reserved in the payload
-    uint32_t         index;   // used internally for payload storage
-    uint8_t          payload[]; // payload follows this message header
+    gracht_server_t*               server;    // server instance message is received on
+    gracht_conn_t                  link;      // link message is received on
+    gracht_conn_t                  client;    // client context on the link
+    struct gracht_security_context security;  // security context for the message
+    uint32_t                       size;      // size of the payload
+    uint32_t                       rsize;     // the number of bytes that are reserved in the payload
+    uint32_t                       index;     // used internally for payload storage
+    uint8_t                        payload[]; // payload follows this message header
 };
 
 enum gracht_capability_format {

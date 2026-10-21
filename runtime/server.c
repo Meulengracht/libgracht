@@ -481,6 +481,7 @@ static int handle_packet(struct gracht_server* server, struct gracht_link* link)
         return -1;
     }
 
+    memset(&message->security, 0, sizeof(struct gracht_security_context));
     status = link->ops.server.recv(link, message, GRACHT_MESSAGE_BLOCK);
     if (status) {
         if (errno != ENODATA) {
@@ -559,6 +560,7 @@ static int handle_client_event(struct gracht_server* server, gracht_conn_t handl
                 return -1;
             }
             
+            memset(&message->security, 0, sizeof(struct gracht_security_context));
             status = entry->link->ops.server.recv_client(entry->client, message, 0);
             if (status) {
                 server->ops->put_message(server, message);
@@ -1073,6 +1075,33 @@ void gracht_server_defer_message(struct gracht_message* in, struct gracht_messag
 
     memcpy(out, in, GRACHT_MESSAGE_DEFERRABLE_SIZE(in));
 }
+
+#if defined(MOLLENOS)
+
+const struct gracht_security_context* gracht_server_get_security_context(const struct gracht_message* request)
+{
+    if (request == NULL || request->security.source == GRACHT_SECURITY_NONE ||
+        request->security.principal == 0) {
+        return NULL;
+    }
+    return &request->security;
+}
+#elif defined(_WIN32)
+const struct gracht_security_context* gracht_server_get_security_context(const struct gracht_message* request)
+{
+    (void)request;
+    // not supported yet
+    return NULL;
+}
+#else
+const struct gracht_security_context* gracht_server_get_security_context(const struct gracht_message* request)
+{
+    if (request == NULL || request->security.source == GRACHT_SECURITY_NONE) {
+        return NULL;
+    }
+    return &request->security;
+}
+#endif
 
 // Client helpers
 static void client_destroy(struct gracht_server* server, gracht_conn_t client)

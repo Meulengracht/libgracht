@@ -63,6 +63,13 @@ GRACHTAPI int gracht_link_socket_cleanup(void);
  * Represents the socket link datastructure, and can be configured to work
  * however wanted. The default configuration is non-listen, connection-less mode
  * and the socket domain is AF_INET.
+ *
+ * Linux AF_UNIX server links store credentials in each message. Stream links
+ * read SO_PEERCRED once at accept (capture CONNECTION), identifying the original
+ * peer even if another process later writes to the socket. Datagram links use
+ * SO_PASSCRED to receive kernel-checked SCM_CREDENTIALS for each datagram
+ * (capture MESSAGE). Requests with missing or truncated credentials are rejected.
+ * Internet and non-Linux socket links supply no credentials.
  */
 struct gracht_link_socket;
 

@@ -133,9 +133,9 @@ static inline int get_ip_flags(unsigned int flags)
 
 static int vali_link_recv(struct gracht_link_vali* link, struct gracht_message* context, unsigned int flags)
 {
-    uuid_t client;
-    int    bytesRead;
-    int    ipFlags = get_ip_flags(flags);
+    IPCMessageContext_t credentials;
+    int                 bytesRead;
+    int                 ipFlags = get_ip_flags(flags);
     TRACE("vali_link_recv %u", flags);
 
     if (link->base.type != gracht_link_packet_based) {
@@ -143,12 +143,13 @@ static int vali_link_recv(struct gracht_link_vali* link, struct gracht_message* 
         return -1;
     }
 
+    memset(&context->security, 0, sizeof(context->security));
     bytesRead = iprecv(
-            link->base.connection,
-            &context->payload[0],
-            context->index,
-            ipFlags,
-            &client
+        link->base.connection,
+        &context->payload[0],
+        context->index,
+        ipFlags,
+        &credentials
     );
     if (bytesRead < 0) {
         return bytesRead;
@@ -156,7 +157,12 @@ static int vali_link_recv(struct gracht_link_vali* link, struct gracht_message* 
 
     // ->server is set by server
     context->link   = link->base.connection;
-    context->client = (gracht_conn_t)client;
+    context->client = (gracht_conn_t)credentials.SenderHandle;
+    if (credentials.Sender != 0) {
+        context->security.principal = credentials.Sender;
+        context->security.capabilities = credentials.Capabilities;
+        context->security.source = GRACHT_SECURITY_KERNEL;
+    }
     context->size   = (uint32_t)bytesRead;
     context->index  = 0;
     return 0;
