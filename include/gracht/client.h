@@ -41,9 +41,11 @@ typedef struct gracht_client_configuration {
     // <send_buffer>      if set, provides a buffer that the client should use for sending messages. The size of this
     //                    buffer must be provided in max_message_size. This buffer is not freed upon calling gracht_client_shutdown
     // <recv_buffer>      if set, provides a buffer that the client should use for receiving messages. The size of this
-    //                    buffer must be atleast twice of max_message_size. 
+    //                    storage must fit at least one max_message_size plus the link's msg_header_size.
+    //                    recv_buffer_size is the total storage size, including each slot's prefix.
     // <max_message_size> specifies the maximum message size that can be handled at once. If not set it defaults
-    //                    to GRACHT_DEFAULT_MESSAGE_SIZE as the default value.
+    //                    to GRACHT_DEFAULT_MESSAGE_SIZE as the default value. For links declaring a
+    //                    msg_header_size, metadata is allocated in addition to this size.
     void*               send_buffer;
     void*               recv_buffer;
     int                 recv_buffer_size;
@@ -51,6 +53,7 @@ typedef struct gracht_client_configuration {
 
     // <stream_buffer_size>  configures the size of buffers used for stream/data-plane sends.
     //                       If not set it falls back to max_message_size.
+    //                       Receive buffers add the link's msg_header_size to the normalized frame size.
     // <stream_buffer_count> configures how many concurrent stream/data-plane send buffers are kept.
     int                 stream_buffer_size;
     int                 stream_buffer_count;

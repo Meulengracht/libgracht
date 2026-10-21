@@ -73,6 +73,7 @@ typedef struct gracht_client {
     struct gracht_link*  link;
     struct gracht_buffer_pool* recv_pool;
     int                  max_message_size;
+    uint32_t             recv_message_size;
     size_t               stream_buffer_size;
     size_t               stream_buffer_count;
     void*                send_buffer;
@@ -322,14 +323,28 @@ static int __handle_response(
 
 static void* __acquire_stream_recv_buffer(gracht_client_t* client, uint32_t messageSize, uint32_t* outSize)
 {
-    size_t requestedSize = gracht_stream_normalize_buffer_size(messageSize, client->stream_buffer_size);
+    size_t                     requestedSize;
     struct gracht_buffer_pool* pool;
-    void* data = NULL;
+    void*                      data = NULL;
+
+    requestedSize = gracht_stream_normalize_buffer_size(messageSize, client->stream_buffer_size);
+    if (!requestedSize) {
+        return NULL;
+    }
+
+    if (requestedSize > UINT32_MAX - client->link->ops.client.msg_header_size) {
+        errno = EOVERFLOW;
+        return NULL;
+    }
+    requestedSize += client->link->ops.client.msg_header_size;
 
     mtx_lock(&client->stream_pools_lock);
     pool = gracht_stream_pool_registry_get_or_create(&client->stream_recv_pools, requestedSize, client->stream_buffer_count);
     if (pool) {
         data = gracht_buffer_pool_acquire(pool);
+        if (!data) {
+            errno = ENOMEM;
+        }
     }
     mtx_unlock(&client->stream_pools_lock);
     *outSize = (uint32_t)requestedSize;
@@ -418,21 +433,23 @@ listenForMessage:
                 goto listenOrExit;
             }
             buffer.data = gracht_buffer_pool_acquire(client->recv_pool);
-            buffer.index = client->max_message_size;
+            buffer.index = client->recv_message_size;
         }
     } else {
         if (streamBuffer) {
             buffer.data = __acquire_stream_recv_buffer(client, expectedStreamSize, &buffer.index);
         } else {
             buffer.data = gracht_buffer_pool_acquire(client->recv_pool);
-            buffer.index = client->max_message_size;
+            buffer.index = client->recv_message_size;
         }
     }
 
     if (!buffer.data) {
         mtx_unlock(&client->wait_lock);
-        // out of memory. client should handle messages
-        errno = ENOMEM;
+        if (!streamBuffer) {
+            // out of memory for regular receive buffer
+            errno = ENOMEM;
+        }
         status = -1;
         goto listenOrExit;
     }
@@ -850,7 +867,7 @@ int gracht_client_create(gracht_client_configuration_t* config, gracht_client_t*
 {
     gracht_client_t* client;
     int              status;
-    int              poolSize;
+    size_t           poolSize;
     size_t           bufferCount;
     
     if (!config || !config->link || !clientOut) {
@@ -887,19 +904,27 @@ int gracht_client_create(gracht_client_configuration_t* config, gracht_client_t*
         client->max_message_size = GRACHT_DEFAULT_MESSAGE_SIZE;
     }
     
-    poolSize = config->recv_buffer_size;
+    if (client->link->ops.client.msg_header_size > UINT32_MAX - (uint32_t)client->max_message_size) {
+        errno = EOVERFLOW;
+        goto error;
+    }
+
+    client->recv_message_size = (uint32_t)client->max_message_size + client->link->ops.client.msg_header_size;
+    poolSize = config->recv_buffer_size > 0 ? (size_t)config->recv_buffer_size : 0;
+    
     if (config->recv_buffer) {
-        bufferCount = (size_t)(poolSize / client->max_message_size);
+        bufferCount = poolSize / client->recv_message_size;
         if (!bufferCount) {
             GRERROR(GRSTR("gracht_client: recv_buffer_size must fit at least one message"));
             errno = EINVAL;
             goto error;
         }
     } else {
-        if (poolSize < (client->max_message_size * 2)) {
-            poolSize = client->max_message_size * 2;
+        // Keep the requested number of slots
+        bufferCount = poolSize / (size_t)client->max_message_size;
+        if (bufferCount < 2) {
+            bufferCount = 2;
         }
-        bufferCount = (size_t)(poolSize / client->max_message_size);
     }
 
     // handle send buffer configuration
@@ -916,13 +941,13 @@ int gracht_client_create(gracht_client_configuration_t* config, gracht_client_t*
     
     if (config->recv_buffer) {
         status = gracht_buffer_pool_create_with_storage(
-                (size_t)client->max_message_size,
+                client->recv_message_size,
                 bufferCount,
                 config->recv_buffer,
                 &client->recv_pool);
     } else {
         status = gracht_buffer_pool_create(
-                (size_t)client->max_message_size,
+                client->recv_message_size,
                 bufferCount,
                 &client->recv_pool);
     }

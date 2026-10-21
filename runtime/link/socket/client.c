@@ -299,4 +299,6 @@ void gracht_link_client_socket_api(struct gracht_link_socket* link)
     link->base.ops.client.send    = (client_link_send_fn)socket_link_send;
     link->base.ops.client.peek    = (client_link_peek_fn)socket_link_peek;
     link->base.ops.client.destroy = (client_link_destroy_fn)socket_link_destroy;
+    
+    link->base.ops.client.msg_header_size = 0;
 }

@@ -22,10 +22,17 @@ extern int gracht_client_invoke(gracht_client_t*, struct gracht_message_context*
 extern int gracht_client_get_status_buffer(gracht_client_t*, struct gracht_message_context*, gracht_buffer_t*);
 extern int gracht_client_status_finalize(gracht_client_t*, gracht_buffer_t*);
 
-enum { FRAME_SIZE = GRACHT_MESSAGE_HEADER_SIZE + 4, POOL_SIZE = 256, SERVICE = 61, ACTION = 7};
+enum {
+    FRAME_SIZE = GRACHT_MESSAGE_HEADER_SIZE + 4,
+    POOL_SIZE = 256,
+    SERVICE = 61,
+    ACTION = 7,
+    PEER = 42
+};
 struct TestLink {
     struct gracht_link Base;
     char Frame[FRAME_SIZE];
+    uint32_t Sender;
     int Ready;
 };
 
@@ -42,11 +49,17 @@ static int Receive(struct gracht_link* link, gracht_buffer_t* buffer, unsigned i
     struct TestLink* test = (struct TestLink*)link;
     (void)flags;
     if (!test->Ready) { errno = EAGAIN; return -1; }
+    test->Ready = 0;
+    // Model peer validation in the transport. The generic runtime does not
+    // interpret transport-specific sender metadata or authorize responses.
+    if (test->Sender != PEER) {
+        errno = EPROTO;
+        return -1;
+    }
     assert(buffer->index >= FRAME_SIZE);
     memcpy(buffer->data, test->Frame, FRAME_SIZE);
     buffer->index = 0;
     buffer->limit = FRAME_SIZE;
-    test->Ready = 0;
     return 0;
 }
 
@@ -92,6 +105,7 @@ static void Queue(struct TestLink* link, uint32_t id, uint8_t service,
     link->Frame[MSG_INDEX_AID] = action;
     link->Frame[MSG_INDEX_FLG] = type;
     __gracht_write_u32(link->Frame + GRACHT_MESSAGE_HEADER_SIZE, value);
+    link->Sender = PEER;
     link->Ready = 1;
 }
 
@@ -153,8 +167,12 @@ int main(int argc, char** argv)
             Pending(client, &context);
         }
     } else if (!strcmp(argv[1], "peer")) {
-        for (int i = 0; i < 2; ++i) {
+        // A transport-rejected peer must not complete the request or leak its
+        // receive slot. Exceed the two-slot pool, then accept the valid reply
+        // queued below once the transport admits the expected peer.
+        for (int i = 0; i < 16; ++i) {
             Queue(&link, context.message_id, SERVICE, ACTION, MESSAGE_FLAG_RESPONSE, 77);
+            link.Sender = PEER + 1 + i;
             assert(gracht_client_wait_message(client, NULL, 0) == -1);
             assert(errno == EPROTO);
             Pending(client, &context);

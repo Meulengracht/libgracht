@@ -75,22 +75,28 @@ static inline int get_ip_flags(unsigned int flags)
 
 static int vali_link_recv(struct gracht_link_vali* link, struct gracht_buffer* message, unsigned int flags)
 {
-    int          bytesRead;
-    int          ipFlags = get_ip_flags(flags);
-    unsigned int index   = sizeof(uuid_t);
-    uuid_t       sender;
+    IPCMessageContext_t credentials;
+    int                 bytesRead;
+    int                 ipFlags = get_ip_flags(flags);
+    unsigned int        index   = sizeof(IPCMessageContext_t);
 
     if (message->index < index + GRACHT_MESSAGE_HEADER_SIZE) {
         errno = EMSGSIZE;
         return -1;
     }
 
-    bytesRead = iprecv(link->base.connection, &message->data[index], message->index - index, ipFlags, &sender);
+    bytesRead = iprecv(
+        link->base.connection,
+        &message->data[index],
+        message->index - index,
+        ipFlags,
+        &credentials
+    );
     if (bytesRead < 0) {
         return bytesRead;
     }
 
-    memcpy(message->data, &sender, sizeof(sender));
+    memcpy(message->data, &credentials, sizeof(IPCMessageContext_t));
     message->index = (uint32_t)index;
     message->limit = (uint32_t)index + (uint32_t)bytesRead;
     return 0;
@@ -115,4 +121,6 @@ void gracht_link_client_vali_api(struct gracht_link_vali* link)
     link->base.ops.client.send    = (client_link_send_fn)vali_link_send;
     link->base.ops.client.peek    = NULL;
     link->base.ops.client.destroy = (client_link_destroy_fn)vali_link_destroy;
+    
+    link->base.ops.client.msg_header_size = sizeof(IPCMessageContext_t);
 }

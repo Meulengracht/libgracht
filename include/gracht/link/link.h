@@ -99,6 +99,10 @@ struct client_link_ops {
     client_link_send_fn    send;
     client_link_peek_fn    peek;
     client_link_destroy_fn destroy;
+    
+    // Size of the message header, this data is not always present
+    // and depends on the specific link implementation and platform.
+    uint32_t              msg_header_size;
 };
 
 #ifdef __cplusplus
