@@ -32,7 +32,6 @@ static unsigned int finalizations;
 static unsigned int invocations;
 static unsigned int event_invocations;
 static int event_value;
-static gracht_conn_t outer_sender_after_nested;
 
 int gracht_client_get_status_buffer(gracht_client_t* client, struct gracht_message_context* context,
                                     gracht_buffer_t* buffer)
@@ -61,7 +60,7 @@ void test_utils_event_myevent_invocation(gracht_client_t* client, const int valu
     event_value = value;
     if (value == -1) {
         char nested_wire[sizeof(int)];
-        gracht_buffer_t nested = {nested_wire, 0, sizeof(nested_wire), 0, (gracht_conn_t)73};
+        gracht_buffer_t nested = {nested_wire, 0, sizeof(nested_wire), 0};
         serialize_int(&nested, 123);
         nested.index = 0;
         __test_utils_myevent_internal(client, &nested);
@@ -253,19 +252,16 @@ int main(void)
         gracht_buffer_t buffer = begin_message();
         serialize_int(&buffer, endpoint + 100);
         finish_message(buffer);
-        response.sender = (gracht_conn_t)endpoint;
         __test_utils_myevent_internal(NULL, &response);
         assert(event_value == endpoint + 100);
     }
     assert(event_invocations == 2);
     response.index = response.limit;
-    response.sender = (gracht_conn_t)99;
     __test_utils_myevent_internal(NULL, &response);
     assert(response.error && event_invocations == 2);
     gracht_buffer_t buffer = begin_message();
     serialize_int(&buffer, -1);
     finish_message(buffer);
-    response.sender = (gracht_conn_t)41;
     __test_utils_myevent_internal(NULL, &response);
     assert(!response.error && event_invocations == 4);
     return 0;
