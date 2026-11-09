@@ -49,7 +49,7 @@ static int vali_link_send_client(struct vali_link_client* client,
     _CRT_UNUSED(flags);
 
     addr.Type = IPC_ADDRESS_HANDLE;
-    addr.Data.Handle = (uuid_t)client->base.handle;
+    addr.Data.GlobalHandleID = (uuid_t)client->base.handle;
 
     // send to connection-less client (all of them)
     status = gracht_vali_send(client->link, &addr, data->data, data->index, client->send_timeout_ms);
@@ -91,7 +91,7 @@ static int vali_link_create_client(struct gracht_link_vali* link, struct gracht_
     client->send_timeout_ms = link->send_timeout_ms;
 
     client->address.Type = IPC_ADDRESS_HANDLE;
-    client->address.Data.Handle = message->client;
+    client->address.Data.GlobalHandleID = message->client;
 
     *clientOut = client;
     return 0;
@@ -157,9 +157,9 @@ static int vali_link_recv(struct gracht_link_vali* link, struct gracht_message* 
 
     // ->server is set by server
     context->link   = link->base.connection;
-    context->client = (gracht_conn_t)credentials.SenderHandle;
-    if (credentials.Sender != 0) {
-        context->security.principal = credentials.Sender;
+    context->client = (gracht_conn_t)credentials.SenderGlobalHandleID;
+    if (credentials.SenderGroupGlobalHandleID != 0) {
+        context->security.principal = credentials.SenderGroupGlobalHandleID;
         context->security.capabilities = credentials.Capabilities;
         context->security.source = GRACHT_SECURITY_KERNEL;
     }
@@ -181,7 +181,7 @@ static int vali_link_send(struct gracht_link_vali* link,
     }
 
     addr.Type = IPC_ADDRESS_HANDLE;
-    addr.Data.Handle = messageContext->client;
+    addr.Data.GlobalHandleID = messageContext->client;
 
     // send to connection-less client (all of them)
     status = gracht_vali_send(link->base.connection, &addr, data->data, data->index, link->send_timeout_ms);
