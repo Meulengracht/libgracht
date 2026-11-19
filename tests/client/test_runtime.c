@@ -25,7 +25,7 @@ extern int gracht_client_status_finalize(gracht_client_t*, gracht_buffer_t*);
 enum {
     FRAME_SIZE = GRACHT_MESSAGE_HEADER_SIZE + 4,
     POOL_SIZE = 256,
-    SERVICE = 61,
+    SERVICE = 0x1234,
     ACTION = 7,
     PEER = 42
 };
@@ -86,7 +86,7 @@ static struct gracht_message_context Request(gracht_client_t* client)
     gracht_buffer_t buffer;
     assert(gracht_client_get_buffer(client, &buffer) == 0);
     memset(buffer.data, 0, GRACHT_MESSAGE_HEADER_SIZE);
-    buffer.data[MSG_INDEX_SID] = SERVICE;
+    __gracht_write_u16(buffer.data + MSG_INDEX_SID, SERVICE);
     buffer.data[MSG_INDEX_AID] = ACTION;
     buffer.data[MSG_INDEX_FLG] = MESSAGE_FLAG_SYNC;
     buffer.index = GRACHT_MESSAGE_HEADER_SIZE;
@@ -94,14 +94,14 @@ static struct gracht_message_context Request(gracht_client_t* client)
     return context;
 }
 
-static void Queue(struct TestLink* link, uint32_t id, uint8_t service,
+static void Queue(struct TestLink* link, uint32_t id, uint16_t service,
                   uint8_t action, uint8_t type, uint32_t value)
 {
     assert(!link->Ready);
     memset(link->Frame, 0, sizeof(link->Frame));
     __gracht_write_u32(link->Frame + MSG_INDEX_ID, id);
     __gracht_write_u32(link->Frame + MSG_INDEX_LEN, FRAME_SIZE);
-    link->Frame[MSG_INDEX_SID] = service;
+    __gracht_write_u16(link->Frame + MSG_INDEX_SID, service);
     link->Frame[MSG_INDEX_AID] = action;
     link->Frame[MSG_INDEX_FLG] = type;
     __gracht_write_u32(link->Frame + GRACHT_MESSAGE_HEADER_SIZE, value);

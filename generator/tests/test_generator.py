@@ -19,8 +19,8 @@ if str(GENERATOR_ROOT) not in sys.path:
 import parser as service_parser
 from passes.consolidate import pass_consolidate
 from passes.synthesize import pass_synthesize
-from passes.validate import derive_service_id, pass_validate
-from common.shared import FunctionObject, VariableObject
+from passes.validate import derive_service_id, pass_validate, MAX_SERVICE_ID
+from common.shared import FunctionObject, ServiceObject, VariableObject
 from languages.langc import CGenerator, CodeWriter, define_status_body, write_server_deserializer, write_client_deserializer
 
 
@@ -164,6 +164,52 @@ int main(void)
         self.assertEqual(by_name["utils"].get_id(), 1)
         self.assertTrue(by_name["small_upload"].is_stream())
         self.assertTrue(by_name["large_download"].is_stream())
+
+    def test_derived_service_ids_fit_the_16_bit_header(self):
+        names = ["gpio", "input", "storage", "clock", "usbhost", "filesystem", "netadapter"]
+        ids = [derive_service_id(ServiceObject("ctt", None, name, [], [], [], [], [])) for name in names]
+
+        for service_id in ids:
+            self.assertGreaterEqual(service_id, 1)
+            self.assertLessEqual(service_id, MAX_SERVICE_ID)
+        # "cttgpio" and "cttinput" got the same id when ids were 8 bit.
+        self.assertEqual(len(set(ids)), len(names))
+
+    def test_explicit_service_id_limits(self):
+        with tempfile.TemporaryDirectory() as directory:
+            def parse_with_id(service_id):
+                path = Path(directory, "service.gr")
+                path.write_text(f"namespace test\nservice ping ({service_id}) {{\n    func ping() : () = 1;\n}}\n")
+                return parse_services(path)[0]
+
+            self.assertEqual(parse_with_id("0x1234").get_id(), 0x1234)
+            self.assertEqual(parse_with_id("0xFFFE").get_id(), MAX_SERVICE_ID)
+            # 0xFFFF means all services in subscribe and unsubscribe.
+            with self.assertRaises(ValueError):
+                parse_with_id("0xFFFF")
+            with self.assertRaises(ValueError):
+                parse_with_id("0x10000")
+
+    def test_generated_code_sends_16_bit_service_ids(self):
+        with tempfile.TemporaryDirectory() as directory:
+            service_path = Path(directory, "service.gr")
+            service_path.write_text(
+                "namespace test\nservice ping (0x1234) {\n    func ping() : () = 1;\n    event pong : (int value) = 2;\n}\n")
+            args = argparse.Namespace(trace=False, service=str(service_path), include=None, out=directory,
+                                      client=True, server=True, lang_c=True)
+            service_parser.main(args)
+
+            header = Path(directory, "test_ping_service.h").read_text()
+            client = Path(directory, "test_ping_service_client.c").read_text()
+            server = Path(directory, "test_ping_service_server.c").read_text()
+
+            self.assertIn("#define SERVICE_TEST_PING_ID 4660", header)
+            # The message header carries the service id as 16 bit, and so does
+            # the argument of the control service's subscribe and unsubscribe.
+            self.assertEqual(client.count("serialize_uint16(&__buffer, 4660);"), 3)
+            self.assertEqual(client.count("serialize_uint16(&__buffer, 0);"), 2)
+            self.assertEqual(server.count("serialize_uint16(&__buffer, 4660);"), 2)
+            self.assertNotIn("serialize_uint8(&__buffer, 4660);", client + server)
 
     def test_stream_services_synthesize_expected_operations(self):
         services = parse_services(REPO_ROOT / "generator/examples/test_service.gr")

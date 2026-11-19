@@ -33,12 +33,34 @@ enum gracht_link_type {
     gracht_link_packet_based  // connection less mode
 };
 
+// The number of protocol IDs a client's subscription list has room for.
+#define GRACHT_CLIENT_MAX_SUBSCRIPTIONS 32
+
+// How the protocol list in gracht_client_subscriptions is read.
+enum gracht_subscription_mode {
+    // The client receives broadcast events only for the listed protocols.
+    // This must stay 0. Links create clients with zeroed memory, and such a
+    // client must be subscribed to nothing.
+    GRACHT_SUBSCRIPTION_LISTED = 0,
+    // The client receives broadcast events for every protocol, except the
+    // listed ones.
+    GRACHT_SUBSCRIPTION_ALL_BUT_LISTED
+};
+
+// Tracks which protocols a client receives broadcast events for. The server
+// maintains this. Links only need to make sure it starts out zeroed.
+struct gracht_client_subscriptions {
+    enum gracht_subscription_mode mode;
+    uint16_t                      count;
+    uint16_t                      protocols[GRACHT_CLIENT_MAX_SUBSCRIPTIONS];
+};
+
 // Represents a client from the server point of view, and will be given when trying
 // to communicate with the client. The link functions will have this information available.
 struct gracht_server_client {
-    gracht_conn_t handle;
-    uint32_t      flags;
-    uint32_t      subscriptions[8]; // 32 bytes to cover 255 bits
+    gracht_conn_t                      handle;
+    uint32_t                           flags;
+    struct gracht_client_subscriptions subscriptions;
 };
 
 // forward declares
@@ -50,11 +72,11 @@ typedef int (*server_create_client_fn)(struct gracht_link*, struct gracht_messag
 typedef int (*server_destroy_client_fn)(struct gracht_server_client*, gracht_handle_t set_handle);
 typedef int (*server_recv_client_fn)(struct gracht_server_client*, struct gracht_message*, unsigned int flags);
 typedef int (*server_send_client_fn)(struct gracht_server_client*, struct gracht_buffer*, unsigned int flags);
-typedef int (*server_peek_client_fn)(struct gracht_server_client*, uint32_t* messageLengthOut, uint8_t* serviceIdOut, unsigned int flags);
+typedef int (*server_peek_client_fn)(struct gracht_server_client*, uint32_t* messageLengthOut, uint16_t* serviceIdOut, unsigned int flags);
 
 typedef int (*server_link_recv_fn)(struct gracht_link*, struct gracht_message*, unsigned int flags);
 typedef int (*server_link_send_fn)(struct gracht_link*, struct gracht_message*, struct gracht_buffer*);
-typedef int (*server_link_peek_fn)(struct gracht_link*, uint32_t* messageLengthOut, uint8_t* serviceIdOut, unsigned int flags);
+typedef int (*server_link_peek_fn)(struct gracht_link*, uint32_t* messageLengthOut, uint16_t* serviceIdOut, unsigned int flags);
 
 typedef gracht_conn_t (*server_link_setup_fn)(struct gracht_link*, gracht_handle_t set_handle);
 typedef void          (*server_link_destroy_fn)(struct gracht_link*, gracht_handle_t set_handle);
@@ -90,7 +112,7 @@ struct server_link_ops {
 typedef gracht_conn_t (*client_link_connect_fn)(struct gracht_link*);
 typedef int           (*client_link_recv_fn)(struct gracht_link*, struct gracht_buffer*, unsigned int flags);
 typedef int           (*client_link_send_fn)(struct gracht_link*, struct gracht_buffer*, void* messageContext);
-typedef int           (*client_link_peek_fn)(struct gracht_link*, uint32_t* messageLengthOut, uint8_t* serviceIdOut, unsigned int flags);
+typedef int           (*client_link_peek_fn)(struct gracht_link*, uint32_t* messageLengthOut, uint16_t* serviceIdOut, unsigned int flags);
 typedef void          (*client_link_destroy_fn)(struct gracht_link*);
 
 struct client_link_ops {

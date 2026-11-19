@@ -30,11 +30,12 @@ static int Receive(struct gracht_server_client* client, struct gracht_message* m
     (void)flags;
     if (!receiveReady) { errno=EAGAIN; return -1; }
     receiveReady=0;
-    message->client=client->handle; message->link=42; message->size=12; message->index=0;
-    memset(message->payload,0,12);
-    __gracht_write_u32(message->payload+4,12);
-    message->payload[10]=MESSAGE_FLAG_ASYNC; // control/subscribe protocol 0, action 0
-    message->payload[11]=61;
+    // control/subscribe (protocol 0, action 0) followed by the 16 bit protocol id to subscribe to
+    message->client=client->handle; message->link=42; message->size=GRACHT_MESSAGE_HEADER_SIZE+2; message->index=0;
+    memset(message->payload,0,message->size);
+    __gracht_write_u32(message->payload+MSG_INDEX_LEN,message->size);
+    message->payload[MSG_INDEX_FLG]=MESSAGE_FLAG_ASYNC;
+    __gracht_write_u16(message->payload+GRACHT_MESSAGE_HEADER_SIZE,61);
     return 0;
 }
 static int Event(gracht_server_t* server)

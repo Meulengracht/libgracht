@@ -28,7 +28,7 @@
 #include <stdlib.h>
 
 gracht_protocol_function_t* get_protocol_action(gr_hashtable_t* protocols,
-    uint8_t protocol_id, uint8_t action_id)
+    uint16_t protocol_id, uint8_t action_id)
 {
     int                i;
     gracht_protocol_t* protocol;

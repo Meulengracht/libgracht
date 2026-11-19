@@ -17,8 +17,8 @@ struct agreed_configuration {
 
 service control : message {
     func negotiate(client_configuration config) : (agreed_configuration) = 1;
-    func subscribe(uint8 protocol) : () = 2;
-    func unsubscribe(uint8 protocol) : () = 3;
+    func subscribe(uint16 protocol) : () = 2;
+    func unsubscribe(uint16 protocol) : () = 3;
 
     event error : (uint32 messageId, int errorCode) = 4;
 }

@@ -12,7 +12,7 @@
 extern int gracht_client_get_buffer(gracht_client_t*, gracht_buffer_t*);
 extern int gracht_client_invoke(gracht_client_t*, struct gracht_message_context*, gracht_buffer_t*);
 
-enum { FRAME_SIZE = 256, STREAM_SIZE = 512, PREFIX_SIZE = 16, SERVICE = 61, ACTION = 7 };
+enum { FRAME_SIZE = 256, STREAM_SIZE = 512, PREFIX_SIZE = 16, SERVICE = 0x1234, ACTION = 7 };
 
 struct TestLink {
     struct gracht_link Base;
@@ -43,7 +43,7 @@ __Receive(struct gracht_link* link, gracht_buffer_t* buffer, unsigned int flags)
     memset(frame, 0x31, test->FrameSize);
     __gracht_write_u32(frame + MSG_INDEX_ID, test->MessageId);
     __gracht_write_u32(frame + MSG_INDEX_LEN, test->FrameSize);
-    frame[MSG_INDEX_SID] = SERVICE;
+    __gracht_write_u16(frame + MSG_INDEX_SID, SERVICE);
     frame[MSG_INDEX_AID] = ACTION;
     frame[MSG_INDEX_FLG] = test->Type;
     buffer->index = prefix;
@@ -53,7 +53,7 @@ __Receive(struct gracht_link* link, gracht_buffer_t* buffer, unsigned int flags)
 }
 
 static int
-__Peek(struct gracht_link* link, uint32_t* size, uint8_t* service, unsigned int flags)
+__Peek(struct gracht_link* link, uint32_t* size, uint16_t* service, unsigned int flags)
 {
     (void)flags;
     *size = ((struct TestLink*)link)->FrameSize;
@@ -100,7 +100,7 @@ __Request(gracht_client_t* client, struct gracht_message_context* context,
         assert(buffer.limit == FRAME_SIZE);
     }
     memset(buffer.data, 0, GRACHT_MESSAGE_HEADER_SIZE);
-    buffer.data[MSG_INDEX_SID] = SERVICE;
+    __gracht_write_u16(buffer.data + MSG_INDEX_SID, SERVICE);
     buffer.data[MSG_INDEX_AID] = ACTION;
     buffer.data[MSG_INDEX_FLG] = MESSAGE_FLAG_SYNC;
     buffer.index = GRACHT_MESSAGE_HEADER_SIZE;

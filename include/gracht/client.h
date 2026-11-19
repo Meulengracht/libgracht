@@ -96,12 +96,12 @@ GRACHTAPI int gracht_client_create(gracht_client_configuration_t* config, gracht
 GRACHTAPI int gracht_client_connect(gracht_client_t* client);
 
 /**
- * Registers a new protocol with the client. A max of 255 protocols can be registered, and if
+ * Registers a new protocol with the client. Protocols are told apart by their 16 bit id. If
  * the client receives an event with an unsupported protocol it ignores the event. Only events that
  * match the protocol/function id pair is actually invoked.
  * 
  * @param protocol The protocol instance to register.
- * @return int Returns 0 if the protocol was registered, or -1 if max count of protocols has been registered.
+ * @return int Returns 0 if the protocol was registered, or -1 with errno set to EINVAL on invalid parameters.
  */
 GRACHTAPI int gracht_client_register_protocol(gracht_client_t* client, gracht_protocol_t* protocol);
 

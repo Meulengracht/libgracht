@@ -127,12 +127,14 @@ GRACHTAPI const struct gracht_security_context*
 gracht_server_get_security_context(const struct gracht_message* request);
 
 /**
- * Registers a new protocol with the server. A max of 255 protocols can be registered, and if
- * the server is called with an unsupported protocol it ignores the message. Only messages that
- * match the protocol/function id pair is actually invoked.
+ * Registers a new protocol with the server. Protocols are told apart by their 16 bit id, so two
+ * protocols with the same id cannot be registered on one server. If the server is called with an
+ * unsupported protocol it ignores the message. Only messages that match the protocol/function id
+ * pair is actually invoked.
  * 
  * @param protocol The protocol instance to register.
- * @return int Returns 0 if the protocol was registered, or -1 if max count of protocols has been registered.
+ * @return int Returns 0 if the protocol was registered. Returns -1 with errno set to EEXIST if a
+ *             protocol with the same id is already registered.
  */
 GRACHTAPI int gracht_server_register_protocol(gracht_server_t* server, gracht_protocol_t* protocol);
 

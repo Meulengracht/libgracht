@@ -48,6 +48,7 @@ struct client_wrapper {
 };
 
 struct broadcast_context {
+    struct gracht_server* server;
     struct gracht_buffer* message;
     unsigned int          flags;
 };
@@ -89,6 +90,7 @@ typedef struct gracht_server {
     struct rwlock                  protocols_lock;
     gr_hashtable_t                 clients;
     struct rwlock                  clients_lock;
+    mtx_t                          subscriptions_lock;
     struct link_table              link_table;
 } gracht_server_t;
 
@@ -124,20 +126,20 @@ static struct server_operations g_mtOperations = {
 };
 
 static void client_destroy(struct gracht_server*, gracht_conn_t);
-static void client_subscribe(struct gracht_server_client*, uint8_t);
-static void client_unsubscribe(struct gracht_server_client*, uint8_t);
-static int  client_is_subscribed(struct gracht_server_client*, uint8_t);
+static int  client_subscribe(struct gracht_server*, struct gracht_server_client*, uint16_t);
+static int  client_unsubscribe(struct gracht_server*, struct gracht_server_client*, uint16_t);
+static int  client_is_subscribed(struct gracht_server*, struct gracht_server_client*, uint16_t);
 
 static uint64_t client_hash(const void*);
 static int      client_cmp(const void*, const void*);
 static void     client_enum_destroy(int index, const void* element, void* userContext);
 static void     client_enum_broadcast(int index, const void* element, void* userContext);
-static int      server_protocol_uses_stream_pool(struct gracht_server*, uint8_t);
+static int      server_protocol_uses_stream_pool(struct gracht_server*, uint16_t);
 
 
 static int configure_server(struct gracht_server*, gracht_server_configuration_t*);
 
-static int server_protocol_uses_stream_pool(struct gracht_server* server, uint8_t protocolId)
+static int server_protocol_uses_stream_pool(struct gracht_server* server, uint16_t protocolId)
 {
     struct gracht_protocol* protocol;
     int                     useStream = 0;
@@ -180,6 +182,7 @@ int gracht_server_create(gracht_server_configuration_t* config, gracht_server_t*
     // initialize static members of the instance
     rwlock_init(&server->protocols_lock);
     rwlock_init(&server->clients_lock);
+    mtx_init(&server->subscriptions_lock, mtx_plain);
     gr_hashtable_construct(&server->protocols, 0, sizeof(struct gracht_protocol), protocol_hash, protocol_cmp);
     gr_hashtable_construct(&server->clients, 0, sizeof(struct client_wrapper), client_hash, client_cmp);
     stack_construct(&server->buffer_stack, 8);
@@ -306,7 +309,8 @@ static int handle_connection(struct gracht_server* server, struct gracht_link* l
     // this is a streaming client, which means we handle them differently if they should
     // unsubscribe to certain protocols. Streaming clients are subscribed to all from start
     client->flags |= GRACHT_CLIENT_FLAG_STREAM;
-    memset(&client->subscriptions[0], 0xFF, sizeof(client->subscriptions));
+    client->subscriptions.mode  = GRACHT_SUBSCRIPTION_ALL_BUT_LISTED;
+    client->subscriptions.count = 0;
     
     rwlock_w_lock(&server->clients_lock);
     gr_hashtable_set(&server->clients, &(struct client_wrapper) { 
@@ -378,7 +382,7 @@ static void dispatch_st(struct gracht_server* server, struct gracht_message* mes
 
 static void dispatch_mt(struct gracht_server* server, struct gracht_message* message)
 {
-    uint8_t protocol;
+    uint16_t protocol;
 
     if (message->index > message->size || message->size - message->index < GRACHT_MESSAGE_HEADER_SIZE) {
         server_cleanup_message(server, message);
@@ -386,7 +390,7 @@ static void dispatch_mt(struct gracht_server* server, struct gracht_message* mes
     }
     
     // read the protocol from the payload
-    protocol = *((uint8_t*)&message->payload[message->index + MSG_INDEX_SID]);
+    protocol = __gracht_read_u16(&message->payload[message->index + MSG_INDEX_SID]);
 
     // due to the fact that the control protocol modifies state on the server, especially
     // client state - we want to ensure that these methods are run on orchestrator thread.
@@ -453,7 +457,7 @@ static int handle_packet(struct gracht_server* server, struct gracht_link* link)
     struct gracht_message* message;
     int                    status;
     uint32_t               incomingLength = 0;
-    uint8_t                protocolId = 0;
+    uint16_t               protocolId = 0;
     uint32_t               streamMessageSize = 0;
     GRTRACE(GRSTR("handle_packet(conn=%i)"), link->connection);
 
@@ -521,7 +525,7 @@ static int handle_client_event(struct gracht_server* server, gracht_conn_t handl
         entry = gr_hashtable_get(&server->clients, &(struct client_wrapper){ .handle = handle });
         while (entry) {
             uint32_t               incomingLength = 0;
-            uint8_t                protocolId = 0;
+            uint16_t               protocolId = 0;
             uint32_t               streamMessageSize = 0;
             struct gracht_message* message;
 
@@ -647,6 +651,7 @@ static int gracht_server_shutdown(gracht_server_t* server)
     mtx_destroy(&server->stream_pools_lock);
     rwlock_destroy(&server->protocols_lock);
     rwlock_destroy(&server->clients_lock);
+    mtx_destroy(&server->subscriptions_lock);
     free(server);
     return 0;
 }
@@ -671,7 +676,7 @@ void server_invoke_action(struct gracht_server* server, struct gracht_message* r
     gracht_protocol_function_t* function;
     gracht_buffer_t             buffer = { .data = (char*)&recvMessage->payload[0], .index = recvMessage->index, .limit = recvMessage->size, .error = 0 };
     uint32_t                    messageId;
-    uint8_t                     protocol;
+    uint16_t                    protocol;
     uint8_t                     action;
 
     if (!gracht_codec_reserve(&buffer, GRACHT_MESSAGE_HEADER_SIZE) ||
@@ -977,6 +982,7 @@ int gracht_server_send_stream_event(gracht_server_t* server, gracht_conn_t clien
 static int __server_broadcast_event(gracht_server_t* server, gracht_buffer_t* message, unsigned int flags, int stream)
 {
     struct broadcast_context context = {
+        .server  = server,
         .message = message,
         .flags   = flags
     };
@@ -1120,40 +1126,123 @@ static void client_destroy(struct gracht_server* server, gracht_conn_t client)
     rwlock_w_unlock(&server->clients_lock);
 }
 
-// Client subscription helpers
-static void client_subscribe(struct gracht_server_client* client, uint8_t id)
+// Client subscription helpers. The control protocol changes a client's
+// subscriptions and broadcasts read them, possibly on different threads. Both
+// only hold the clients lock for reading, so the subscriptions have their own
+// lock. Always take the clients lock first, then the subscriptions lock.
+static int __find_listed_protocol(const struct gracht_client_subscriptions* subscriptions, uint16_t id)
 {
-    int block  = id / 32;
-    int offset = id % 32;
+    int i;
 
-    if (id == 0xFF) {
-        // subscribe to all
-        memset(&client->subscriptions[0], 0xFF, sizeof(client->subscriptions));
+    for (i = 0; i < subscriptions->count; i++) {
+        if (subscriptions->protocols[i] == id) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+// Adds a protocol to the list. Fails with ENOSPC when the list is full.
+static int __list_protocol(struct gracht_client_subscriptions* subscriptions, uint16_t id)
+{
+    if (__find_listed_protocol(subscriptions, id) >= 0) {
+        return 0;
+    }
+
+    if (subscriptions->count == GRACHT_CLIENT_MAX_SUBSCRIPTIONS) {
+        errno = ENOSPC;
+        return -1;
+    }
+
+    subscriptions->protocols[subscriptions->count++] = id;
+    return 0;
+}
+
+static void __unlist_protocol(struct gracht_client_subscriptions* subscriptions, uint16_t id)
+{
+    int index = __find_listed_protocol(subscriptions, id);
+    if (index < 0) {
         return;
     }
 
-    client->subscriptions[block] |= (1 << offset);
+    // The order of the list does not matter, so fill the gap with the last entry.
+    subscriptions->protocols[index] = subscriptions->protocols[--subscriptions->count];
 }
 
-static void client_unsubscribe(struct gracht_server_client* client, uint8_t id)
+// Changes the mode of the list. The listed protocols mean the opposite in the
+// other mode, so the list is emptied.
+static void __reset_subscriptions(struct gracht_client_subscriptions* subscriptions, enum gracht_subscription_mode mode)
 {
-    int block  = id / 32;
-    int offset = id % 32;
+    subscriptions->mode  = mode;
+    subscriptions->count = 0;
+}
 
-    if (id == 0xFF) {
-        // unsubscribe to all
-        memset(&client->subscriptions[0], 0, sizeof(client->subscriptions));
-        return;
+static int client_subscribe(struct gracht_server* server, struct gracht_server_client* client, uint16_t id)
+{
+    struct gracht_client_subscriptions* subscriptions = &client->subscriptions;
+    int                                 status = 0;
+
+    mtx_lock(&server->subscriptions_lock);
+    if (id == GRACHT_PROTOCOL_ID_ALL) {
+        __reset_subscriptions(subscriptions, GRACHT_SUBSCRIPTION_ALL_BUT_LISTED);
+    } else if (subscriptions->mode == GRACHT_SUBSCRIPTION_LISTED) {
+        status = __list_protocol(subscriptions, id);
+    } else {
+        __unlist_protocol(subscriptions, id);
     }
-
-    client->subscriptions[block] &= ~(1 << offset);
+    mtx_unlock(&server->subscriptions_lock);
+    return status;
 }
 
-static int client_is_subscribed(struct gracht_server_client* client, uint8_t id)
+static int client_unsubscribe(struct gracht_server* server, struct gracht_server_client* client, uint16_t id)
 {
-    int block  = id / 32;
-    int offset = id % 32;
-    return (client->subscriptions[block] & (1 << offset)) != 0;
+    struct gracht_client_subscriptions* subscriptions = &client->subscriptions;
+    int                                 status = 0;
+
+    mtx_lock(&server->subscriptions_lock);
+    if (id == GRACHT_PROTOCOL_ID_ALL) {
+        __reset_subscriptions(subscriptions, GRACHT_SUBSCRIPTION_LISTED);
+    } else if (subscriptions->mode == GRACHT_SUBSCRIPTION_LISTED) {
+        __unlist_protocol(subscriptions, id);
+    } else {
+        status = __list_protocol(subscriptions, id);
+    }
+    mtx_unlock(&server->subscriptions_lock);
+    return status;
+}
+
+static int client_is_subscribed(struct gracht_server* server, struct gracht_server_client* client, uint16_t id)
+{
+    struct gracht_client_subscriptions* subscriptions = &client->subscriptions;
+    int                                 listed;
+    int                                 subscribed;
+
+    mtx_lock(&server->subscriptions_lock);
+    listed = __find_listed_protocol(subscriptions, id) >= 0;
+    if (subscriptions->mode == GRACHT_SUBSCRIPTION_LISTED) {
+        subscribed = listed;
+    } else {
+        subscribed = !listed;
+    }
+    mtx_unlock(&server->subscriptions_lock);
+    return subscribed;
+}
+
+// Tells a client that its subscribe or unsubscribe request could not be stored.
+// These requests carry no response, so the control protocol's error event is
+// the only way the client can learn about it.
+static void __report_subscription_failure(const struct gracht_message* message, uint16_t protocol, int error)
+{
+    uint32_t messageId = __gracht_read_u32(&message->payload[message->index + MSG_INDEX_ID]);
+    int      status;
+
+    GRERROR(GRSTR("gracht_server: failed to change subscription of client %" F_CONN_T " for protocol %u: %i"),
+            message->client, protocol, error);
+    status = gracht_control_event_error_single(message->server, message->client, messageId, error);
+    if (status) {
+        GRERROR(GRSTR("gracht_server: failed to report the subscription error to client %" F_CONN_T ": %i"),
+                message->client, errno);
+    }
 }
 
 // Server control protocol implementation
@@ -1239,9 +1328,11 @@ int gracht_server_register_client(const struct gracht_message* message)
     return 0;
 }
 
-void gracht_control_subscribe_invocation(const struct gracht_message* message, const uint8_t protocol)
+void gracht_control_subscribe_invocation(const struct gracht_message* message, const uint16_t protocol)
 {
     struct client_wrapper* entry;
+    int                    status = 0;
+    int                    error = 0;
 
     // Ensure the client is registered before subscribing to a protocol.
     if (gracht_server_register_client(message)) {
@@ -1257,15 +1348,24 @@ void gracht_control_subscribe_invocation(const struct gracht_message* message, c
     );
     if (entry) {
         // Subscribe the client to the specified protocol.
-        client_subscribe(entry->client, protocol);
+        status = client_subscribe(message->server, entry->client, protocol);
+        if (status) {
+            error = errno;
+        }
     }
     rwlock_r_unlock(&message->server->clients_lock);
+
+    if (status) {
+        __report_subscription_failure(message, protocol, error);
+    }
 }
 
-void gracht_control_unsubscribe_invocation(const struct gracht_message* message, const uint8_t protocol)
+void gracht_control_unsubscribe_invocation(const struct gracht_message* message, const uint16_t protocol)
 {
     struct client_wrapper* entry;
     int                    cleanup = 0;
+    int                    status;
+    int                    error = 0;
     
     rwlock_r_lock(&message->server->clients_lock);
     entry = gr_hashtable_get(&message->server->clients, &(struct client_wrapper){ .handle = message->client });
@@ -1274,17 +1374,24 @@ void gracht_control_unsubscribe_invocation(const struct gracht_message* message,
         return;
     }
 
-    client_unsubscribe(entry->client, protocol);
+    status = client_unsubscribe(message->server, entry->client, protocol);
+    if (status) {
+        error = errno;
+    }
     
     // cleanup the client if we unsubscribe, but do not do it from here as the client
     // structure will be reffered later on
-    if (protocol == 0xFF) {
+    if (protocol == GRACHT_PROTOCOL_ID_ALL) {
         if (!(entry->client->flags & GRACHT_CLIENT_FLAG_STREAM)) {
             entry->client->flags |= GRACHT_CLIENT_FLAG_CLEANUP; // this flag is not needed
             cleanup = 1;
         }
     }
     rwlock_r_unlock(&message->server->clients_lock);
+
+    if (status) {
+        __report_subscription_failure(message, protocol, error);
+    }
 
     // when receiving unsubscribe events on connection-less links we must check
     // after handling messages whether a client has been marked for cleanup
@@ -1311,11 +1418,11 @@ static void client_enum_broadcast(int index, const void* element, void* userCont
 {
     const struct client_wrapper* entry   = element;
     struct broadcast_context*    context = userContext;
-    uint8_t                      protocol = GB_MSG_SID_0(context->message);
+    uint16_t                     protocol = GB_MSG_SID_0(context->message);
     GRTRACE(GRSTR("client_enum_broadcast()"));
     (void)index;
 
-    if (client_is_subscribed(entry->client, protocol)) {
+    if (client_is_subscribed(context->server, entry->client, protocol)) {
         entry->link->ops.server.send_client(entry->client, context->message, context->flags);
     }
 }

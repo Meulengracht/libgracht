@@ -82,7 +82,7 @@ __Receive(struct gracht_link* link, struct gracht_message* message, unsigned fla
     message->index = 0;
     memset(message->payload, 0, message->size);
     __gracht_write_u32(message->payload + MSG_INDEX_LEN, message->size);
-    message->payload[MSG_INDEX_SID] = 61;
+    __gracht_write_u16(message->payload + MSG_INDEX_SID, 61);
     message->payload[MSG_INDEX_AID] = 1;
     message->payload[MSG_INDEX_FLG] = MESSAGE_FLAG_ASYNC;
     return 0;

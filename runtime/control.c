@@ -28,6 +28,8 @@
 
 SERIALIZE_VALUE(uint8_t, uint8_t)
 DESERIALIZE_VALUE(uint8_t, uint8_t)
+SERIALIZE_VALUE(uint16_t, uint16_t)
+DESERIALIZE_VALUE(uint16_t, uint16_t)
 SERIALIZE_VALUE(int8_t, int8_t)
 DESERIALIZE_VALUE(int8_t, int8_t)
 SERIALIZE_VALUE(int32_t, int32_t)
@@ -69,16 +71,16 @@ void __gracht_error_internal(gracht_client_t* __client, gracht_buffer_t* __buffe
 
 void __gracht_subscribe_internal(struct gracht_message* __message, gracht_buffer_t* __buffer)
 {
-    uint8_t __protocol;
-    __protocol = deserialize_uint8_t(__buffer);
+    uint16_t __protocol;
+    __protocol = deserialize_uint16_t(__buffer);
     if (__buffer->error) return;
     gracht_control_subscribe_invocation(__message, __protocol);
 }
 
 void __gracht_unsubscribe_internal(struct gracht_message* __message, gracht_buffer_t* __buffer)
 {
-    uint8_t __protocol;
-    __protocol = deserialize_uint8_t(__buffer);
+    uint16_t __protocol;
+    __protocol = deserialize_uint16_t(__buffer);
     if (__buffer->error) return;
     gracht_control_unsubscribe_invocation(__message, __protocol);
 }
@@ -95,8 +97,8 @@ int gracht_control_event_error_single(gracht_server_t* server, const gracht_conn
 
     serialize_uint32_t(&__buffer, 0);
     serialize_uint32_t(&__buffer, 0);
-    serialize_uint8_t(&__buffer, 0);
-    serialize_uint8_t(&__buffer, 2);
+    serialize_uint16_t(&__buffer, SERVICE_GRACHT_CONTROL_ID);
+    serialize_uint8_t(&__buffer, SERVICE_GRACHT_CONTROL_EVENT_ERROR_ID);
     serialize_uint8_t(&__buffer, MESSAGE_FLAG_EVENT);
     serialize_uint32_t(&__buffer, messageId);
     serialize_int(&__buffer, errorCode);
@@ -116,8 +118,8 @@ int gracht_control_event_error_all(gracht_server_t* server, const uint32_t messa
 
     serialize_uint32_t(&__buffer, 0);
     serialize_uint32_t(&__buffer, 0);
-    serialize_uint8_t(&__buffer, 0);
-    serialize_uint8_t(&__buffer, 2);
+    serialize_uint16_t(&__buffer, SERVICE_GRACHT_CONTROL_ID);
+    serialize_uint8_t(&__buffer, SERVICE_GRACHT_CONTROL_EVENT_ERROR_ID);
     serialize_uint8_t(&__buffer, MESSAGE_FLAG_EVENT);
     serialize_uint32_t(&__buffer, messageId);
     serialize_int(&__buffer, errorCode);

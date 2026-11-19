@@ -57,7 +57,7 @@ struct gracht_message_awaiter_entry {
 // descriptor | message | params
 struct gracht_message_descriptor {
     uint32_t        id;
-    uint8_t         protocol_id;
+    uint16_t        protocol_id;
     uint8_t         action_id;
     int             status;
     uint32_t        awaiter_id;
@@ -110,7 +110,7 @@ static uint64_t message_hash(const void* element);
 static int      message_cmp(const void* element1, const void* element2);
 static uint64_t awaiter_hash(const void* element);
 static int      awaiter_cmp(const void* element1, const void* element2);
-static int      protocol_uses_stream_pool(gracht_client_t*, uint8_t);
+static int      protocol_uses_stream_pool(gracht_client_t*, uint16_t);
 
 static int __add_message(
     gracht_client_t*                   client,
@@ -154,7 +154,7 @@ static void __remove_message(
     mtx_unlock(&client->messages_lock);
 }
 
-static int protocol_uses_stream_pool(gracht_client_t* client, uint8_t protocolId)
+static int protocol_uses_stream_pool(gracht_client_t* client, uint16_t protocolId)
 {
     struct gracht_protocol* protocol;
 
@@ -164,14 +164,15 @@ static int protocol_uses_stream_pool(gracht_client_t* client, uint8_t protocolId
 
 // allocated => list_header, message_id, output_buffer
 static int gracht_client_invoke_internal(
-        gracht_client_t*               client,
-        struct gracht_message_context* context,
-        struct gracht_buffer*          message,
+    gracht_client_t*               client,
+    struct gracht_message_context* context,
+    struct gracht_buffer*          message,
     int                            streamBuffer,
     uint32_t                       responseBufferSize)
 {
     uint32_t messageID;
     int      status;
+
     if (streamBuffer) {
         GRTRACE(GRSTR("gracht_client_invoke_stream()"));
     } else {
@@ -253,8 +254,8 @@ int gracht_client_invoke_stream_sized(
 static int __invoke_action(gracht_client_t* client, struct gracht_buffer* message)
 {
     gracht_protocol_function_t* function;
-    uint8_t protocol = GB_MSG_SID(message);
-    uint8_t action   = GB_MSG_AID(message);
+    uint16_t protocol = GB_MSG_SID(message);
+    uint8_t  action   = GB_MSG_AID(message);
     GRTRACE(GRSTR("__invoke_action()"));
 
     function = get_protocol_action(&client->protocols, protocol, action);
@@ -412,7 +413,7 @@ listenForMessage:
     // initialize buffer, after this point NO returning, only jump to listenOrExit
     if (client->link->ops.client.peek) {
         uint32_t incomingLength;
-        uint8_t  protocolId;
+        uint16_t protocolId;
 
         status = client->link->ops.client.peek(client->link, &incomingLength, &protocolId, flags);
         if (status) {

@@ -118,7 +118,7 @@ __WireMessage(unsigned char* bytes, size_t length)
 {
     memset(bytes, 0, length);
     __gracht_write_u32(bytes + MSG_INDEX_LEN, GRACHT_MESSAGE_HEADER_SIZE);
-    bytes[MSG_INDEX_SID] = 61;
+    __gracht_write_u16(bytes + MSG_INDEX_SID, 61);
     bytes[MSG_INDEX_AID] = 1;
     bytes[MSG_INDEX_FLG] = MESSAGE_FLAG_ASYNC;
 }

@@ -43,11 +43,19 @@ struct gracht_link {
     gracht_conn_t connection;
 };
 
+/**
+ * @brief The structure definition of a message header
+ * 0 - Message ID (4 bytes)
+ * 4 - Message Length (4 bytes)
+ * 8 - Protocol ID (2 bytes)
+ * 10 - Action ID (1 byte)
+ * 11 - Flags (1 byte)
+ */
 #define MSG_INDEX_ID  0
 #define MSG_INDEX_LEN 4
 #define MSG_INDEX_SID 8
-#define MSG_INDEX_AID 9
-#define MSG_INDEX_FLG 10
+#define MSG_INDEX_AID 10
+#define MSG_INDEX_FLG 11
 
 /**
  * @brief Reads a 32-bit unsigned integer from the given source memory location.
@@ -57,6 +65,24 @@ static inline uint32_t __gracht_read_u32(const void* source) {
     uint32_t value;
     memcpy(&value, source, sizeof(value));
     return value;
+}
+
+/**
+ * @brief Reads a 16-bit unsigned integer from the given source memory location.
+ * We do this to avoid unaligned memory access issues on platforms that do not support it.
+ */
+static inline uint16_t __gracht_read_u16(const void* source) {
+    uint16_t value;
+    memcpy(&value, source, sizeof(value));
+    return value;
+}
+
+/**
+ * @brief Writes a 16-bit unsigned integer to the given destination memory location.
+ * We do this to avoid unaligned memory access issues on platforms that do not support it.
+ */
+static inline void __gracht_write_u16(void* destination, uint16_t value) {
+    memcpy(destination, &value, sizeof(value));
 }
 
 /**
@@ -72,7 +98,7 @@ static inline void __gracht_write_u32(void* destination, uint32_t value) {
  */
 #define GB_MSG_ID_0(buffer)  __gracht_read_u32(&(buffer)->data[MSG_INDEX_ID])
 #define GB_MSG_LEN_0(buffer) __gracht_read_u32(&(buffer)->data[MSG_INDEX_LEN])
-#define GB_MSG_SID_0(buffer) *((uint8_t*)(&((buffer)->data[MSG_INDEX_SID])))
+#define GB_MSG_SID_0(buffer) __gracht_read_u16(&(buffer)->data[MSG_INDEX_SID])
 #define GB_MSG_AID_0(buffer) *((uint8_t*)(&((buffer)->data[MSG_INDEX_AID])))
 #define GB_MSG_FLG_0(buffer) *((uint8_t*)(&((buffer)->data[MSG_INDEX_FLG])))
 
@@ -81,7 +107,7 @@ static inline void __gracht_write_u32(void* destination, uint32_t value) {
  */
 #define GB_MSG_ID(buffer)  __gracht_read_u32(&(buffer)->data[(buffer)->index + MSG_INDEX_ID])
 #define GB_MSG_LEN(buffer) __gracht_read_u32(&(buffer)->data[(buffer)->index + MSG_INDEX_LEN])
-#define GB_MSG_SID(buffer) *((uint8_t*)(&((buffer)->data[(buffer)->index + MSG_INDEX_SID])))
+#define GB_MSG_SID(buffer) __gracht_read_u16(&(buffer)->data[(buffer)->index + MSG_INDEX_SID])
 #define GB_MSG_AID(buffer) *((uint8_t*)(&((buffer)->data[(buffer)->index + MSG_INDEX_AID])))
 #define GB_MSG_FLG(buffer) *((uint8_t*)(&((buffer)->data[(buffer)->index + MSG_INDEX_FLG])))
 
@@ -92,7 +118,7 @@ static inline void __gracht_write_u32(void* destination, uint32_t value) {
  * @param action_id The ID of the action within the protocol to look up.
  * @return A pointer to the corresponding protocol action, or NULL if not found.
  */
-gracht_protocol_function_t* get_protocol_action(gr_hashtable_t* protocols, uint8_t protocol_id, uint8_t action_id);
+gracht_protocol_function_t* get_protocol_action(gr_hashtable_t* protocols, uint16_t protocol_id, uint8_t action_id);
 
 /**
  * @brief Retrieves the hash value for a given protocol element.

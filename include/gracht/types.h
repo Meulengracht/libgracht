@@ -117,7 +117,22 @@ struct gracht_security_context {
 };
 #endif
 
-#define GRACHT_MESSAGE_HEADER_SIZE 11
+/**
+ * Size in bytes of the header that starts every message on the wire.
+ * 0  - Message ID (4 bytes)
+ * 4  - Message length, including this header (4 bytes)
+ * 8  - Protocol ID (2 bytes)
+ * 10 - Action ID (1 byte)
+ * 11 - Flags (1 byte)
+ */
+#define GRACHT_MESSAGE_HEADER_SIZE 12
+
+/**
+ * Protocol IDs are 16 bits wide. ID 0 is the control protocol that is built
+ * into the runtime. GRACHT_PROTOCOL_ID_ALL is never the ID of a real protocol.
+ * A client passes it to subscribe or unsubscribe to mean every protocol.
+ */
+#define GRACHT_PROTOCOL_ID_ALL 0xFFFF
 #define GRACHT_MESSAGE_DEFERRABLE_SIZE(message) (sizeof(struct gracht_message) + (message)->size)
 
 /**
@@ -223,7 +238,7 @@ typedef struct gracht_protocol_function {
 } gracht_protocol_function_t;
 
 typedef struct gracht_protocol {
-    uint8_t                     id;
+    uint16_t                    id;
     char*                       name;
     uint32_t                    flags;
     uint8_t                     num_functions;

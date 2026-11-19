@@ -45,7 +45,7 @@ static int socket_link_send_stream(struct gracht_link_socket* link,
 }
 
 static int socket_link_peek_header(struct gracht_link_socket* link,
-    uint32_t* messageLengthOut, uint8_t* serviceIdOut, unsigned int flags)
+    uint32_t* messageLengthOut, uint16_t* serviceIdOut, unsigned int flags)
 {
     unsigned int socketFlags = 0;
     uint8_t      header[GRACHT_MESSAGE_HEADER_SIZE];
@@ -81,7 +81,7 @@ static int socket_link_peek_header(struct gracht_link_socket* link,
     }
 
     *messageLengthOut = __gracht_read_u32(&header[MSG_INDEX_LEN]);
-    *serviceIdOut = header[MSG_INDEX_SID];
+    *serviceIdOut = __gracht_read_u16(&header[MSG_INDEX_SID]);
     if (*messageLengthOut < GRACHT_MESSAGE_HEADER_SIZE) {
         errno = EPROTO;
         return -1;
@@ -271,7 +271,7 @@ static int socket_link_send(struct gracht_link_socket* link,
 }
 
 static int socket_link_peek(struct gracht_link_socket* link,
-    uint32_t* messageLengthOut, uint8_t* serviceIdOut, unsigned int flags)
+    uint32_t* messageLengthOut, uint16_t* serviceIdOut, unsigned int flags)
 {
     if (link->base.type != gracht_link_stream_based && link->base.type != gracht_link_packet_based) {
         errno = ENOTSUP;

@@ -2,13 +2,26 @@
 from common.shared import *
 import zlib
 
+# Service ids are sent as a 16 bit value in the message header. Id 0 belongs to
+# the control service. Id 0xFFFF is never a service. Subscribe and unsubscribe
+# use it to mean all services (GRACHT_PROTOCOL_ID_ALL in the C runtime).
+CONTROL_SERVICE_ID = 0
+MIN_SERVICE_ID = 1
+MAX_SERVICE_ID = 0xFFFE
+
+
+def is_control_service(service: ServiceObject):
+    return service.get_namespace().lower() == "gracht" and service.get_name().lower() == "control"
+
 
 def derive_service_id(service: ServiceObject):
-    if service.get_namespace().lower() == "gracht" and service.get_name().lower() == "control":
-        return 0
+    if is_control_service(service):
+        return CONTROL_SERVICE_ID
 
+    # The id is derived from the full name, so it stays the same between runs
+    # and between the files that import the service.
     basis = f"{service.get_namespace()}{service.get_name()}".encode("utf-8")
-    return (zlib.crc32(basis) % 255) + 1
+    return (zlib.crc32(basis) % MAX_SERVICE_ID) + MIN_SERVICE_ID
 
 
 def validate_stream_options(service: ServiceObject):
@@ -83,8 +96,8 @@ def pass_validate(services):
             service.set_id(derive_service_id(service))
 
         service_id = service.get_id()
-        if service_id < 0 or service_id > 255:
-            raise ValueError(f"The id of service {service.get_name()} must be in range of 0..255")
+        if service_id < CONTROL_SERVICE_ID or service_id > MAX_SERVICE_ID:
+            raise ValueError(f"The id of service {service.get_name()} must be in range of {CONTROL_SERVICE_ID}..{MAX_SERVICE_ID}")
         if service_id in service_ids:
             other = service_ids[service_id]
             raise ValueError(f"The id of service {service.get_name()} ({service_id}) collides with service {other}")
@@ -95,9 +108,9 @@ def pass_validate(services):
 
 
 def pass_validate_service(service: ServiceObject):
-    if service.get_id() < 1 or service.get_id() > 255:
-        if not (service.get_namespace().lower() == "gracht" and service.get_name().lower() == "control" and service.get_id() == 0):
-            raise ValueError(f"The id of service {service.get_name()} must be in range of 1..255")
+    if service.get_id() < MIN_SERVICE_ID or service.get_id() > MAX_SERVICE_ID:
+        if not (is_control_service(service) and service.get_id() == CONTROL_SERVICE_ID):
+            raise ValueError(f"The id of service {service.get_name()} must be in range of {MIN_SERVICE_ID}..{MAX_SERVICE_ID}")
 
     # we want to validate the ids of our functions and events that
     # they are in range of 1-255 and that there are no conflicts
