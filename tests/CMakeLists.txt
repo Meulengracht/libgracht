@@ -87,7 +87,9 @@ endif ()
 if (UNIX AND HAVE_PTHREAD)
     target_link_libraries(client_runtime_test pthread)
 endif ()
-foreach (scenario pending correlation peer duplicate unknown event abandon)
+foreach (scenario pending correlation peer duplicate unknown event abandon
+                  await-error-abandon await-result await-busy await-multiple
+                  await-sync-any await-sync-all await-sync-error)
     add_test(NAME client_runtime_${scenario} COMMAND client_runtime_test ${scenario})
 endforeach ()
 

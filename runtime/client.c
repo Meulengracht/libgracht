@@ -352,10 +352,16 @@ static void* __acquire_stream_recv_buffer(gracht_client_t* client, uint32_t mess
     return data;
 }
 
-int gracht_client_wait_message(
+// Receives and handles one message. receiveFailed is set to 1 when the call failed
+// before the link delivered a message (no lock, no buffer, or a failed peek or receive),
+// and to 0 otherwise. A message that was received but then dropped (bad header, late or
+// duplicate response, failing event) leaves it at 0. The synchronous await uses this to
+// tell a dead link from a dropped message.
+static int __wait_message(
         gracht_client_t*               client,
         struct gracht_message_context* context,
-        unsigned int                   flags)
+        unsigned int                   flags,
+        int*                           receiveFailed)
 {
     struct gracht_buffer buffer = { 0 };
     uint32_t             messageId = 0;
@@ -365,6 +371,8 @@ int gracht_client_wait_message(
     int                  status;
     GRTRACE(GRSTR("gracht_client_wait_message()"));
 
+    *receiveFailed = 0;
+    
     if (!client) {
         errno = EINVAL;
         return -1;
@@ -406,6 +414,7 @@ listenForMessage:
         }
 
         if (mtx_lock(&client->wait_lock) != thrd_success) {
+            *receiveFailed = 1;
             return -1;
         }
     }
@@ -418,6 +427,7 @@ listenForMessage:
         status = client->link->ops.client.peek(client->link, &incomingLength, &protocolId, flags);
         if (status) {
             mtx_unlock(&client->wait_lock);
+            *receiveFailed = 1;
             goto listenOrExit;
         }
 
@@ -431,6 +441,7 @@ listenForMessage:
                 mtx_unlock(&client->wait_lock);
                 errno = EMSGSIZE;
                 status = -1;
+                *receiveFailed = 1;
                 goto listenOrExit;
             }
             buffer.data = gracht_buffer_pool_acquire(client->recv_pool);
@@ -452,6 +463,7 @@ listenForMessage:
             errno = ENOMEM;
         }
         status = -1;
+        *receiveFailed = 1;
         goto listenOrExit;
     }
 
@@ -459,6 +471,7 @@ listenForMessage:
     mtx_unlock(&client->wait_lock);
     if (status) {
         // In case of any recieving errors we must exit immediately
+        *receiveFailed = 1;
         goto listenOrExit;
     }
 
@@ -516,6 +529,15 @@ listenOrExit:
     return status;
 }
 
+int gracht_client_wait_message(
+        gracht_client_t*               client,
+        struct gracht_message_context* context,
+        unsigned int                   flags)
+{
+    int receiveFailed;
+    return __wait_message(client, context, flags, &receiveFailed);
+}
+
 static struct gracht_message_awaiter* __awaiter_new(
         gracht_client_t* client,
         unsigned int     flags,
@@ -560,15 +582,42 @@ static inline void __await_remove(
     mtx_unlock(&client->awaiters_lock);
 }
 
-static inline void __await_loop(
+// Returns whether the awaiter must keep waiting. An ALL wait ends when every message
+// is done, an ANY wait when one of them is.
+static int __is_awaiter_pending(
+    struct gracht_message_awaiter* awaiter,
+    unsigned int                    flags)
+{
+    if (flags & GRACHT_AWAIT_ALL) {
+        return awaiter->current_count < awaiter->count;
+    } else {
+        return awaiter->current_count == 0;
+    }
+}
+
+// The synchronous wait: the caller pumps the link itself until the awaiter is done,
+// which follows the same GRACHT_AWAIT_ALL/ANY rule as the async wait. Returns 0 when
+// the wait is done, and -1 with the errno of the link when the link could not deliver
+// a message. Trying again would then spin on the same failure, or block for ever on a
+// link that is gone. The messages stay pending, so the caller can await them again,
+// read their status or abandon them.
+static inline int __await_loop(
         gracht_client_t*                client,
         struct gracht_message_context** contexts,
         struct gracht_message_awaiter*  awaiter)
 {
-    while (awaiter->current_count < awaiter->count) {
-        gracht_client_wait_message(client, NULL, GRACHT_MESSAGE_BLOCK);
+    int receiveFailed;
+    int status;
 
-        // update status
+    while (__is_awaiter_pending(awaiter, awaiter->flags)) {
+        status = __wait_message(client, NULL, GRACHT_MESSAGE_BLOCK, &receiveFailed);
+        if (status && receiveFailed) {
+            return -1;
+        }
+
+        // A message that was received but dropped (a late or duplicate response, a
+        // response with the wrong schema, a failing event) does not end the wait.
+        // Count the awaited messages that are done.
         mtx_lock(&client->messages_lock);
         awaiter->current_count = 0;
         for (int i = 0; i < awaiter->count; i++) {
@@ -584,17 +633,32 @@ static inline void __await_loop(
         }
         mtx_unlock(&client->messages_lock);
     }
+    return 0;
 }
 
-static int __is_awaiter_pending(
-    struct gracht_message_awaiter* awaiter,
-    unsigned int                    flags)
+// A descriptor holds the id of the awaiter that waits on it, and gracht_client_abandon
+// refuses to remove a descriptor while that id is set. The link must end when the
+// awaiter stops waiting, however the wait ended (an answer, an error, or the first of
+// several messages for an ANY wait), so the caller can abandon the message afterwards.
+// A descriptor that a later awaiter has linked to itself keeps that link.
+static void __await_unlink(
+        gracht_client_t*                client,
+        struct gracht_message_context** contexts,
+        struct gracht_message_awaiter*  awaiter)
 {
-    if (flags & GRACHT_AWAIT_ALL) {
-        return awaiter->current_count < awaiter->count;
-    } else {
-        return awaiter->current_count == 0;
+    mtx_lock(&client->messages_lock);
+    for (int i = 0; i < awaiter->count; i++) {
+        struct gracht_message_descriptor* descriptor = gr_hashtable_get(
+                &client->messages,
+                &(struct gracht_message_descriptor) {
+                        .id = contexts[i]->message_id
+                }
+        );
+        if (descriptor && descriptor->awaiter_id == awaiter->id) {
+            descriptor->awaiter_id = 0;
+        }
     }
+    mtx_unlock(&client->messages_lock);
 }
 
 int gracht_client_await_multiple(
@@ -606,6 +670,8 @@ int gracht_client_await_multiple(
     struct gracht_message_awaiter* awaiter;
     int                            i;
     bool                           bail;
+    int                            status = 0;
+    int                            error = 0;
     GRTRACE(GRSTR("gracht_client_await_multiple()"));
     
     if (!client || !contexts || !contextCount) {
@@ -643,7 +709,7 @@ int gracht_client_await_multiple(
 
     // calculate here whether we can bail early, so we can skip time
     // not adding the awaiter
-    bail = (!(flags & GRACHT_AWAIT_ALL) && awaiter->current_count > 0) || awaiter->current_count == awaiter->count;
+    bail = !__is_awaiter_pending(awaiter, flags);
 
     // add the awaiter while we hold the message lock to avoid a data-race
     // between those
@@ -670,16 +736,26 @@ int gracht_client_await_multiple(
     } else {
         // otherwise we are a single threaded application (maybe) and we should also
         // handle the pumping of messages.
-        __await_loop(client, contexts, awaiter);
+        status = __await_loop(client, contexts, awaiter);
+        error = errno;
     }
     __await_remove(client, awaiter);
 
 cleanup:
+    // the wait is over, so the messages no longer belong to this awaiter. This
+    // runs after __await_remove, so a response that still finds the awaiter id
+    // in a descriptor finds no awaiter to mark.
+    __await_unlink(client, contexts, awaiter);
+
     // cleanup the awaiter
     cnd_destroy(&awaiter->event);
     mtx_destroy(&awaiter->mutex);
     free(awaiter);
-    return 0;
+    if (status) {
+        // keep the errno of the failed receive for the caller
+        errno = error;
+    }
+    return status;
 }
 
 int gracht_client_await(gracht_client_t* client, struct gracht_message_context* context, unsigned int flags)

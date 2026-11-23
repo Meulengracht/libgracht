@@ -109,10 +109,14 @@ static int
 __DestroyClient(struct gracht_server_client* client, gracht_handle_t set)
 {
     (void)set;
-    if (client == &g_packetClient->Base) {
+    // Either client can be gone already, so check the pointer before taking
+    // the address of its member.
+    if (g_packetClient != NULL && client == &g_packetClient->Base) {
         g_packetClient = NULL;
-    } else {
+    } else if (g_streamClient != NULL && client == &g_streamClient->Base) {
         g_streamClient = NULL;
+    } else {
+        assert(!"destroying a client the test did not create");
     }
     free(client);
     g_destroyed++;

@@ -201,7 +201,10 @@ GRACHTAPI int gracht_client_await(gracht_client_t* client, struct gracht_message
  * @param context The message contexts that should be awaited.
  * @param count The number of message contexts that should be awaited. Must be >0.
  * @param flags The waiting mode that should be used.
- * @return int Status of the wait. Only returns -1 if there was any connection issues.
+ * @return int Status of the wait. Only returns -1 if there was any connection issues. In the synchronous
+ *             mode this happens when the link fails to deliver a message, and errno is the one of the link.
+ *             The awaited messages stay pending and can be awaited again, inspected or abandoned.
+ *             Without GRACHT_AWAIT_ALL the wait returns as soon as one of the messages is done, in both modes.
  */
 GRACHTAPI int gracht_client_await_multiple(gracht_client_t* client, struct gracht_message_context** contexts, int count, unsigned int flags);
 

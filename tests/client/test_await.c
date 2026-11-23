@@ -4,6 +4,7 @@
 #undef NDEBUG
 #endif
 #include <assert.h>
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include "thread_api.h"
@@ -22,6 +23,8 @@ static int test_wait(cnd_t*, mtx_t*);
 #define cnd_wait native_wait
 
 static gracht_client_t* test_client;
+static struct gracht_message_context** awaited;
+static int awaited_count;
 static int early, waits, responses, spurious, duplicate, concurrent, start;
 static mtx_t gate;
 static cnd_t started;
@@ -67,6 +70,12 @@ static int test_wait(cnd_t* condition, mtx_t* mutex)
     waits++;
     if (concurrent) return cnd_wait(condition, mutex);
     mtx_unlock(mutex);
+    /* While the awaiter waits, none of its messages can be abandoned, also not
+     * one that has already completed in an ALL wait. */
+    for (int i = 0; i < awaited_count; i++) {
+        errno = 0;
+        assert(gracht_client_abandon(test_client, awaited[i]) == -1 && errno == EBUSY);
+    }
     if (spurious) spurious = 0;
     else complete();
     mtx_lock(mutex);
@@ -104,6 +113,8 @@ int main(int argc, char** argv)
     }
     else if (!strcmp(argv[1], "any")) count = 2;
     else assert(!strcmp(argv[1], "normal"));
+    awaited = contexts;
+    awaited_count = concurrent ? 0 : count;
     assert(!gracht_client_await_multiple(&client, contexts, count, flags));
     if (concurrent) {
         for (int i = 0; i < 4; i++) { int status; assert(!thrd_join(workers[i], &status)); assert(!status); }
@@ -115,6 +126,13 @@ int main(int argc, char** argv)
     }
     /* A response after ANY has removed the awaiter must not touch freed memory. */
     gracht_control_error_invocation(&client, 2, EIO);
+    /* The wait is over, so every message can be abandoned, also those an ANY
+     * wait returned before and those that were answered with an error. */
+    for (int i = 0; i < 4; i++) {
+        assert(gracht_client_abandon(&client, contexts[i]) == 0);
+        errno = 0;
+        assert(gracht_client_abandon(&client, contexts[i]) == -1 && errno == ENOENT);
+    }
     gr_hashtable_destroy(&client.awaiters);
     gr_hashtable_destroy(&client.messages);
     mtx_destroy(&client.awaiters_lock);
