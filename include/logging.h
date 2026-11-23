@@ -34,7 +34,7 @@
 
 #if defined(MOLLENOS)
 //#define __TRACE
-#include <ddk/utils.h>
+#include <os/syslog.h>
 
 #define GRSTR(str) str
 #define GRTRACE    TRACE
